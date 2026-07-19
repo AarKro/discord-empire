@@ -1,0 +1,19 @@
+# Merchant wander between two locations (§10). Timer-driven; actions call the
+# presence.voice + stall verbs the Merchant registers.
+id: merchant_wander
+trigger: { event: tick.hour }
+scope: npc
+context: { npc: merchant }
+initial: at_bazaar
+states:
+  at_bazaar:
+    actions:
+      - { "npc.move_to": { channel: bazaar_vc } }
+      - { "stall.open": {} }
+    timer: { after: 30m, goto: at_square }
+  at_square:
+    actions:
+      - { "stall.close": {} }
+      - { "npc.move_to": { channel: market_square_vc } }
+      - { "stall.open": {} }
+    timer: { after: 30m, goto: at_bazaar }

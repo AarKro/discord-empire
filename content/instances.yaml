@@ -1,0 +1,5 @@
+# Dungeon-pool guild IDs (§9). Dungeons are out of scope for iteration 1
+# (framework spec §10), so this is intentionally minimal/stubbed — one pool
+# server is listed to keep the shape real for later work.
+dungeon_pool:
+  - guild_dungeon_pool_one

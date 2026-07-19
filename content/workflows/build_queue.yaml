@@ -1,0 +1,23 @@
+# Builder /build flow (§10). The command routes here; guards gate cost/position,
+# trade deducts the cost atomically, land enqueues the tier-scaled timer.
+id: build_queue
+trigger: { event: command.build }
+scope: player
+context: {}
+initial: charge
+states:
+  charge:
+    guards:
+      - { expr: "player.gold >= 50" }
+    actions:
+      - { "trade.execute": { buyer: { kind: player, id: "$actor" }, seller: { kind: world, id: treasury }, itemId: build_fee, qty: 1, price: 50 } }
+    on: { trade.completed: enqueue }
+    on_error: abort
+  enqueue:
+    actions:
+      - { "build.start": { player: "$actor", plot: "$plot", blueprint: "$blueprint", base_ms: 300000 } }
+    on: { build.completed: done }
+  done:
+    actions:
+      - { "notify.player": { player: "$actor", message: "Your building is complete!" } }
+    final: true

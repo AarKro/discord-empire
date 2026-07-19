@@ -1,0 +1,49 @@
+/**
+ * Boot-time content validation, proven against the REAL YAML shipped in
+ * content/ (framework spec §8 "validated at boot"). Guards the §10 DoD line
+ * "a new shop or dialogue variant ships by editing YAML only" — a malformed
+ * edit fails here (and at boot) rather than at runtime.
+ */
+import { describe, it, expect } from "vitest";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import {
+  loadContentFile,
+  Manifest,
+  Shop,
+  Dialogue,
+  Workflow,
+  Schedule,
+  Continents,
+  Instances,
+} from "../src/index.js";
+
+const CONTENT = join(dirname(fileURLToPath(import.meta.url)), "../../../content");
+
+describe("shipped content validates against schemas", () => {
+  it("manifests", () => {
+    const merchant = loadContentFile(Manifest, join(CONTENT, "manifests/merchant.yaml"));
+    const builder = loadContentFile(Manifest, join(CONTENT, "manifests/builder.yaml"));
+    expect(merchant.id).toBe("merchant");
+    expect(builder.capabilities).toContain("land");
+    // §10 DoD: distinct personas per guild.
+    expect(Object.keys(merchant.personas).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("shop, dialogue, schedule", () => {
+    expect(loadContentFile(Shop, join(CONTENT, "shops/aldric.yaml")).items.length).toBeGreaterThan(0);
+    expect(loadContentFile(Dialogue, join(CONTENT, "dialogue/aldric.yaml")).start).toBe("greet");
+    expect(loadContentFile(Schedule, join(CONTENT, "schedules/aldric.yaml")).stops.length).toBeGreaterThan(0);
+  });
+
+  it("workflows", () => {
+    expect(loadContentFile(Workflow, join(CONTENT, "workflows/merchant_wander.yaml")).initial).toBe("at_bazaar");
+    expect(loadContentFile(Workflow, join(CONTENT, "workflows/build_queue.yaml")).id).toBe("build_queue");
+  });
+
+  it("continents (two dev guilds) and instances", () => {
+    const c = loadContentFile(Continents, join(CONTENT, "continents.yaml"));
+    expect(Object.keys(c.continents).length).toBe(2);
+    expect(loadContentFile(Instances, join(CONTENT, "instances.yaml")).dungeon_pool.length).toBeGreaterThanOrEqual(0);
+  });
+});

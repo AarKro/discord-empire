@@ -1,0 +1,42 @@
+# Aldric's haggle tree (framework spec §5.4). Prices/outcomes are DATA; the
+# hidden floor lives in the shop file and the trade capability enforces it.
+id: aldric_haggle
+start: greet
+nodes:
+  - id: greet
+    type: text
+    text: "Welcome, traveller. Care to see the Arcane Forge blueprint?"
+    options:
+      - { id: browse, label: "Show me", goto: offer }
+      - { id: leave, label: "Not today", goto: farewell }
+  - id: offer
+    type: text
+    text: "120 gold. A fair price for such craft."
+    options:
+      - id: buy
+        label: "Buy it (120g)"
+        kind: button
+        guard: { expr: "player.gold >= 120" }
+        goto: sold
+        emit:
+          - type: trade.request
+            payload: { item: blueprint_arcane_forge, qty: 1, price: 120 }
+      - id: haggle
+        label: "Offer 90g (regulars only)"
+        kind: button
+        guard: { expr: "player.reputation.merchant >= 3" }
+        goto: sold
+        emit:
+          - type: trade.request
+            payload: { item: blueprint_arcane_forge, qty: 1, price: 90 }
+      - id: walk
+        label: "Too steep"
+        goto: farewell
+  - id: sold
+    type: text
+    text: "A pleasure. May it serve you well."
+    final: true
+  - id: farewell
+    type: text
+    text: "Safe travels."
+    final: true

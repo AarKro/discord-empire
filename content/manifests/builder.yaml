@@ -1,0 +1,19 @@
+id: builder
+token_env: BUILDER_TOKEN
+personas:
+  guild_111111:
+    nickname: "Master Godric"
+    avatar: godric.png
+    locale_flavor: highlands
+  guild_222222:
+    nickname: "Foreman Kai"
+    avatar: kai.png
+    locale_flavor: harbor
+capabilities:
+  - commands
+  - land
+  - notify
+  - trade
+content:
+  workflows:
+    - workflows/build_queue.yaml

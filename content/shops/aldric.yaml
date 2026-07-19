@@ -1,0 +1,17 @@
+id: aldric_wares
+currency: gold
+items:
+  - item_id: bread
+    name: "Loaf of Bread"
+    base_price: 5
+    stock: 100
+  - item_id: iron_ore
+    name: "Iron Ore"
+    base_price: 25
+    stock: 40
+  - item_id: blueprint_arcane_forge
+    name: "Blueprint: Arcane Forge"
+    base_price: 120
+    stock: 1
+    floor_price: 90
+    reputation_discount: 0.15
