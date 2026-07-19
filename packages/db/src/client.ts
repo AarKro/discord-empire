@@ -16,7 +16,21 @@ export interface DbHandle {
  * `max: 1` is only appropriate for scripts/tests; services should raise it.
  */
 export function openDb(url: string, opts: { max?: number } = {}): DbHandle {
-  const sql = postgres(url, { max: opts.max ?? 10, onnotice: () => {} });
+  const sql = postgres(url, {
+    max: opts.max ?? 10,
+    onnotice: () => {},
+    // int8 (bigint) comes back as a string by default; the schema already
+    // treats it as a JS number (Drizzle `mode: "number"`), so raw sql`` reads
+    // must agree. Game quantities stay far below Number.MAX_SAFE_INTEGER.
+    types: {
+      bigint: {
+        to: 20,
+        from: [20],
+        serialize: (v: number | bigint) => v.toString(),
+        parse: (v: string) => Number(v),
+      },
+    },
+  });
   const db = drizzle(sql, { schema });
   return { db, sql, close: () => sql.end({ timeout: 5 }) };
 }
