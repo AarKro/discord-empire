@@ -1,0 +1,99 @@
+# Discord Empire — single-VPS Docker Compose (tech spec §Environments, §CI/CD).
+# Only services actually built for iteration 1 (framework spec §10): Postgres,
+# the two reference bots, the workflow engine, and the tick service. The four
+# remaining bots are intentionally NOT scaffolded yet.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: empire
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-empire}
+      POSTGRES_DB: empire
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U empire -d empire"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot: run forward-only drizzle migrations BEFORE the app containers
+  # start (tech spec §CI/CD deploy sequence).
+  migrate:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.migrate
+    environment:
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  workflow-engine:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        APP: workflow-engine
+    environment:
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      CONTENT_DIR: /app/content
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../content:/app/content:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  tick-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        APP: tick-service
+    environment:
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  bot-merchant:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        APP: bot-merchant
+    environment:
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      CONTENT_DIR: /app/content
+      MERCHANT_TOKEN: ${MERCHANT_TOKEN}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../content:/app/content:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  bot-builder:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        APP: bot-builder
+    environment:
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      CONTENT_DIR: /app/content
+      BUILDER_TOKEN: ${BUILDER_TOKEN}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../content:/app/content:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

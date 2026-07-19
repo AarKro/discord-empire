@@ -1,0 +1,62 @@
+# CI (tech spec §CI/CD): on PR/push run lint, typecheck, unit tests, the ledger
+# integration test against a Postgres service container, and Docker builds.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: empire
+          POSTGRES_PASSWORD: empire
+          POSTGRES_DB: empire
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U empire -d empire"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://empire:empire@localhost:5432/empire
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile=false
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Run forward-only migrations
+        run: pnpm --filter @empire/db exec drizzle-kit migrate
+      - name: Unit + integration tests (ledger contract vs real Postgres)
+        run: pnpm test
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build service image (bot-merchant)
+        run: docker build -f infra/Dockerfile.service --build-arg APP=bot-merchant -t empire/bot-merchant .
+      - name: Build service image (bot-builder)
+        run: docker build -f infra/Dockerfile.service --build-arg APP=bot-builder -t empire/bot-builder .
+      - name: Build service image (workflow-engine)
+        run: docker build -f infra/Dockerfile.service --build-arg APP=workflow-engine -t empire/workflow-engine .
+      - name: Build service image (tick-service)
+        run: docker build -f infra/Dockerfile.service --build-arg APP=tick-service -t empire/tick-service .
+      - name: Build migration image
+        run: docker build -f infra/Dockerfile.migrate -t empire/migrate .

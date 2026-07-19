@@ -1,0 +1,23 @@
+# Generic build for any @empire app (bot-merchant, bot-builder, workflow-engine,
+# tick-service). Runtime choice: Node LTS (see root README) for discord.js voice
+# + Drizzle compatibility.
+FROM node:20-bookworm-slim AS base
+ENV PNPM_HOME=/pnpm
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable
+WORKDIR /app
+
+FROM base AS build
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* tsconfig.base.json tsconfig.json ./
+COPY packages ./packages
+COPY apps ./apps
+RUN pnpm install --frozen-lockfile=false
+RUN pnpm build
+
+FROM base AS runtime
+ARG APP
+ENV APP=${APP}
+COPY --from=build /app /app
+WORKDIR /app/apps/${APP}
+# The service entrypoints all expose `start` -> node dist/main.js
+CMD ["pnpm", "start"]
