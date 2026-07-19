@@ -22,12 +22,14 @@ export function openDb(url: string, opts: { max?: number } = {}): DbHandle {
 }
 
 /**
- * Wrap a value for a jsonb column. postgres-js's `sql.json` types its argument
- * as a strict JSON value; our payloads are `Record<string, unknown>` (validated
- * upstream by Zod), so this centralizes the one necessary cast.
+ * Wrap a value for a jsonb column, passed as JSON text and cast by Postgres.
+ * postgres-js's `sql.json` breaks on the prepared-statement path (the driver
+ * tries to serialize the Parameter wrapper itself during Bind), so we send a
+ * plain string and let the server infer jsonb from the column/function type.
+ * The `sql` argument is kept so call sites stay connection-scoped.
  */
-export function jsonParam(sql: Sql, value: unknown): ReturnType<Sql["json"]> {
-  return sql.json(value as Parameters<Sql["json"]>[0]);
+export function jsonParam(_sql: Sql, value: unknown): string {
+  return JSON.stringify(value);
 }
 
 export { schema };
