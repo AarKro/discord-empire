@@ -89,16 +89,23 @@ ledger atomic-trade contract against real Postgres, including the concurrency
 race (two buyers, one item, exactly one wins, balances reconcile). It skips
 automatically when `DATABASE_URL` is unset.
 
-Run a bot (after Postgres + migrations, with the relevant token in `.env`):
+Run everything with one command (brings up Postgres, migrates, builds, then
+starts all four services in parallel with `.env` loaded and `CONTENT_DIR`
+pointed at the repo's `content/`):
+
+```bash
+pnpm start                    # ctrl-c stops the services; `pnpm stop` stops Postgres
+```
+
+Or run a single service (with `.env` exported into your shell first, e.g.
+`set -a; . ./.env; set +a`, and `CONTENT_DIR=$PWD/content` for content-reading
+services):
 
 ```bash
 pnpm --filter @empire/bot-merchant build && pnpm --filter @empire/bot-merchant start
-pnpm --filter @empire/bot-builder  build && pnpm --filter @empire/bot-builder  start
-pnpm --filter @empire/workflow-engine build && pnpm --filter @empire/workflow-engine start
-pnpm --filter @empire/tick-service    build && pnpm --filter @empire/tick-service    start
 ```
 
-Or the whole stack: `docker compose -f infra/docker-compose.yml up -d`.
+Or the whole stack containerized: `docker compose -f infra/docker-compose.yml up -d --build`.
 
 ## Iteration-1 definition of done (framework spec §10)
 

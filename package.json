@@ -14,6 +14,8 @@
     "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
     "test:integration": "vitest run integration",
     "build": "tsc -b",
+    "start": "test -f .env || { echo 'No .env found — run: cp .env.example .env' >&2; exit 1; }; set -a; . ./.env; set +a; export CONTENT_DIR=\"${CONTENT_DIR:-$PWD/content}\"; COMPOSE='docker compose'; docker compose version >/dev/null 2>&1 || COMPOSE=docker-compose; $COMPOSE -f infra/docker-compose.yml up -d --wait postgres && pnpm db:migrate && pnpm build && pnpm --parallel --filter './apps/*' start",
+    "stop": "COMPOSE='docker compose'; docker compose version >/dev/null 2>&1 || COMPOSE=docker-compose; $COMPOSE -f infra/docker-compose.yml down",
     "db:generate": "pnpm --filter @empire/db db:generate",
     "db:migrate": "pnpm --filter @empire/db db:migrate"
   },
