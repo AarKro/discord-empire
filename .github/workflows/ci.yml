@@ -26,6 +26,9 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgres://empire:empire@localhost:5432/empire
+      # CI's postgres is a throwaway service container, so the truncating
+      # integration suites may safely share it with the migrate step.
+      TEST_DATABASE_URL: postgres://empire:empire@localhost:5432/empire
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

@@ -17,6 +17,9 @@ export default defineConfig({
     globals: false,
     environment: "node",
     include: ["packages/**/*.test.ts", "apps/**/*.test.ts"],
+    // Integration suites share one Postgres and TRUNCATE between cases; files
+    // must not interleave or they wipe each other's seeds mid-test.
+    fileParallelism: false,
     // The single integration suite (ledger atomic trade against real Postgres)
     // is opt-in: it requires DATABASE_URL and is run explicitly / in CI.
     testTimeout: 20_000,

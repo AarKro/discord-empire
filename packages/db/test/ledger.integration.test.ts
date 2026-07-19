@@ -2,7 +2,7 @@
  * The single integration suite (tech spec §Testing): the ledger's atomic trade
  * contract against a REAL Postgres. No mocking. Requires DATABASE_URL.
  *
- *   pnpm --filter @empire/db test        # after `docker compose up -d postgres`
+ *   pnpm test:integration                # after `docker compose up -d postgres`
  *
  * Covers the mandated concurrency race: two buyers, one item in stock, exactly
  * one succeeds, and the ledger + derived balances reconcile.
@@ -11,10 +11,11 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { openDb, type DbHandle } from "../src/client.js";
 import { executeTrade } from "../src/trade.js";
 
-const url = process.env.DATABASE_URL;
+// DELIBERATELY not DATABASE_URL: these suites TRUNCATE shared tables, so they
+// must never point at the dev-world database (empire_test locally, see infra/).
+const url = process.env.TEST_DATABASE_URL;
 
-// The suite is skipped when no database is provided (e.g. plain unit runs); CI
-// and local `docker compose up` set DATABASE_URL so it runs for real.
+// The suite is skipped when no test database is provided (plain unit runs).
 const suite = url ? describe : describe.skip;
 
 let h: DbHandle;

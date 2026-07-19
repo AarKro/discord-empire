@@ -1,11 +1,11 @@
 id: builder
 token_env: BUILDER_TOKEN
 personas:
-  guild_111111:
+  "${GUILD_CONTINENT_ONE}":
     nickname: "Master Godric"
     avatar: godric.png
     locale_flavor: highlands
-  guild_222222:
+  "${GUILD_CONTINENT_TWO}":
     nickname: "Foreman Kai"
     avatar: kai.png
     locale_flavor: harbor

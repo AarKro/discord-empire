@@ -71,6 +71,15 @@ export function stallCapability(shop: Shop): Capability {
       });
     },
     async handle(evt, ctx) {
+      // Open/close with the NPC's own arrival/departure (§5.3).
+      if (evt.subject?.id === ctx.bot && evt.type === "npc.arrived") {
+        await this.actions["stall.open"]!({}, evt, ctx);
+        return;
+      }
+      if (evt.subject?.id === ctx.bot && evt.type === "npc.departed") {
+        await this.actions["stall.close"]!({}, evt, ctx);
+        return;
+      }
       // Re-render the stall on any stock-affecting event while it is open.
       if (evt.type === "trade.completed" || evt.type === "stock.restocked") {
         const handler = this.actions["stall.open"]!;

@@ -1,11 +1,11 @@
 id: merchant
 token_env: MERCHANT_TOKEN
 personas:
-  guild_111111:
+  "${GUILD_CONTINENT_ONE}":
     nickname: "Aldric the Trader"
     avatar: aldric.png
     locale_flavor: highlands
-  guild_222222:
+  "${GUILD_CONTINENT_TWO}":
     nickname: "Mei Lin"
     avatar: meilin.png
     locale_flavor: harbor
@@ -17,8 +17,8 @@ capabilities:
   - voicelines
   - ambient.chatter
 home:
-  guild_111111: { voice_channel: bazaar_vc }
-  guild_222222: { voice_channel: harbor_vc }
+  "${GUILD_CONTINENT_ONE}": { voice_channel: bazaar_vc }
+  "${GUILD_CONTINENT_TWO}": { voice_channel: harbor_vc }
 content:
   shop: shops/aldric.yaml
   dialogue: dialogue/aldric.yaml

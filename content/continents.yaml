@@ -1,16 +1,16 @@
 # Guild IDs → continent metadata (§9). Two dev continents for iteration 1; a
-# three-continent ring is the launch target. Replace the placeholder guild IDs
-# with your dev servers' IDs (see .env.example).
+# three-continent ring is the launch target. Guild IDs come from .env via
+# env-placeholder substitution in the content loader (see .env.example).
 continents:
-  guild_111111:
+  "${GUILD_CONTINENT_ONE}":
     name: "Continent One"
     order: 1
-    neighbors: [guild_222222]
+    neighbors: ["${GUILD_CONTINENT_TWO}"]
     resource_bias: highlands
     locale_flavor: highlands
-  guild_222222:
+  "${GUILD_CONTINENT_TWO}":
     name: "Continent Two"
     order: 2
-    neighbors: [guild_111111]
+    neighbors: ["${GUILD_CONTINENT_ONE}"]
     resource_bias: harbor
     locale_flavor: harbor

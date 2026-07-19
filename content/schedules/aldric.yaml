@@ -1,5 +1,5 @@
 id: aldric_wander
 min_dwell: 30m
 stops:
-  - { guild_id: guild_111111, channel: bazaar_vc }
-  - { guild_id: guild_111111, channel: market_square_vc }
+  - { guild_id: "${GUILD_CONTINENT_ONE}", channel: bazaar_vc }
+  - { guild_id: "${GUILD_CONTINENT_ONE}", channel: market_square_vc }

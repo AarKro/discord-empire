@@ -131,6 +131,26 @@ export class EventBus {
     `;
     this.lastProcessedId = BigInt(cursor?.last_processed_id ?? 0);
 
+    // A cursor ahead of the log's head means the events table was rewound
+    // (e.g. TRUNCATE ... RESTART IDENTITY by a test run). Recycled ids would
+    // then sit at/below the stale cursor and every fresh event would be
+    // silently de-duped away. Clamp to the head: the log is the truth.
+    const [head] = await this.sql<{ max: string | null }[]>`
+      SELECT MAX(id)::text AS max FROM events
+    `;
+    const headId = BigInt(head?.max ?? 0);
+    if (this.lastProcessedId > headId) {
+      this.log.warn(
+        { cursor: this.lastProcessedId.toString(), head: headId.toString() },
+        "bus cursor is ahead of the event log (log rewound?); clamping to head",
+      );
+      this.lastProcessedId = headId;
+      await this.sql`
+        UPDATE bus_cursors SET last_processed_id = ${headId.toString()}::bigint, updated_at = now()
+        WHERE consumer = ${this.consumer}
+      `;
+    }
+
     // 1) LISTEN first — buffer anything that arrives during replay.
     this.listen = await this.sql.listen(CHANNEL, (payload) => {
       void this.onNotify(payload, handler);

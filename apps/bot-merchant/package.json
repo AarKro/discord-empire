@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node dist/main.js",
+    "world:init": "node dist/world-init.js",
     "typecheck": "tsc -b",
     "test": "vitest run"
   },

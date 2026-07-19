@@ -12,6 +12,10 @@ export {
 } from "./capability.js";
 export type { Capability, CapabilityContext, ActionHandler } from "./capability.js";
 
+// Dev-world bootstrap (world:init)
+export { bootstrapWorld } from "./bootstrap.js";
+export type { BootstrapOptions } from "./bootstrap.js";
+
 // Pure engines (unit-tested)
 export { DialogueRunner, evalGuard } from "./dialogue.js";
 export type { GuardScope } from "./dialogue.js";
@@ -20,6 +24,7 @@ export type { GuardScope } from "./dialogue.js";
 export { tradeCapability, effectiveFloor } from "./capabilities/trade.js";
 export type { QuoteInput } from "./capabilities/trade.js";
 export { stallCapability, ENTER_STALL_BUTTON } from "./capabilities/stall.js";
+export { renderCapability } from "./capabilities/render.js";
 export {
   dialogueThreadCapability,
   loadGuardScope,

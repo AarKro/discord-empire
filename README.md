@@ -70,6 +70,16 @@ The four not-yet-built bots (`bot-herald`, `bot-architect`, `bot-tavern`,
 
 Prerequisites: Node 20 LTS, pnpm 9 (`corepack enable`), Docker.
 
+Bot invite permissions (per dev guild): View Channels, Send Messages, Create
+Private Threads, Send Messages in Threads, Manage Messages (pin the stall
+embed), Manage Threads (archive on dialogue end), Change Nickname, Connect —
+plus Manage Channels for the merchant bot so `world:init` can create the
+bazaar channels.
+
+Guild IDs live only in `.env` (`GUILD_CONTINENT_ONE/TWO`); content YAML
+references them as `${GUILD_CONTINENT_ONE}`-style placeholders that the
+content loader expands at boot.
+
 ```bash
 cp .env.example .env          # fill in bot tokens + dev guild IDs
 pnpm install
@@ -81,13 +91,26 @@ pnpm --filter @empire/db exec drizzle-kit migrate
 # Quality gates.
 pnpm lint
 pnpm typecheck
-pnpm test                     # unit tests + the ledger integration suite (needs DATABASE_URL)
+pnpm test                     # unit tests (integration skipped unless TEST_DATABASE_URL is set)
+pnpm test:integration         # DB contract suites against empire_test (never the dev world)
 ```
 
-`pnpm test` runs the unit suites plus the **single integration suite** — the
-ledger atomic-trade contract against real Postgres, including the concurrency
-race (two buyers, one item, exactly one wins, balances reconcile). It skips
-automatically when `DATABASE_URL` is unset.
+The integration suites — the ledger atomic-trade contract (including the
+concurrency race: two buyers, one item, exactly one wins, balances reconcile)
+and the player starting-grant — TRUNCATE tables between cases, so they run
+against a **dedicated `empire_test` database** (created automatically on first
+`docker compose up`; see `infra/postgres-init/`). They read `TEST_DATABASE_URL`
+and skip when it is unset; they never touch `DATABASE_URL`, so running tests
+cannot wipe your dev world.
+
+One-time per environment, bootstrap the dev world (idempotent — reruns reuse
+existing channels and never restock sold items): creates a `#bazaar` text
+channel + `Bazaar` voice channel in each continent guild and seeds the
+`locations`/`npcs`/inventory rows the render path reads.
+
+```bash
+pnpm world:init
+```
 
 Run everything with one command (brings up Postgres, migrates, builds, then
 starts all four services in parallel with `.env` loaded and `CONTENT_DIR`
@@ -96,6 +119,9 @@ pointed at the repo's `content/`):
 ```bash
 pnpm start                    # ctrl-c stops the services; `pnpm stop` stops Postgres
 ```
+
+Players auto-register on their first stall interaction with `STARTING_GOLD`
+(default 150) granted through a `starting_grant` ledger row.
 
 Or run a single service (with `.env` exported into your shell first, e.g.
 `set -a; . ./.env; set +a`, and `CONTENT_DIR=$PWD/content` for content-reading

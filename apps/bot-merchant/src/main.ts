@@ -34,6 +34,7 @@ import {
   voicelinesCapability,
   ambientChatterCapability,
   topologyCapability,
+  renderCapability,
   type CapabilityContext,
 } from "@empire/core";
 import { openDb } from "@empire/db";
@@ -67,6 +68,8 @@ async function main(): Promise<void> {
   registry.register(presenceVoiceCapability());
   registry.register(voicelinesCapability({ triggers: { "trade.completed": ["sale_1.opus"], "npc.arrived": ["greet_1.opus"] } }));
   registry.register(ambientChatterCapability({ reactions: { "world.rumor": ["Did you hear...?"] } }));
+  // The one bus→Discord surface: renders stall embeds, dialogue threads, receipts.
+  registry.register(renderCapability());
 
   const makeContext = (correlationId: string): CapabilityContext => ({
     bot: manifest.id,
@@ -91,6 +94,17 @@ async function main(): Promise<void> {
       await cap.handle?.(evt, ctx);
     }
   });
+
+  // Announce arrival at home per continent: the stall capability opens on
+  // npc.arrived and the render capability draws the pinned embed (§4 lifecycle).
+  for (const guildId of personas.guildIds) {
+    await bus.publish({
+      type: "npc.arrived",
+      guildId,
+      subject: { kind: "npc", id: manifest.id },
+      payload: { channel: manifest.home?.[guildId]?.voice_channel ?? "bazaar_vc" },
+    });
+  }
 
   log.info({ capabilities: manifest.capabilities }, "merchant ready");
 }

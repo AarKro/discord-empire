@@ -20,6 +20,11 @@ import {
 
 const CONTENT = join(dirname(fileURLToPath(import.meta.url)), "../../../content");
 
+// The shipped YAML references dev guild IDs via ${VAR} substitution; supply
+// stand-ins so the files validate without a real .env (as they do at boot).
+process.env.GUILD_CONTINENT_ONE ??= "guild_111111";
+process.env.GUILD_CONTINENT_TWO ??= "guild_222222";
+
 describe("shipped content validates against schemas", () => {
   it("manifests", () => {
     const merchant = loadContentFile(Manifest, join(CONTENT, "manifests/merchant.yaml"));
