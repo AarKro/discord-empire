@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/db" },
+    { "path": "packages/content-schemas" },
+    { "path": "packages/core" },
+    { "path": "apps/workflow-engine" },
+    { "path": "apps/tick-service" },
+    { "path": "apps/bot-merchant" },
+    { "path": "apps/bot-builder" }
+  ]
+}

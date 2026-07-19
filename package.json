@@ -1,0 +1,28 @@
+{
+  "name": "discord-empire",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc -b --pretty",
+    "test": "vitest run",
+    "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
+    "test:integration": "vitest run integration",
+    "build": "tsc -b",
+    "db:generate": "pnpm --filter @empire/db db:generate",
+    "db:migrate": "pnpm --filter @empire/db db:migrate"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@typescript-eslint/eslint-plugin": "^7.16.0",
+    "@typescript-eslint/parser": "^7.16.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}
