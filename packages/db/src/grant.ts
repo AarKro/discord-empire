@@ -14,11 +14,18 @@ export interface EnsurePlayerResult {
   created: boolean;
 }
 
+/**
+ * Default starting-gold grant on first interaction (§2.1), overridable via
+ * $STARTING_GOLD. Must clear the shipped haggle tree's `player.gold >= 120`
+ * guard so a brand-new player can immediately trade.
+ */
+export const DEFAULT_STARTING_GOLD = Number(process.env.STARTING_GOLD ?? 150);
+
 export async function ensurePlayer(
   sql: Sql,
   playerId: string,
   homeGuildId: string,
-  startingGold: number,
+  startingGold: number = DEFAULT_STARTING_GOLD,
 ): Promise<EnsurePlayerResult> {
   return sql.begin(async (tx) => {
     // ON CONFLICT DO NOTHING + RETURNING: rows come back only on first insert,

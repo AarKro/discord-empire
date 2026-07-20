@@ -14,15 +14,8 @@ import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
 import { notForMe } from "../events.js";
 import type { Sql } from "@empire/db";
-import { ensurePlayer } from "@empire/db";
+import { ensurePlayer, DEFAULT_STARTING_GOLD } from "@empire/db";
 import { DialogueRunner, type GuardScope } from "../dialogue.js";
-
-/**
- * First interaction = registration (§2.1): the player row + starting-gold
- * grant are created the moment someone first enters a conversation. Default
- * must clear the shipped haggle tree's `player.gold >= 120` guard.
- */
-const STARTING_GOLD = Number(process.env.STARTING_GOLD ?? 150);
 
 /** Custom-id prefix for dialogue option buttons rendered by the bot. */
 export const DIALOGUE_OPTION_PREFIX = "dlg:";
@@ -80,8 +73,8 @@ export function dialogueThreadCapability(tree: Dialogue): Capability {
 
   async function open(playerId: string, guildId: string | null, ctx: CapabilityContext): Promise<void> {
     const homeGuildId = ctx.personas.homeGuild(guildId);
-    const { created } = await ensurePlayer(ctx.sql, playerId, homeGuildId, STARTING_GOLD);
-    if (created) ctx.logger.info({ playerId, startingGold: STARTING_GOLD }, "player registered");
+    const { created } = await ensurePlayer(ctx.sql, playerId, homeGuildId, DEFAULT_STARTING_GOLD);
+    if (created) ctx.logger.info({ playerId, startingGold: DEFAULT_STARTING_GOLD }, "player registered");
     const runner = new DialogueRunner(tree);
     sessions.set(playerId, runner);
     const scope = await loadGuardScope(ctx.sql, playerId);

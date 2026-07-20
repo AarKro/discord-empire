@@ -24,10 +24,7 @@ import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
 import { notForMe } from "../events.js";
 import { locationChannel } from "../locations.js";
-import { ensurePlayer, type Sql } from "@empire/db";
-
-/** First interaction = registration (§2.1). Mirrors dialogue-thread's default. */
-const STARTING_GOLD = Number(process.env.STARTING_GOLD ?? 150);
+import { ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
 
 /** Evict an awaiting-charge entry if its cost trade never settles (leak guard). */
 const CHARGE_TIMEOUT_MS = 30_000;
@@ -196,8 +193,8 @@ export function landCapability(): Capability {
 
     // Guard: player registered (auto-register on first interaction, §2.1).
     const homeGuildId = ctx.personas.homeGuild(guildId);
-    const { created } = await ensurePlayer(ctx.sql, player, homeGuildId, STARTING_GOLD);
-    if (created) ctx.logger.info({ player, startingGold: STARTING_GOLD }, "player registered via /build");
+    const { created } = await ensurePlayer(ctx.sql, player, homeGuildId, DEFAULT_STARTING_GOLD);
+    if (created) ctx.logger.info({ player, startingGold: DEFAULT_STARTING_GOLD }, "player registered via /build");
 
     // Guard: valid blueprint.
     const blueprint = blueprintId ? await loadBlueprint(ctx.sql, blueprintId) : null;
