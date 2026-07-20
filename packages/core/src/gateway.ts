@@ -21,6 +21,7 @@ import {
   type Guild,
   type TextChannel,
 } from "discord.js";
+import { joinVoiceChannel, type VoiceConnection } from "@discordjs/voice";
 import type { PersonaResolver } from "./persona.js";
 import type { Logger } from "./logger.js";
 import { rootLogger } from "./logger.js";
@@ -131,6 +132,8 @@ export class Gateway {
   private readonly componentHandlers: ComponentHandler[] = [];
   private readonly commandHandlers: CommandHandler[] = [];
   private readonly autocompleteHandlers: AutocompleteHandler[] = [];
+  /** guildId → the bot's single voice connection there (one place at a time, §5.1). */
+  private readonly voiceConnections = new Map<string, VoiceConnection>();
 
   constructor(private readonly opts: GatewayOptions) {
     this.log = (opts.logger ?? rootLogger).child({ component: "gateway", bot: opts.botId });
@@ -439,7 +442,56 @@ export class Gateway {
     }, 1);
   }
 
+  /**
+   * Stand in a guild voice channel for presence only (§5.1): self-muted and
+   * self-deafened, we never transmit or listen — the bot just appears in the
+   * channel as a visible NPC. One connection per guild ("one place at a time"):
+   * joining another channel in the same guild replaces the previous connection.
+   * Non-blocking — the bot shows up via the voice-state update without waiting
+   * for the UDP handshake, which keeps a slow/absent voice path from stalling boot.
+   */
+  async joinVoice(
+    guildId: string,
+    channelId: string,
+    opts: { selfMute?: boolean; selfDeaf?: boolean } = {},
+  ): Promise<boolean> {
+    const guild = await this.fetchGuild(guildId);
+    if (!guild) {
+      this.log.warn({ guildId, channelId }, "cannot join voice: guild not cached");
+      return false;
+    }
+    this.leaveVoice(guildId); // one place at a time
+    try {
+      const connection = joinVoiceChannel({
+        channelId,
+        guildId,
+        adapterCreator: guild.voiceAdapterCreator,
+        selfMute: opts.selfMute ?? true,
+        selfDeaf: opts.selfDeaf ?? true,
+      });
+      connection.on("error", (err) => this.log.warn({ err, guildId }, "voice connection error"));
+      this.voiceConnections.set(guildId, connection);
+      this.log.info({ guildId, channelId }, "joined voice channel (self-muted)");
+      return true;
+    } catch (err) {
+      // Best-effort presence — a voice failure must never crash boot.
+      this.log.warn({ err, guildId, channelId }, "failed to join voice channel");
+      return false;
+    }
+  }
+
+  /** Leave the voice channel in a guild, if connected. */
+  leaveVoice(guildId: string): void {
+    const connection = this.voiceConnections.get(guildId);
+    if (!connection) return;
+    connection.destroy();
+    this.voiceConnections.delete(guildId);
+    this.log.info({ guildId }, "left voice channel");
+  }
+
   async destroy(): Promise<void> {
+    for (const connection of this.voiceConnections.values()) connection.destroy();
+    this.voiceConnections.clear();
     await this.client.destroy();
   }
 }

@@ -3,12 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "scripts": { "typecheck": "tsc -b", "test": "vitest run" },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -b",
+    "test": "vitest run"
+  },
   "dependencies": {
+    "@discordjs/voice": "^0.18.0",
     "@empire/content-schemas": "workspace:*",
     "@empire/db": "workspace:*",
     "discord.js": "^14.15.3",
+    "libsodium-wrappers": "^0.7.15",
     "pino": "^9.3.2",
     "postgres": "^3.4.4",
     "ulid": "^2.3.0"

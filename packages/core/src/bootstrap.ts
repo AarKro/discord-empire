@@ -88,6 +88,14 @@ export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
         ON CONFLICT (id) DO UPDATE SET channel_id = EXCLUDED.channel_id, requires_presence = EXCLUDED.requires_presence
       `;
 
+      // Map the bazaar voice channel too — presence.voice joins it at boot so the
+      // NPC visibly stands in its home VC (§5.1). One 'voice' home per guild.
+      await opts.sql`
+        INSERT INTO locations (id, guild_id, channel_id, kind, requires_presence)
+        VALUES (${`voice_${guildId}`}, ${guildId}, ${bazaarVc.id}, 'voice', false)
+        ON CONFLICT (id) DO UPDATE SET channel_id = EXCLUDED.channel_id, requires_presence = EXCLUDED.requires_presence
+      `;
+
       // The "Land" category holds every player's plot channels (§2.4). The
       // builder bot creates per-plot text+voice channels under it at /build time,
       // so world:init just ensures the category exists and maps it in locations.
