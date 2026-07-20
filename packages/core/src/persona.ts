@@ -26,4 +26,13 @@ export class PersonaResolver {
   get guildIds(): string[] {
     return Object.keys(this.manifest.personas);
   }
+
+  /**
+   * The event's guild, or this bot's first (home) guild when the event carries
+   * none (§4). Centralises the `guildId ?? guildIds[0]!` fallback callers use to
+   * pick a guild for an unscoped action.
+   */
+  homeGuild(guildId?: string | null): string {
+    return guildId ?? this.guildIds[0]!;
+  }
 }

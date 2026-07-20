@@ -12,6 +12,7 @@
  */
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
+import { notForMe } from "../events.js";
 import { buttonRow, stallEmbed } from "../ui-kit.js";
 import type { Sql } from "@empire/db";
 import { jsonParam } from "@empire/db";
@@ -108,7 +109,7 @@ export function renderCapability(): Capability {
 
     async handle(evt: BusEvent, ctx: CapabilityContext): Promise<void> {
       // The bus is broadcast: only the addressed bot renders its own surfaces.
-      if (evt.subject && evt.subject.id !== ctx.bot) return;
+      if (notForMe(evt, ctx.bot)) return;
 
       switch (evt.type) {
         case "stall.rendered":

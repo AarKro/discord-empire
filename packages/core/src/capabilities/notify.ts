@@ -14,6 +14,7 @@
  */
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
+import { notForMe } from "../events.js";
 
 export interface NotifyPrefs {
   target: "land" | "dm";
@@ -66,7 +67,7 @@ export function notifyCapability(): Capability {
     async handle(evt: BusEvent, ctx: CapabilityContext): Promise<void> {
       if (evt.type !== "notify.requested" || !evt.actor) return;
       // The bus is broadcast: only deliver notifications addressed to this bot.
-      if (evt.subject && evt.subject.id !== ctx.bot) return;
+      if (notForMe(evt, ctx.bot)) return;
       const message = String((evt.payload as { message?: unknown }).message ?? "");
       if (!message) return;
       await deliver(ctx, evt.actor.id, message);

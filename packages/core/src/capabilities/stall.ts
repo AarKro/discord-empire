@@ -33,7 +33,7 @@ export function stallCapability(shop: Shop): Capability {
     consumes: ["stall.", "trade.completed", "stock.restocked", "npc.arrived", "npc.departed"],
     actions: {
       "stall.open": async (_args, evt, ctx: CapabilityContext) => {
-        const guildId = evt?.guildId ?? ctx.personas.guildIds[0]!;
+        const guildId = ctx.personas.homeGuild(evt?.guildId);
         const persona = ctx.personas.resolve(guildId);
         const items = await liveItems(ctx.sql, ctx.bot, shop);
         const embed = stallEmbed(`${persona.nickname}'s Stall`, items);

@@ -19,6 +19,7 @@ import { executeTrade, type Party } from "@empire/db";
 import type { Shop, ShopItem } from "@empire/content-schemas";
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
+import { notForMe } from "../events.js";
 import { ulid } from "ulid";
 
 export interface QuoteInput {
@@ -104,7 +105,7 @@ export function tradeCapability(shop?: Shop): Capability {
       if (evt.type !== "trade.request") return;
       // The bus is broadcast: every bot's trade capability sees this event.
       // Only the addressed NPC executes, or the trade would run once per bot.
-      if (evt.subject && evt.subject.id !== ctx.bot) return;
+      if (notForMe(evt, ctx.bot)) return;
       const payload = evt.payload as { item?: string; qty?: number; price?: number };
       const buyer = evt.actor;
       if (!buyer || !payload.item || typeof payload.price !== "number") {

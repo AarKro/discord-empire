@@ -78,7 +78,10 @@ function makeCtx(world: World): CapabilityContext {
         return world.provisionFails ? null : { textId: "t1", voiceId: "v1" };
       },
     } as unknown as CapabilityContext["gateway"],
-    personas: { guildIds: ["g1"] } as unknown as CapabilityContext["personas"],
+    personas: {
+      guildIds: ["g1"],
+      homeGuild: (g?: string | null) => g ?? "g1",
+    } as unknown as CapabilityContext["personas"],
     logger: log as unknown as CapabilityContext["logger"],
     config: {},
   } as CapabilityContext;

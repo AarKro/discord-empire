@@ -3,6 +3,7 @@ export { rootLogger, withCorrelation } from "./logger.js";
 export type { Logger } from "./logger.js";
 export { EventBus, CHANNEL } from "./bus.js";
 export type { BusEvent, PublishInput, EventHandler } from "./bus.js";
+export { notForMe } from "./events.js";
 export { Gateway, toApplicationCommandJson } from "./gateway.js";
 export type {
   GatewayOptions,

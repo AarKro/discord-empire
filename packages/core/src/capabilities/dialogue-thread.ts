@@ -12,6 +12,7 @@
 import type { Dialogue } from "@empire/content-schemas";
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
+import { notForMe } from "../events.js";
 import type { Sql } from "@empire/db";
 import { ensurePlayer } from "@empire/db";
 import { DialogueRunner, type GuardScope } from "../dialogue.js";
@@ -78,7 +79,7 @@ export function dialogueThreadCapability(tree: Dialogue): Capability {
   }
 
   async function open(playerId: string, guildId: string | null, ctx: CapabilityContext): Promise<void> {
-    const homeGuildId = guildId ?? ctx.personas.guildIds[0]!;
+    const homeGuildId = ctx.personas.homeGuild(guildId);
     const { created } = await ensurePlayer(ctx.sql, playerId, homeGuildId, STARTING_GOLD);
     if (created) ctx.logger.info({ playerId, startingGold: STARTING_GOLD }, "player registered");
     const runner = new DialogueRunner(tree);
@@ -164,7 +165,7 @@ export function dialogueThreadCapability(tree: Dialogue): Capability {
       }
       if (evt.type === "dialogue.choose" && evt.actor) {
         // Only advance sessions owned by THIS bot's persona.
-        if (evt.subject && evt.subject.id !== ctx.bot) return;
+        if (notForMe(evt, ctx.bot)) return;
         const option = String((evt.payload as { option?: unknown }).option ?? "");
         if (!option) return;
         await choose(evt.actor.id, option, evt.guildId, evt.correlationId, ctx);

@@ -22,6 +22,7 @@
 import { ulid } from "ulid";
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
+import { notForMe } from "../events.js";
 import { ensurePlayer, type Sql } from "@empire/db";
 
 /** First interaction = registration (§2.1). Mirrors dialogue-thread's default. */
@@ -195,7 +196,7 @@ export function landCapability(): Capability {
     const guildId = evt.guildId;
 
     // Guard: player registered (auto-register on first interaction, §2.1).
-    const homeGuildId = guildId ?? ctx.personas.guildIds[0]!;
+    const homeGuildId = ctx.personas.homeGuild(guildId);
     const { created } = await ensurePlayer(ctx.sql, player, homeGuildId, STARTING_GOLD);
     if (created) ctx.logger.info({ player, startingGold: STARTING_GOLD }, "player registered via /build");
 
@@ -259,8 +260,8 @@ export function landCapability(): Capability {
       if (evt.type === "build.requested") {
         // Broadcast bus: only the addressed builder acts. A mismatch means a
         // mis-seeded/mis-addressed build — warn so it isn't a silent black hole.
-        if (evt.subject && evt.subject.id !== ctx.bot) {
-          ctx.logger.warn({ subject: evt.subject.id, bot: ctx.bot }, "build.requested addressed to another bot; ignoring");
+        if (notForMe(evt, ctx.bot)) {
+          ctx.logger.warn({ subject: evt.subject?.id, bot: ctx.bot }, "build.requested addressed to another bot; ignoring");
           return;
         }
         await requestBuild(evt, ctx);

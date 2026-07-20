@@ -90,7 +90,7 @@ export function presenceVoiceCapability(route: WanderStop[] = []): Capability {
 
     actions: {
       "npc.move_to": async (args, evt, ctx: CapabilityContext) => {
-        const guildId = evt?.guildId ?? ctx.personas.guildIds[0]!;
+        const guildId = ctx.personas.homeGuild(evt?.guildId);
         await moveTo(ctx, guildId, String(args.channel), true);
       },
     },

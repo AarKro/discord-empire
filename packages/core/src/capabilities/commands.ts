@@ -20,6 +20,7 @@
 import { ulid } from "ulid";
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
+import { notForMe } from "../events.js";
 import type { CommandInteraction } from "../gateway.js";
 
 /** How long we wait for a result event before an in-fiction fallback reply. */
@@ -144,7 +145,7 @@ export function commandsCapability(defs: CommandDef[]): Capability {
     handle(evt: BusEvent, ctx: CapabilityContext): void {
       if (!RESULT_EVENT_TYPES.includes(evt.type)) return;
       // The bus is broadcast: only resolve replies this bot is holding.
-      if (evt.subject && evt.subject.id !== ctx.bot) return;
+      if (notForMe(evt, ctx.bot)) return;
       if (!evt.correlationId) return;
       const message = String((evt.payload as { message?: unknown }).message ?? "Done.");
       settle(evt.correlationId, message, ctx);

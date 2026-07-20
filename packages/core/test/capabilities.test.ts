@@ -100,7 +100,10 @@ function makeFakeCtx(world: FakeWorld): CapabilityContext {
     gateway: {
       onComponent: (h: FakeWorld["componentHandlers"][number]) => world.componentHandlers.push(h),
     } as unknown as CapabilityContext["gateway"],
-    personas: {} as CapabilityContext["personas"],
+    personas: {
+      guildIds: ["g1"],
+      homeGuild: (g?: string | null) => g ?? "g1",
+    } as unknown as CapabilityContext["personas"],
     logger: log as unknown as CapabilityContext["logger"],
     config: {},
   };
