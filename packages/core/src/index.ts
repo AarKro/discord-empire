@@ -40,6 +40,7 @@ export {
   DIALOGUE_OPTION_PREFIX,
 } from "./capabilities/dialogue-thread.js";
 export { presenceVoiceCapability } from "./capabilities/presence-voice.js";
+export type { WanderStop } from "./capabilities/presence-voice.js";
 export { voicelinesCapability } from "./capabilities/voicelines.js";
 export type { VoicelineConfig } from "./capabilities/voicelines.js";
 export { ambientChatterCapability } from "./capabilities/ambient-chatter.js";

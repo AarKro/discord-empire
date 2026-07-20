@@ -20,6 +20,7 @@ import {
   Manifest,
   Shop,
   Dialogue,
+  Schedule,
 } from "@empire/content-schemas";
 import {
   CapabilityRegistry,
@@ -49,6 +50,11 @@ async function main(): Promise<void> {
   const manifest = loadContentFile(Manifest, join(CONTENT_DIR, "manifests/merchant.yaml"));
   const shop = loadContentFile(Shop, join(CONTENT_DIR, manifest.content?.shop ?? "shops/aldric.yaml"));
   const dialogue = loadContentFile(Dialogue, join(CONTENT_DIR, manifest.content?.dialogue ?? "dialogue/aldric.yaml"));
+  // The wander route (§5.1): the NPC hops between these voice stops on tick.hour.
+  const schedule = manifest.content?.schedule
+    ? loadContentFile(Schedule, join(CONTENT_DIR, manifest.content.schedule))
+    : null;
+  const route = (schedule?.stops ?? []).map((s) => ({ guildId: s.guild_id, channel: s.channel }));
 
   const token = process.env[manifest.token_env];
   if (!token) throw new Error(`${manifest.token_env} is required`);
@@ -65,7 +71,7 @@ async function main(): Promise<void> {
   registry.register(topologyCapability());
   registry.register(stallCapability(shop));
   registry.register(dialogueThreadCapability(dialogue));
-  registry.register(presenceVoiceCapability());
+  registry.register(presenceVoiceCapability(route));
   registry.register(voicelinesCapability({ triggers: { "trade.completed": ["sale_1.opus"], "npc.arrived": ["greet_1.opus"] } }));
   registry.register(ambientChatterCapability({ reactions: { "world.rumor": ["Did you hear...?"] } }));
   // The one bus→Discord surface: renders stall embeds, dialogue threads, receipts.

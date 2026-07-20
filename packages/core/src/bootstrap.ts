@@ -74,25 +74,34 @@ export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
         createdText = true;
       }
 
-      let bazaarVc = channels.find((c) => c?.type === ChannelType.GuildVoice && c.name === "Bazaar") ?? null;
-      let createdVoice = false;
-      if (!bazaarVc) {
-        bazaarVc = await guild.channels.create({ name: "Bazaar", type: ChannelType.GuildVoice });
-        createdVoice = true;
+      // The NPC's wander stops are voice channels (§5.1). Iteration 1 seeds two —
+      // the Bazaar and the Market Square — keyed in `locations` by their logical
+      // stop name (`<name>_<guildId>`, kind='voice') so presence.voice resolves
+      // schedule stops like "bazaar_vc"/"market_square_vc" to real channels.
+      const voiceStops: { name: string; display: string }[] = [
+        { name: "bazaar_vc", display: "Bazaar" },
+        { name: "market_square_vc", display: "Market Square" },
+      ];
+      const seededVoice: string[] = [];
+      for (const stop of voiceStops) {
+        let vc = channels.find((c) => c?.type === ChannelType.GuildVoice && c.name === stop.display) ?? null;
+        let created = false;
+        if (!vc) {
+          vc = await guild.channels.create({ name: stop.display, type: ChannelType.GuildVoice });
+          created = true;
+        }
+        await opts.sql`
+          INSERT INTO locations (id, guild_id, channel_id, kind, requires_presence)
+          VALUES (${`${stop.name}_${guildId}`}, ${guildId}, ${vc.id}, 'voice', false)
+          ON CONFLICT (id) DO UPDATE SET channel_id = EXCLUDED.channel_id, requires_presence = EXCLUDED.requires_presence
+        `;
+        seededVoice.push(`${stop.display}:${vc.id}${created ? " (created)" : " (found)"}`);
       }
 
       // Iteration 1 has no travel yet, so the bazaar must not gate on position.
       await opts.sql`
         INSERT INTO locations (id, guild_id, channel_id, kind, requires_presence)
         VALUES (${`bazaar_${guildId}`}, ${guildId}, ${bazaar.id}, 'bazaar', false)
-        ON CONFLICT (id) DO UPDATE SET channel_id = EXCLUDED.channel_id, requires_presence = EXCLUDED.requires_presence
-      `;
-
-      // Map the bazaar voice channel too — presence.voice joins it at boot so the
-      // NPC visibly stands in its home VC (§5.1). One 'voice' home per guild.
-      await opts.sql`
-        INSERT INTO locations (id, guild_id, channel_id, kind, requires_presence)
-        VALUES (${`voice_${guildId}`}, ${guildId}, ${bazaarVc.id}, 'voice', false)
         ON CONFLICT (id) DO UPDATE SET channel_id = EXCLUDED.channel_id, requires_presence = EXCLUDED.requires_presence
       `;
 
@@ -115,7 +124,7 @@ export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
         {
           guild: guild.name,
           bazaar: `${bazaar.id}${createdText ? " (created)" : " (found)"}`,
-          voice: `${bazaarVc.id}${createdVoice ? " (created)" : " (found)"}`,
+          voice: seededVoice.join(", "),
           land: `${landCat.id}${createdCat ? " (created)" : " (found)"}`,
         },
         "bazaar mapped",
