@@ -57,20 +57,20 @@ interface Pending {
 }
 
 export function commandsCapability(defs: CommandDef[]): Capability {
-  const byName = new Map(defs.map((d) => [d.name, d]));
+  const byName = new Map(defs.map((def) => [def.name, def]));
   /** correlationId → the ephemeral reply awaiting a result event. */
   const pending = new Map<string, Pending>();
 
   function settle(correlationId: string, content: string, ctx: CapabilityContext): void {
-    const p = pending.get(correlationId);
-    if (!p) return;
+    const held = pending.get(correlationId);
+    if (!held) return;
     pending.delete(correlationId);
-    clearTimeout(p.timer);
-    void p.reply(content).catch((err) => ctx.logger.warn({ err }, "reply failed"));
+    clearTimeout(held.timer);
+    void held.reply(content).catch((err) => ctx.logger.warn({ err }, "reply failed"));
   }
 
-  async function onCommand(i: CommandInteraction, ctx: CapabilityContext): Promise<void> {
-    const def = byName.get(i.commandName);
+  async function onCommand(interaction: CommandInteraction, ctx: CapabilityContext): Promise<void> {
+    const def = byName.get(interaction.commandName);
     if (!def) return; // another bot's command on the shared gateway — ignore.
 
     // Direct commands answer straight from the DB, no round-trip. Unlike the
@@ -78,11 +78,11 @@ export function commandsCapability(defs: CommandDef[]): Capability {
     // throwing resolver must reply here or the ephemeral interaction hangs.
     if (def.resolve) {
       try {
-        const content = await def.resolve(ctx, { options: i.options, userId: i.userId, guildId: i.guildId });
-        await i.reply(content);
+        const content = await def.resolve(ctx, { options: interaction.options, userId: interaction.userId, guildId: interaction.guildId });
+        await interaction.reply(content);
       } catch (err) {
-        ctx.logger.error({ err, command: i.commandName }, "direct command resolve failed");
-        await i.reply("…the ledger is smudged just now. Try again in a moment.");
+        ctx.logger.error({ err, command: interaction.commandName }, "direct command resolve failed");
+        await interaction.reply("…the ledger is smudged just now. Try again in a moment.");
       }
       return;
     }
@@ -92,18 +92,18 @@ export function commandsCapability(defs: CommandDef[]): Capability {
     const correlationId = `cmd_${ulid()}`;
     const timer = setTimeout(() => {
       pending.delete(correlationId);
-      void i.reply("…the foreman scratches his head. Try again in a moment.");
+      void interaction.reply("…the foreman scratches his head. Try again in a moment.");
     }, REPLY_TIMEOUT_MS);
     if (timer.unref) timer.unref();
-    pending.set(correlationId, { reply: i.reply, timer });
+    pending.set(correlationId, { reply: interaction.reply, timer });
 
-    ctx.logger.info({ command: i.commandName, route: def.route, correlationId }, "slash command routed");
+    ctx.logger.info({ command: interaction.commandName, route: def.route, correlationId }, "slash command routed");
     await ctx.bus.publish({
       type: def.route,
-      guildId: i.guildId,
-      actor: { kind: "player", id: i.userId },
+      guildId: interaction.guildId,
+      actor: { kind: "player", id: interaction.userId },
       subject: { kind: "npc", id: ctx.bot },
-      payload: { ...i.options },
+      payload: { ...interaction.options },
       correlationId,
     });
   }
@@ -113,7 +113,7 @@ export function commandsCapability(defs: CommandDef[]): Capability {
     consumes: RESULT_EVENT_TYPES,
     actions: {
       "commands.list": (_args, _evt, ctx: CapabilityContext) => {
-        ctx.logger.info({ commands: defs.map((d) => d.name) }, "command definitions");
+        ctx.logger.info({ commands: defs.map((def) => def.name) }, "command definitions");
       },
     },
 
@@ -122,20 +122,20 @@ export function commandsCapability(defs: CommandDef[]): Capability {
       for (const guildId of ctx.personas.guildIds) {
         await ctx.gateway.registerApplicationCommands(
           guildId,
-          defs.map((d) => ({ name: d.name, description: d.description, ...(d.options ? { options: d.options } : {}) })),
+          defs.map((def) => ({ name: def.name, description: def.description, ...(def.options ? { options: def.options } : {}) })),
         );
       }
 
       // Wire slash-command dispatch.
-      ctx.gateway.onCommand(async (i) => {
-        await onCommand(i, ctx);
+      ctx.gateway.onCommand(async (interaction) => {
+        await onCommand(interaction, ctx);
       });
 
       // Wire per-command autocomplete to the CommandDef resolver.
-      ctx.gateway.onAutocomplete(async (i) => {
-        const def = byName.get(i.commandName);
+      ctx.gateway.onAutocomplete(async (interaction) => {
+        const def = byName.get(interaction.commandName);
         if (!def?.autocomplete) return [];
-        return def.autocomplete(ctx, i.value, i.userId);
+        return def.autocomplete(ctx, interaction.value, interaction.userId);
       });
 
       ctx.logger.info({ count: defs.length }, "commands capability initialised");

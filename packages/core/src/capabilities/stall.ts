@@ -18,11 +18,11 @@ async function liveItems(sql: Sql, npcId: string, shop: Shop) {
   const rows = await sql<{ item_id: string; qty: number }[]>`
     SELECT item_id, qty FROM inventories WHERE owner_kind = 'npc' AND owner_id = ${npcId}
   `;
-  const stockById = new Map(rows.map((r) => [r.item_id, r.qty]));
-  return shop.items.map((i) => ({
-    name: i.name,
-    price: i.base_price,
-    stock: stockById.get(i.item_id) ?? i.stock,
+  const stockById = new Map(rows.map((row) => [row.item_id, row.qty]));
+  return shop.items.map((item) => ({
+    name: item.name,
+    price: item.base_price,
+    stock: stockById.get(item.item_id) ?? item.stock,
   }));
 }
 
@@ -59,12 +59,12 @@ export function stallCapability(shop: Shop): Capability {
     },
     /** Route Enter-the-stall clicks into the bus; dialogue.thread opens on it. */
     init(ctx: CapabilityContext): void {
-      ctx.gateway.onComponent(async (i) => {
-        if (i.customId !== ENTER_STALL_BUTTON) return;
+      ctx.gateway.onComponent(async (interaction) => {
+        if (interaction.customId !== ENTER_STALL_BUTTON) return;
         await ctx.bus.publish({
           type: "stall.entered",
-          guildId: i.guildId,
-          actor: { kind: "player", id: i.userId },
+          guildId: interaction.guildId,
+          actor: { kind: "player", id: interaction.userId },
           subject: { kind: "npc", id: ctx.bot },
           payload: { shop: shop.id },
         });

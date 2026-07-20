@@ -98,16 +98,16 @@ export interface CommandRegistration {
  * Discord command/option types: 1 = CHAT_INPUT command, 3 = STRING option.
  */
 export function toApplicationCommandJson(defs: CommandRegistration[]): unknown[] {
-  return defs.map((d) => ({
-    name: d.name,
-    description: d.description,
+  return defs.map((def) => ({
+    name: def.name,
+    description: def.description,
     type: 1,
-    options: (d.options ?? []).map((o) => ({
+    options: (def.options ?? []).map((option) => ({
       type: 3,
-      name: o.name,
-      description: o.description,
-      required: o.required ?? false,
-      autocomplete: o.autocomplete ?? false,
+      name: option.name,
+      description: option.description,
+      required: option.required ?? false,
+      autocomplete: option.autocomplete ?? false,
     })),
   }));
 }
@@ -265,7 +265,7 @@ export class Gateway {
     const rest = new REST().setToken(this.opts.token);
     await this.queue.enqueue(async () => {
       await rest.put(Routes.applicationGuildCommands(appId, guildId), { body });
-      this.log.info({ guildId, commands: defs.map((d) => d.name) }, "slash commands registered");
+      this.log.info({ guildId, commands: defs.map((def) => def.name) }, "slash commands registered");
     }, 2);
   }
 

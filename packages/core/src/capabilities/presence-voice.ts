@@ -26,19 +26,19 @@ export interface WanderStop {
 export function presenceVoiceCapability(route: WanderStop[] = []): Capability {
   // Group the route by guild, preserving order; track the current stop per guild.
   const stopsByGuild = new Map<string, string[]>();
-  for (const s of route) {
-    const list = stopsByGuild.get(s.guildId) ?? [];
-    list.push(s.channel);
-    stopsByGuild.set(s.guildId, list);
+  for (const stop of route) {
+    const list = stopsByGuild.get(stop.guildId) ?? [];
+    list.push(stop.channel);
+    stopsByGuild.set(stop.guildId, list);
   }
   const currentIndex = new Map<string, number>();
 
   /** Resolve a logical stop name to its Discord voice channel id (world:init map). */
   async function resolveChannel(ctx: CapabilityContext, guildId: string, channel: string): Promise<string | null> {
-    const [loc] = await ctx.sql<{ channel_id: string | null }[]>`
+    const [location] = await ctx.sql<{ channel_id: string | null }[]>`
       SELECT channel_id FROM locations WHERE id = ${`${channel}_${guildId}`} AND kind = 'voice' LIMIT 1
     `;
-    return loc?.channel_id ?? null;
+    return location?.channel_id ?? null;
   }
 
   /**

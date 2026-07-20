@@ -74,11 +74,11 @@ export class CapabilityRegistry {
 
   /** All capabilities whose `consumes` prefixes match an event type. */
   matching(eventType: string): Capability[] {
-    return this.list().filter((c) => c.consumes.some((p) => eventType.startsWith(p)));
+    return this.list().filter((cap) => cap.consumes.some((prefix) => eventType.startsWith(prefix)));
   }
 
   /** The discoverable action catalog (verb -> owning capability). */
   actionCatalog(): Record<string, string> {
-    return Object.fromEntries([...this.actionIndex].map(([verb, v]) => [verb, v.cap]));
+    return Object.fromEntries([...this.actionIndex].map(([verb, entry]) => [verb, entry.cap]));
   }
 }

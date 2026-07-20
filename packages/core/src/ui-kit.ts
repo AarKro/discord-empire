@@ -23,13 +23,13 @@ export interface ButtonSpec {
 
 export function buttonRow(buttons: ButtonSpec[]): ActionRowBuilder<ButtonBuilder> {
   const row = new ActionRowBuilder<ButtonBuilder>();
-  for (const b of buttons) {
+  for (const button of buttons) {
     row.addComponents(
       new ButtonBuilder()
-        .setCustomId(b.id)
-        .setLabel(b.label)
-        .setStyle(ButtonStyle[b.style ?? "Primary"])
-        .setDisabled(b.disabled ?? false),
+        .setCustomId(button.id)
+        .setLabel(button.label)
+        .setStyle(ButtonStyle[button.style ?? "Primary"])
+        .setDisabled(button.disabled ?? false),
     );
   }
   return row;
@@ -57,7 +57,7 @@ export function stallEmbed(title: string, items: StallEmbedItem[]): EmbedBuilder
   } else {
     embed.setDescription(
       items
-        .map((i) => `**${i.name}** — ${i.price} gold ${i.stock <= 2 ? `(only ${i.stock} left!)` : ""}`)
+        .map((item) => `**${item.name}** — ${item.price} gold ${item.stock <= 2 ? `(only ${item.stock} left!)` : ""}`)
         .join("\n"),
     );
   }
@@ -65,15 +65,15 @@ export function stallEmbed(title: string, items: StallEmbedItem[]): EmbedBuilder
 }
 
 export function modal(id: string, title: string, fields: { id: string; label: string }[]): ModalBuilder {
-  const m = new ModalBuilder().setCustomId(id).setTitle(title);
-  for (const f of fields) {
-    m.addComponents(
+  const builder = new ModalBuilder().setCustomId(id).setTitle(title);
+  for (const field of fields) {
+    builder.addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder().setCustomId(f.id).setLabel(f.label).setStyle(TextInputStyle.Short),
+        new TextInputBuilder().setCustomId(field.id).setLabel(field.label).setStyle(TextInputStyle.Short),
       ),
     );
   }
-  return m;
+  return builder;
 }
 
 export const ui = { buttonRow, selectMenu, stallEmbed, modal };

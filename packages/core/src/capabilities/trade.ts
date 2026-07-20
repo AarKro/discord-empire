@@ -49,38 +49,38 @@ export function effectiveFloor(item: ShopItem, reputationScore: number): number 
   return Math.max(item.floor_price, discounted);
 }
 
-async function runQuote(q: QuoteInput, ctx: CapabilityContext): Promise<void> {
-  const res = await executeTrade(ctx.sql, {
+async function runQuote(quote: QuoteInput, ctx: CapabilityContext): Promise<void> {
+  const result = await executeTrade(ctx.sql, {
     eventId: `evt_${ulid()}`,
-    buyer: q.buyer,
-    seller: q.seller,
-    itemId: q.itemId,
-    qty: q.qty,
-    price: q.price,
-    guildId: q.guildId,
-    correlationId: q.correlationId,
+    buyer: quote.buyer,
+    seller: quote.seller,
+    itemId: quote.itemId,
+    qty: quote.qty,
+    price: quote.price,
+    guildId: quote.guildId,
+    correlationId: quote.correlationId,
   });
-  if (!res.ok) {
+  if (!result.ok) {
     // executeTrade only emits trade.completed on success; emit the failure
     // here so consumers (voicelines, notify, stall refresh) can react.
-    await publishFailure(ctx, q, res.reason, res.message);
-    ctx.logger.info({ reason: res.reason, item: q.itemId }, "trade rejected");
+    await publishFailure(ctx, quote, result.reason, result.message);
+    ctx.logger.info({ reason: result.reason, item: quote.itemId }, "trade rejected");
   }
 }
 
 async function publishFailure(
   ctx: CapabilityContext,
-  q: QuoteInput,
+  quote: QuoteInput,
   reason: string,
   message: string,
 ): Promise<void> {
   await ctx.bus.publish({
     type: "trade.failed",
-    guildId: q.guildId,
-    actor: { kind: q.buyer.kind, id: q.buyer.id },
-    subject: { kind: q.seller.kind, id: q.seller.id },
-    payload: { item: q.itemId, qty: q.qty, reason, message },
-    correlationId: q.correlationId,
+    guildId: quote.guildId,
+    actor: { kind: quote.buyer.kind, id: quote.buyer.id },
+    subject: { kind: quote.seller.kind, id: quote.seller.id },
+    payload: { item: quote.itemId, qty: quote.qty, reason, message },
+    correlationId: quote.correlationId,
   });
 }
 
@@ -113,7 +113,7 @@ export function tradeCapability(shop?: Shop): Capability {
         return;
       }
       const seller: Party = { kind: "npc", id: evt.subject?.id ?? ctx.bot };
-      const q: QuoteInput = {
+      const quote: QuoteInput = {
         buyer: { kind: buyer.kind as Party["kind"], id: buyer.id },
         seller,
         itemId: payload.item,
@@ -124,21 +124,21 @@ export function tradeCapability(shop?: Shop): Capability {
       };
 
       // Enforce the hidden reputation-adjusted floor for shop-backed items.
-      const item = shop?.items.find((i) => i.item_id === q.itemId);
+      const item = shop?.items.find((candidate) => candidate.item_id === quote.itemId);
       if (item) {
-        const [rep] = await ctx.sql<{ score: number }[]>`
-          SELECT score FROM reputation WHERE player_id = ${q.buyer.id} AND npc_id = ${seller.id}
+        const [reputationRow] = await ctx.sql<{ score: number }[]>`
+          SELECT score FROM reputation WHERE player_id = ${quote.buyer.id} AND npc_id = ${seller.id}
         `;
-        const floor = effectiveFloor(item, rep?.score ?? 0);
-        // q.price is the TOTAL offer (db contract); floor is per unit.
-        if (q.price < floor * q.qty) {
-          await publishFailure(ctx, q, "lowball", "I can't part with it for that, friend.");
-          ctx.logger.info({ item: q.itemId, offered: q.price, floor }, "offer below hidden floor");
+        const floor = effectiveFloor(item, reputationRow?.score ?? 0);
+        // quote.price is the TOTAL offer (db contract); floor is per unit.
+        if (quote.price < floor * quote.qty) {
+          await publishFailure(ctx, quote, "lowball", "I can't part with it for that, friend.");
+          ctx.logger.info({ item: quote.itemId, offered: quote.price, floor }, "offer below hidden floor");
           return;
         }
       }
 
-      await runQuote(q, ctx);
+      await runQuote(quote, ctx);
     },
   };
 }

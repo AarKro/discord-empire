@@ -10,13 +10,13 @@ export class PersonaResolver {
 
   /** Resolve the persona for a guild, or throw — a missing persona is a config bug. */
   resolve(guildId: string): Persona {
-    const p = this.manifest.personas[guildId];
-    if (!p) {
+    const persona = this.manifest.personas[guildId];
+    if (!persona) {
       throw new Error(
         `No persona for bot "${this.manifest.id}" in guild ${guildId}; add it to the manifest.`,
       );
     }
-    return p;
+    return persona;
   }
 
   has(guildId: string): boolean {

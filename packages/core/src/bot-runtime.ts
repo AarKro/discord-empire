@@ -48,28 +48,28 @@ interface FactoryDeps {
 }
 
 /** Resolve a manifest content path against the content dir; throw if the cap needs it. */
-function content(d: FactoryDeps, key: "shop" | "dialogue" | "schedule", capName: string): string {
-  const rel = d.manifest.content?.[key];
-  if (!rel) throw new Error(`capability "${capName}" needs content.${key} in manifest "${d.manifest.id}"`);
-  return join(d.contentDir, rel);
+function content(deps: FactoryDeps, key: "shop" | "dialogue" | "schedule", capName: string): string {
+  const rel = deps.manifest.content?.[key];
+  if (!rel) throw new Error(`capability "${capName}" needs content.${key} in manifest "${deps.manifest.id}"`);
+  return join(deps.contentDir, rel);
 }
 
 /** Manifest capability name → factory. The registry of what a bot can be made of. */
-const FACTORIES: Record<string, (d: FactoryDeps) => Capability> = {
-  trade: (d) => tradeCapability(d.manifest.content?.shop ? loadContentFile(Shop, join(d.contentDir, d.manifest.content.shop)) : undefined),
+const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
+  trade: (deps) => tradeCapability(deps.manifest.content?.shop ? loadContentFile(Shop, join(deps.contentDir, deps.manifest.content.shop)) : undefined),
   topology: () => topologyCapability(),
-  stall: (d) => stallCapability(loadContentFile(Shop, content(d, "shop", "stall"))),
-  "dialogue.thread": (d) => dialogueThreadCapability(loadContentFile(Dialogue, content(d, "dialogue", "dialogue.thread"))),
-  "presence.voice": (d) => {
-    const rel = d.manifest.content?.schedule;
-    const stops = rel ? loadContentFile(Schedule, join(d.contentDir, rel)).stops : [];
-    return presenceVoiceCapability(stops.map((s) => ({ guildId: s.guild_id, channel: s.channel })));
+  stall: (deps) => stallCapability(loadContentFile(Shop, content(deps, "shop", "stall"))),
+  "dialogue.thread": (deps) => dialogueThreadCapability(loadContentFile(Dialogue, content(deps, "dialogue", "dialogue.thread"))),
+  "presence.voice": (deps) => {
+    const rel = deps.manifest.content?.schedule;
+    const stops = rel ? loadContentFile(Schedule, join(deps.contentDir, rel)).stops : [];
+    return presenceVoiceCapability(stops.map((stop) => ({ guildId: stop.guild_id, channel: stop.channel })));
   },
-  voicelines: (d) => voicelinesCapability(d.configs.voicelines ?? { triggers: {} }),
-  "ambient.chatter": (d) => ambientChatterCapability(d.configs["ambient.chatter"] ?? { reactions: {} }),
+  voicelines: (deps) => voicelinesCapability(deps.configs.voicelines ?? { triggers: {} }),
+  "ambient.chatter": (deps) => ambientChatterCapability(deps.configs["ambient.chatter"] ?? { reactions: {} }),
   land: () => landCapability(),
   notify: () => notifyCapability(),
-  commands: (d) => commandsCapability(d.configs.commands ?? []),
+  commands: (deps) => commandsCapability(deps.configs.commands ?? []),
   render: () => renderCapability(),
 };
 

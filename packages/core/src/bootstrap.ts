@@ -49,6 +49,22 @@ export interface BootstrapOptions {
   logger?: Logger;
 }
 
+/**
+ * Idempotently map a location id to its Discord channel (§8 guild+channel map).
+ * Rerunnable: re-points an existing row at the current channel. Iteration 1 has
+ * no travel, so seeded locations never gate on presence.
+ */
+async function upsertLocation(
+  sql: Sql,
+  loc: { id: string; guildId: string; channelId: string; kind: string },
+): Promise<void> {
+  await sql`
+    INSERT INTO locations (id, guild_id, channel_id, kind, requires_presence)
+    VALUES (${loc.id}, ${loc.guildId}, ${loc.channelId}, ${loc.kind}, false)
+    ON CONFLICT (id) DO UPDATE SET channel_id = EXCLUDED.channel_id, requires_presence = EXCLUDED.requires_presence
+  `;
+}
+
 export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
   const log = (opts.logger ?? rootLogger).child({ component: "bootstrap" });
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -67,7 +83,7 @@ export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
       }
       const channels = await guild.channels.fetch();
 
-      let bazaar = channels.find((c) => c?.type === ChannelType.GuildText && c.name === "bazaar") ?? null;
+      let bazaar = channels.find((channel) => channel?.type === ChannelType.GuildText && channel.name === "bazaar") ?? null;
       let createdText = false;
       if (!bazaar) {
         bazaar = await guild.channels.create({ name: "bazaar", type: ChannelType.GuildText });
@@ -84,48 +100,36 @@ export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
       ];
       const seededVoice: string[] = [];
       for (const stop of voiceStops) {
-        let vc = channels.find((c) => c?.type === ChannelType.GuildVoice && c.name === stop.display) ?? null;
+        let voiceChannel = channels.find((channel) => channel?.type === ChannelType.GuildVoice && channel.name === stop.display) ?? null;
         let created = false;
-        if (!vc) {
-          vc = await guild.channels.create({ name: stop.display, type: ChannelType.GuildVoice });
+        if (!voiceChannel) {
+          voiceChannel = await guild.channels.create({ name: stop.display, type: ChannelType.GuildVoice });
           created = true;
         }
-        await opts.sql`
-          INSERT INTO locations (id, guild_id, channel_id, kind, requires_presence)
-          VALUES (${`${stop.name}_${guildId}`}, ${guildId}, ${vc.id}, 'voice', false)
-          ON CONFLICT (id) DO UPDATE SET channel_id = EXCLUDED.channel_id, requires_presence = EXCLUDED.requires_presence
-        `;
-        seededVoice.push(`${stop.display}:${vc.id}${created ? " (created)" : " (found)"}`);
+        await upsertLocation(opts.sql, { id: `${stop.name}_${guildId}`, guildId, channelId: voiceChannel.id, kind: "voice" });
+        seededVoice.push(`${stop.display}:${voiceChannel.id}${created ? " (created)" : " (found)"}`);
       }
 
       // Iteration 1 has no travel yet, so the bazaar must not gate on position.
-      await opts.sql`
-        INSERT INTO locations (id, guild_id, channel_id, kind, requires_presence)
-        VALUES (${`bazaar_${guildId}`}, ${guildId}, ${bazaar.id}, 'bazaar', false)
-        ON CONFLICT (id) DO UPDATE SET channel_id = EXCLUDED.channel_id, requires_presence = EXCLUDED.requires_presence
-      `;
+      await upsertLocation(opts.sql, { id: `bazaar_${guildId}`, guildId, channelId: bazaar.id, kind: "bazaar" });
 
       // The "Land" category holds every player's plot channels (§2.4). The
       // builder bot creates per-plot text+voice channels under it at /build time,
       // so world:init just ensures the category exists and maps it in locations.
-      let landCat = channels.find((c) => c?.type === ChannelType.GuildCategory && c.name === "Land") ?? null;
-      let createdCat = false;
-      if (!landCat) {
-        landCat = await guild.channels.create({ name: "Land", type: ChannelType.GuildCategory });
-        createdCat = true;
+      let landCategory = channels.find((channel) => channel?.type === ChannelType.GuildCategory && channel.name === "Land") ?? null;
+      let createdCategory = false;
+      if (!landCategory) {
+        landCategory = await guild.channels.create({ name: "Land", type: ChannelType.GuildCategory });
+        createdCategory = true;
       }
-      await opts.sql`
-        INSERT INTO locations (id, guild_id, channel_id, kind, requires_presence)
-        VALUES (${`land_${guildId}`}, ${guildId}, ${landCat.id}, 'land', false)
-        ON CONFLICT (id) DO UPDATE SET channel_id = EXCLUDED.channel_id, requires_presence = EXCLUDED.requires_presence
-      `;
+      await upsertLocation(opts.sql, { id: `land_${guildId}`, guildId, channelId: landCategory.id, kind: "land" });
 
       log.info(
         {
           guild: guild.name,
           bazaar: `${bazaar.id}${createdText ? " (created)" : " (found)"}`,
           voice: seededVoice.join(", "),
-          land: `${landCat.id}${createdCat ? " (created)" : " (found)"}`,
+          land: `${landCategory.id}${createdCategory ? " (created)" : " (found)"}`,
         },
         "bazaar mapped",
       );
@@ -151,17 +155,17 @@ export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
     // Seed the buildable catalog idempotently (§5.12, §10 Builder). Rerunnable:
     // ON CONFLICT DO NOTHING leaves any hand-tuned rows alone.
     const blueprints = opts.blueprints ?? DEFAULT_BLUEPRINTS;
-    let bpSeeded = 0;
-    for (const bp of blueprints) {
+    let blueprintsSeeded = 0;
+    for (const blueprint of blueprints) {
       const rows = await opts.sql`
         INSERT INTO blueprint_catalog (id, name, cost_gold, base_ms)
-        VALUES (${bp.id}, ${bp.name}, ${bp.costGold}, ${bp.baseMs})
+        VALUES (${blueprint.id}, ${blueprint.name}, ${blueprint.costGold}, ${blueprint.baseMs})
         ON CONFLICT (id) DO NOTHING
         RETURNING id
       `;
-      bpSeeded += rows.length;
+      blueprintsSeeded += rows.length;
     }
-    log.info({ seeded: bpSeeded, total: blueprints.length }, "blueprint catalog seeded (existing rows untouched)");
+    log.info({ seeded: blueprintsSeeded, total: blueprints.length }, "blueprint catalog seeded (existing rows untouched)");
 
     // The builder NPC "sells" build permits (the cost sink for /build). Seed the
     // NPC row and a large permit stock so the atomic trade always has stock; the

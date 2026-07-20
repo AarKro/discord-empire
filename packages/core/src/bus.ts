@@ -72,17 +72,17 @@ interface Row {
   correlation_id: string | null;
 }
 
-function toEvent(r: Row): BusEvent {
+function toEvent(row: Row): BusEvent {
   return {
-    dbId: String(r.id),
-    eventId: r.event_id,
-    type: r.type,
-    ts: r.ts instanceof Date ? r.ts.toISOString() : String(r.ts),
-    guildId: r.guild_id,
-    actor: r.actor_kind && r.actor_id ? { kind: r.actor_kind, id: r.actor_id } : null,
-    subject: r.subject_kind && r.subject_id ? { kind: r.subject_kind, id: r.subject_id } : null,
-    payload: r.payload ?? {},
-    correlationId: r.correlation_id,
+    dbId: String(row.id),
+    eventId: row.event_id,
+    type: row.type,
+    ts: row.ts instanceof Date ? row.ts.toISOString() : String(row.ts),
+    guildId: row.guild_id,
+    actor: row.actor_kind && row.actor_id ? { kind: row.actor_kind, id: row.actor_id } : null,
+    subject: row.subject_kind && row.subject_id ? { kind: row.subject_kind, id: row.subject_id } : null,
+    payload: row.payload ?? {},
+    correlationId: row.correlation_id,
   };
 }
 
@@ -167,8 +167,8 @@ export class EventBus {
     const backlog = await this.sql<Row[]>`
       SELECT * FROM events WHERE id > ${this.lastProcessedId.toString()}::bigint ORDER BY id ASC
     `;
-    for (const r of backlog) {
-      await this.dispatch(toEvent(r), handler);
+    for (const row of backlog) {
+      await this.dispatch(toEvent(row), handler);
     }
 
     // 3) Drain the live buffer (de-dup handled in dispatch by id ordering).

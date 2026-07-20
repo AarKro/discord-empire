@@ -42,8 +42,8 @@ export function scaledBuildMs(baseMs: number, tier: number): number {
 }
 
 async function playerTier(sql: Sql, playerId: string): Promise<number> {
-  const [p] = await sql<{ tier: number }[]>`SELECT tier FROM players WHERE discord_user_id = ${playerId}`;
-  return p?.tier ?? 1;
+  const [row] = await sql<{ tier: number }[]>`SELECT tier FROM players WHERE discord_user_id = ${playerId}`;
+  return row?.tier ?? 1;
 }
 
 interface BlueprintRow {
@@ -236,16 +236,16 @@ export function landCapability(): Capability {
     actions: {
       /** Enqueue a build directly (workflow path); cost is deducted via trade. */
       "build.start": async (args, evt, ctx: CapabilityContext) => {
-        const a = args as unknown as BuildStartArgs;
-        const blueprint = await loadBlueprint(ctx.sql, a.blueprint);
-        const bp: BlueprintRow = blueprint ?? {
-          id: a.blueprint,
-          name: a.blueprint,
+        const startArgs = args as unknown as BuildStartArgs;
+        const loaded = await loadBlueprint(ctx.sql, startArgs.blueprint);
+        const blueprint: BlueprintRow = loaded ?? {
+          id: startArgs.blueprint,
+          name: startArgs.blueprint,
           cost_gold: 0,
-          base_ms: a.base_ms,
+          base_ms: startArgs.base_ms,
         };
         await enqueueBuild(
-          { player: a.player, plot: a.plot, blueprint: bp, guildId: evt?.guildId ?? null, correlationId: evt?.correlationId ?? null },
+          { player: startArgs.player, plot: startArgs.plot, blueprint, guildId: evt?.guildId ?? null, correlationId: evt?.correlationId ?? null },
           ctx,
         );
       },

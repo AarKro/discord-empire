@@ -16,7 +16,7 @@ import { notForMe } from "../events.js";
 import { locationChannel } from "../locations.js";
 import { buttonRow, stallEmbed } from "../ui-kit.js";
 import type { Sql } from "@empire/db";
-import { jsonParam } from "@empire/db";
+import { jsonParam, readBalance } from "@empire/db";
 
 interface DialogueOption {
   id: string;
@@ -95,7 +95,7 @@ export function renderCapability(): Capability {
     await ctx.gateway.sendToChannel(threadId, {
       content: payload.text || "…",
       components: options.length > 0
-        ? [buttonRow(options.map((o) => ({ id: o.id, label: o.label }))).toJSON() as never]
+        ? [buttonRow(options.map((option) => ({ id: option.id, label: option.label }))).toJSON() as never]
         : [],
     });
   }
@@ -163,15 +163,13 @@ export function renderCapability(): Capability {
           if (!evt.actor || evt.actor.kind !== "player") return;
           const threadId = threads.get(evt.actor.id);
           if (!threadId) return;
-          const p = evt.payload as { item?: string; qty?: number; price?: number; currency?: string };
-          const [bal] = await ctx.sql<{ amount: number }[]>`
-            SELECT amount FROM balances
-            WHERE owner_kind = 'player' AND owner_id = ${evt.actor.id} AND currency = ${p.currency ?? "gold"}
-          `;
+          const payload = evt.payload as { item?: string; qty?: number; price?: number; currency?: string };
+          const currency = payload.currency ?? "gold";
+          const balance = await readBalance(ctx.sql, "player", evt.actor.id, currency);
           await ctx.gateway.sendToChannel(threadId, {
             content:
-              `*The coin changes hands.* You bought **${p.qty ?? 1}× ${p.item ?? "?"}** ` +
-              `for **${p.price ?? 0} ${p.currency ?? "gold"}** — ${bal?.amount ?? 0} left in your purse.`,
+              `*The coin changes hands.* You bought **${payload.qty ?? 1}× ${payload.item ?? "?"}** ` +
+              `for **${payload.price ?? 0} ${currency}** — ${balance} left in your purse.`,
           });
           return;
         }
@@ -180,8 +178,8 @@ export function renderCapability(): Capability {
           if (!evt.actor || evt.actor.kind !== "player") return;
           const threadId = threads.get(evt.actor.id);
           if (!threadId) return;
-          const p = evt.payload as { message?: string };
-          await ctx.gateway.sendToChannel(threadId, { content: `*${p.message ?? "The deal falls through."}*` });
+          const payload = evt.payload as { message?: string };
+          await ctx.gateway.sendToChannel(threadId, { content: `*${payload.message ?? "The deal falls through."}*` });
           return;
         }
       }

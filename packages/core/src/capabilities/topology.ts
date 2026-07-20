@@ -24,11 +24,11 @@ export async function requiresPresence(
   playerId: string,
   locationId: string,
 ): Promise<PresenceCheck> {
-  const [loc] = await sql<{ guild_id: string; district_id: string | null; requires_presence: boolean }[]>`
+  const [location] = await sql<{ guild_id: string; district_id: string | null; requires_presence: boolean }[]>`
     SELECT guild_id, district_id, requires_presence FROM locations WHERE id = ${locationId}
   `;
-  if (!loc) return { present: false, reason: "there is no such place" };
-  if (!loc.requires_presence) return { present: true };
+  if (!location) return { present: false, reason: "there is no such place" };
+  if (!location.requires_presence) return { present: true };
 
   const [player] = await sql<{ position_guild_id: string | null; position_district_id: string | null }[]>`
     SELECT position_guild_id, position_district_id FROM players WHERE discord_user_id = ${playerId}
@@ -36,8 +36,8 @@ export async function requiresPresence(
   if (!player) return { present: false, reason: "you are nowhere yet" };
 
   const here =
-    player.position_guild_id === loc.guild_id &&
-    (loc.district_id === null || player.position_district_id === loc.district_id);
+    player.position_guild_id === location.guild_id &&
+    (location.district_id === null || player.position_district_id === location.district_id);
   if (!here) return { present: false, reason: "that place is a walk from where you stand" };
   return { present: true };
 }
@@ -64,9 +64,9 @@ async function arrive(
       WHERE position_guild_id = ${guildId} AND position_district_id = ${districtId}
         AND discord_user_id <> ${playerId}
     `;
-    for (const o of others) {
-      const [a, b] = [playerId, o.discord_user_id].sort();
-      await tx`INSERT INTO contacts (player_a, player_b) VALUES (${a!}, ${b!}) ON CONFLICT DO NOTHING`;
+    for (const other of others) {
+      const [first, second] = [playerId, other.discord_user_id].sort();
+      await tx`INSERT INTO contacts (player_a, player_b) VALUES (${first!}, ${second!}) ON CONFLICT DO NOTHING`;
     }
   });
 }

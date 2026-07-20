@@ -14,7 +14,7 @@ import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
 import { notForMe } from "../events.js";
 import type { Sql } from "@empire/db";
-import { ensurePlayer, DEFAULT_STARTING_GOLD } from "@empire/db";
+import { ensurePlayer, DEFAULT_STARTING_GOLD, readBalance } from "@empire/db";
 import { DialogueRunner, type GuardScope } from "../dialogue.js";
 
 /** Custom-id prefix for dialogue option buttons rendered by the bot. */
@@ -22,19 +22,16 @@ export const DIALOGUE_OPTION_PREFIX = "dlg:";
 
 /** Load the player's guard scope (§7 guards) from game state. Reads only. */
 export async function loadGuardScope(sql: Sql, playerId: string): Promise<GuardScope> {
-  const [bal] = await sql<{ amount: number }[]>`
-    SELECT amount FROM balances
-    WHERE owner_kind = 'player' AND owner_id = ${playerId} AND currency = 'gold'
-  `;
-  const reps = await sql<{ npc_id: string; score: number }[]>`
+  const gold = await readBalance(sql, "player", playerId, "gold");
+  const reputationRows = await sql<{ npc_id: string; score: number }[]>`
     SELECT npc_id, score FROM reputation WHERE player_id = ${playerId}
   `;
   const [player] = await sql<{ flags: Record<string, boolean>; position_district_id: string | null }[]>`
     SELECT flags, position_district_id FROM players WHERE discord_user_id = ${playerId}
   `;
   return {
-    gold: Number(bal?.amount ?? 0),
-    reputation: Object.fromEntries(reps.map((r) => [r.npc_id, r.score])),
+    gold,
+    reputation: Object.fromEntries(reputationRows.map((rep) => [rep.npc_id, rep.score])),
     flags: player?.flags ?? {},
     position: { district: player?.position_district_id ?? null },
   };
@@ -52,10 +49,10 @@ export function dialogueThreadCapability(tree: Dialogue): Capability {
     ctx: CapabilityContext,
     guildId: string | null,
   ): Promise<void> {
-    const options = runner.availableOptions(scope).map((o) => ({
-      id: `${DIALOGUE_OPTION_PREFIX}${o.id}`,
-      label: o.label,
-      kind: o.kind,
+    const options = runner.availableOptions(scope).map((option) => ({
+      id: `${DIALOGUE_OPTION_PREFIX}${option.id}`,
+      label: option.label,
+      kind: option.kind,
     }));
     await ctx.bus.publish({
       type,
@@ -139,14 +136,14 @@ export function dialogueThreadCapability(tree: Dialogue): Capability {
 
     /** Bridge Discord option clicks into `dialogue.choose` bus events. */
     init(ctx: CapabilityContext): void {
-      ctx.gateway.onComponent(async (i) => {
-        if (!i.customId.startsWith(DIALOGUE_OPTION_PREFIX)) return;
+      ctx.gateway.onComponent(async (interaction) => {
+        if (!interaction.customId.startsWith(DIALOGUE_OPTION_PREFIX)) return;
         await ctx.bus.publish({
           type: "dialogue.choose",
-          guildId: i.guildId,
-          actor: { kind: "player", id: i.userId },
+          guildId: interaction.guildId,
+          actor: { kind: "player", id: interaction.userId },
           subject: { kind: "npc", id: ctx.bot },
-          payload: { option: i.customId.slice(DIALOGUE_OPTION_PREFIX.length) },
+          payload: { option: interaction.customId.slice(DIALOGUE_OPTION_PREFIX.length) },
         });
       });
     },

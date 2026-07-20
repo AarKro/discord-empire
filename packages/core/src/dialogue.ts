@@ -34,13 +34,13 @@ export function evalGuard(expr: string, scope: GuardScope): boolean {
     const rhs = rhsRaw.trim();
     const rightNum = Number(rhs);
     if (!Number.isNaN(rightNum)) {
-      const l = Number(left);
+      const leftNum = Number(left);
       switch (op) {
-        case ">=": return l >= rightNum;
-        case "<=": return l <= rightNum;
-        case ">": return l > rightNum;
-        case "<": return l < rightNum;
-        case "==": return l === rightNum;
+        case ">=": return leftNum >= rightNum;
+        case "<=": return leftNum <= rightNum;
+        case ">": return leftNum > rightNum;
+        case "<": return leftNum < rightNum;
+        case "==": return leftNum === rightNum;
       }
     }
     if (op === "==") return String(left) === rhs;
@@ -65,7 +65,7 @@ export class DialogueRunner {
   private current: string;
 
   constructor(tree: Dialogue) {
-    this.nodes = new Map(tree.nodes.map((n) => [n.id, n]));
+    this.nodes = new Map(tree.nodes.map((node) => [node.id, node]));
     if (!this.nodes.has(tree.start)) throw new Error(`dialogue start node "${tree.start}" not found`);
     this.current = tree.start;
   }
@@ -76,18 +76,18 @@ export class DialogueRunner {
 
   /** Options visible to a player given their game-state scope (guards applied). */
   availableOptions(scope: GuardScope): DialogueOption[] {
-    return this.node.options.filter((o) => !o.guard || evalGuard(o.guard.expr, scope));
+    return this.node.options.filter((option) => !option.guard || evalGuard(option.guard.expr, scope));
   }
 
   /** Take an option by id; returns the emitted events and whether the tree ended. */
   choose(optionId: string, scope: GuardScope): { emit: DialogueOption["emit"]; done: boolean } {
-    const opt = this.availableOptions(scope).find((o) => o.id === optionId);
-    if (!opt) throw new Error(`option "${optionId}" not available at node "${this.current}"`);
-    if (opt.goto) {
-      if (!this.nodes.has(opt.goto)) throw new Error(`goto target "${opt.goto}" not found`);
-      this.current = opt.goto;
+    const option = this.availableOptions(scope).find((candidate) => candidate.id === optionId);
+    if (!option) throw new Error(`option "${optionId}" not available at node "${this.current}"`);
+    if (option.goto) {
+      if (!this.nodes.has(option.goto)) throw new Error(`goto target "${option.goto}" not found`);
+      this.current = option.goto;
     }
     const done = this.node.final;
-    return { emit: opt.emit, done };
+    return { emit: option.emit, done };
   }
 }
