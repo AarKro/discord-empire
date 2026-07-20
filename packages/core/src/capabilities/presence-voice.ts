@@ -14,6 +14,7 @@
  * `locations` rows world:init seeds (id = `<name>_<guildId>`, kind='voice').
  */
 import type { Capability, CapabilityContext } from "../capability.js";
+import { locationChannel } from "../locations.js";
 import { jsonParam } from "@empire/db";
 
 /** One stop on an NPC's wander route: a logical voice-channel name in a guild. */
@@ -80,10 +81,8 @@ export function presenceVoiceCapability(route: WanderStop[] = []): Capability {
           continue;
         }
         // No wander route here — just stand in the guild's home voice channel.
-        const [loc] = await ctx.sql<{ channel_id: string | null }[]>`
-          SELECT channel_id FROM locations WHERE guild_id = ${guildId} AND kind = 'voice' ORDER BY id LIMIT 1
-        `;
-        if (loc?.channel_id) await ctx.gateway.joinVoice(guildId, loc.channel_id);
+        const channelId = await locationChannel(ctx.sql, guildId, "voice", { orderById: true });
+        if (channelId) await ctx.gateway.joinVoice(guildId, channelId);
         else ctx.logger.warn({ guildId }, "no voice channel mapped — run world:init; skipping voice presence");
       }
     },

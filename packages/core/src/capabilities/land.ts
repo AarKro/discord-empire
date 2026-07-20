@@ -23,6 +23,7 @@ import { ulid } from "ulid";
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
 import { notForMe } from "../events.js";
+import { locationChannel } from "../locations.js";
 import { ensurePlayer, type Sql } from "@empire/db";
 
 /** First interaction = registration (§2.1). Mirrors dialogue-thread's default. */
@@ -74,14 +75,12 @@ async function provisionPlotChannels(
   playerId: string,
   guildId: string,
 ): Promise<void> {
-  const [loc] = await ctx.sql<{ channel_id: string | null }[]>`
-    SELECT channel_id FROM locations WHERE guild_id = ${guildId} AND kind = 'land' LIMIT 1
-  `;
-  if (!loc?.channel_id) {
+  const categoryId = await locationChannel(ctx.sql, guildId, "land");
+  if (!categoryId) {
     ctx.logger.warn({ guildId }, "no land category for guild — run world:init; plot stays DB-only");
     return;
   }
-  const channels = await ctx.gateway.createPlotChannels(guildId, playerId, loc.channel_id);
+  const channels = await ctx.gateway.createPlotChannels(guildId, playerId, categoryId);
   if (!channels) {
     ctx.logger.warn({ plotId, guildId }, "plot channel provisioning failed (needs Manage Channels)");
     return;

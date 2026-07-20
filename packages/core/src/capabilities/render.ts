@@ -13,6 +13,7 @@
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
 import { notForMe } from "../events.js";
+import { locationChannel } from "../locations.js";
 import { buttonRow, stallEmbed } from "../ui-kit.js";
 import type { Sql } from "@empire/db";
 import { jsonParam } from "@empire/db";
@@ -24,10 +25,7 @@ interface DialogueOption {
 
 /** Resolve the guild's bazaar text channel from game state (seeded by world:init). */
 async function bazaarChannel(sql: Sql, guildId: string): Promise<string | null> {
-  const [loc] = await sql<{ channel_id: string | null }[]>`
-    SELECT channel_id FROM locations WHERE guild_id = ${guildId} AND kind = 'bazaar' LIMIT 1
-  `;
-  return loc?.channel_id ?? null;
+  return locationChannel(sql, guildId, "bazaar");
 }
 
 async function loadStallMessageId(sql: Sql, npcId: string, guildId: string): Promise<string | null> {
