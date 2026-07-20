@@ -99,7 +99,7 @@ export function commandsCapability(defs: CommandDef[]): Capability {
     ctx.logger.info({ command: i.commandName, route: def.route, correlationId }, "slash command routed");
     await ctx.bus.publish({
       type: def.route,
-      ...(i.guildId ? { guildId: i.guildId } : {}),
+      guildId: i.guildId,
       actor: { kind: "player", id: i.userId },
       subject: { kind: "npc", id: ctx.bot },
       payload: { ...i.options },

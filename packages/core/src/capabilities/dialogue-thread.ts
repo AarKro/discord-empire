@@ -65,7 +65,7 @@ export function dialogueThreadCapability(tree: Dialogue): Capability {
     }));
     await ctx.bus.publish({
       type,
-      ...(guildId !== null ? { guildId } : {}),
+      guildId,
       actor: { kind: "player", id: playerId },
       subject: { kind: "npc", id: ctx.bot },
       payload: {
@@ -115,11 +115,11 @@ export function dialogueThreadCapability(tree: Dialogue): Capability {
     for (const emit of result.emit ?? []) {
       await ctx.bus.publish({
         type: emit.type,
-        ...(guildId !== null ? { guildId } : {}),
+        guildId,
         actor: { kind: "player", id: playerId },
         subject: { kind: "npc", id: ctx.bot },
-        ...(emit.payload ? { payload: emit.payload } : {}),
-        ...(correlationId !== null ? { correlationId } : {}),
+        payload: emit.payload,
+        correlationId,
       });
     }
 
@@ -149,7 +149,7 @@ export function dialogueThreadCapability(tree: Dialogue): Capability {
         if (!i.customId.startsWith(DIALOGUE_OPTION_PREFIX)) return;
         await ctx.bus.publish({
           type: "dialogue.choose",
-          ...(i.guildId !== null ? { guildId: i.guildId } : {}),
+          guildId: i.guildId,
           actor: { kind: "player", id: i.userId },
           subject: { kind: "npc", id: ctx.bot },
           payload: { option: i.customId.slice(DIALOGUE_OPTION_PREFIX.length) },

@@ -51,7 +51,7 @@ export function stallCapability(shop: Shop): Capability {
       "stall.close": async (_args, evt, ctx: CapabilityContext) => {
         await ctx.bus.publish({
           type: "stall.closed",
-          ...(evt?.guildId ? { guildId: evt.guildId } : {}),
+          guildId: evt?.guildId,
           subject: { kind: "npc", id: ctx.bot },
           payload: {},
         });
@@ -63,7 +63,7 @@ export function stallCapability(shop: Shop): Capability {
         if (i.customId !== ENTER_STALL_BUTTON) return;
         await ctx.bus.publish({
           type: "stall.entered",
-          ...(i.guildId !== null ? { guildId: i.guildId } : {}),
+          guildId: i.guildId,
           actor: { kind: "player", id: i.userId },
           subject: { kind: "npc", id: ctx.bot },
           payload: { shop: shop.id },

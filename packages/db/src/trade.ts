@@ -28,8 +28,9 @@ export interface Party {
 export interface TradeRequest {
   /** Public event id for the resulting trade.completed / trade.failed event. */
   eventId: string;
-  correlationId?: string;
-  guildId?: string;
+  /** Nullable so callers can forward `evt.correlationId`/`evt.guildId` directly; coalesced to NULL below. */
+  correlationId?: string | null | undefined;
+  guildId?: string | null | undefined;
   /** The one paying currency and receiving the item. */
   buyer: Party;
   /** The one receiving currency and giving the item. */

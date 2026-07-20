@@ -41,11 +41,17 @@ export interface BusEvent {
 
 export interface PublishInput {
   type: string;
-  guildId?: string;
-  actor?: { kind: string; id: string };
-  subject?: { kind: string; id: string };
-  payload?: Record<string, unknown>;
-  correlationId?: string;
+  /**
+   * Optional envelope fields accept `null` as well as `undefined` so callers can
+   * forward a nullable source (`evt.guildId`, `evt.correlationId`) directly
+   * instead of hand-rolling `...(x ? { x } : {})` spreads — publish() coalesces
+   * either to the column's NULL below.
+   */
+  guildId?: string | null | undefined;
+  actor?: { kind: string; id: string } | null | undefined;
+  subject?: { kind: string; id: string } | null | undefined;
+  payload?: Record<string, unknown> | null | undefined;
+  correlationId?: string | null | undefined;
   /** Provide a public event id explicitly; otherwise a ULID is generated. */
   eventId?: string;
 }

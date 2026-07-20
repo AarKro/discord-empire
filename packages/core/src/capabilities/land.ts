@@ -155,7 +155,7 @@ export function landCapability(): Capability {
     ctx.logger.info({ player: args.player, blueprint: args.blueprint.id, durationMs }, "build queued");
     await ctx.bus.publish({
       type: "build.queued",
-      ...(args.guildId ? { guildId: args.guildId } : {}),
+      guildId: args.guildId,
       actor: { kind: "player", id: args.player },
       subject: { kind: "npc", id: ctx.bot },
       payload: {
@@ -164,7 +164,7 @@ export function landCapability(): Capability {
         completes_at: completesAt.toISOString(),
         message: `Foundation laid: **${args.blueprint.name}**, ready in ~${mins}m.`,
       },
-      ...(args.correlationId ? { correlationId: args.correlationId } : {}),
+      correlationId: args.correlationId,
     });
   }
 
@@ -178,11 +178,11 @@ export function landCapability(): Capability {
   ): Promise<void> {
     await ctx.bus.publish({
       type: "build.rejected",
-      ...(guildId ? { guildId } : {}),
+      guildId,
       actor: { kind: "player", id: player },
       subject: { kind: "npc", id: ctx.bot },
       payload: { message },
-      ...(correlationId ? { correlationId } : {}),
+      correlationId,
     });
   }
 
@@ -225,7 +225,7 @@ export function landCapability(): Capability {
     awaitingCharge.set(chargeCorr, { player, plot, blueprint, guildId, timer });
     await ctx.bus.publish({
       type: "trade.request",
-      ...(guildId ? { guildId } : {}),
+      guildId,
       actor: { kind: "player", id: player },
       subject: { kind: "npc", id: ctx.bot },
       payload: { item: BUILD_PERMIT_ITEM, qty: 1, price: blueprint.cost_gold },
@@ -297,7 +297,7 @@ export function landCapability(): Capability {
         ctx.logger.info({ queueId, blueprint: row.blueprint_id }, "build completed");
         await ctx.bus.publish({
           type: "notify.requested",
-          ...(evt.guildId ? { guildId: evt.guildId } : {}),
+          guildId: evt.guildId,
           actor: { kind: "player", id: row.owner_id },
           subject: { kind: "npc", id: ctx.bot },
           payload: { message: `Your ${row.blueprint_id} is complete!` },

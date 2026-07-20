@@ -27,8 +27,8 @@ export interface QuoteInput {
   itemId: string;
   qty: number;
   price: number;
-  guildId?: string;
-  correlationId?: string;
+  guildId?: string | null | undefined;
+  correlationId?: string | null | undefined;
 }
 
 /**
@@ -56,8 +56,8 @@ async function runQuote(q: QuoteInput, ctx: CapabilityContext): Promise<void> {
     itemId: q.itemId,
     qty: q.qty,
     price: q.price,
-    ...(q.guildId !== undefined ? { guildId: q.guildId } : {}),
-    ...(q.correlationId !== undefined ? { correlationId: q.correlationId } : {}),
+    guildId: q.guildId,
+    correlationId: q.correlationId,
   });
   if (!res.ok) {
     // executeTrade only emits trade.completed on success; emit the failure
@@ -75,11 +75,11 @@ async function publishFailure(
 ): Promise<void> {
   await ctx.bus.publish({
     type: "trade.failed",
-    ...(q.guildId !== undefined ? { guildId: q.guildId } : {}),
+    guildId: q.guildId,
     actor: { kind: q.buyer.kind, id: q.buyer.id },
     subject: { kind: q.seller.kind, id: q.seller.id },
     payload: { item: q.itemId, qty: q.qty, reason, message },
-    ...(q.correlationId !== undefined ? { correlationId: q.correlationId } : {}),
+    correlationId: q.correlationId,
   });
 }
 
@@ -118,8 +118,8 @@ export function tradeCapability(shop?: Shop): Capability {
         itemId: payload.item,
         qty: payload.qty ?? 1,
         price: payload.price,
-        ...(evt.guildId !== null ? { guildId: evt.guildId } : {}),
-        ...(evt.correlationId !== null ? { correlationId: evt.correlationId } : {}),
+        guildId: evt.guildId,
+        correlationId: evt.correlationId,
       };
 
       // Enforce the hidden reputation-adjusted floor for shop-backed items.
