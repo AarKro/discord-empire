@@ -11,6 +11,8 @@ import {
   ChannelType,
   Client,
   GatewayIntentBits,
+  REST,
+  Routes,
   ThreadAutoArchiveDuration,
   type GuildTextBasedChannel,
   type SendableChannels,
@@ -46,6 +48,70 @@ export interface ComponentInteraction {
 export type ComponentHandler = (interaction: ComponentInteraction) => Promise<void> | void;
 
 /**
+ * A slash-command (ChatInput) interaction reduced to plain data. All option
+ * values are strings in iteration 1 (§5.10). The discord.js Interaction never
+ * leaves the gateway: capabilities only get `reply`, which edits the deferred
+ * ephemeral response.
+ */
+export interface CommandInteraction {
+  commandName: string;
+  options: Record<string, string>;
+  userId: string;
+  guildId: string | null;
+  channelId: string | null;
+  /** Edit the deferred ephemeral reply. Safe to call once; later calls no-op. */
+  reply: (content: string) => Promise<void>;
+}
+
+export type CommandHandler = (interaction: CommandInteraction) => Promise<void> | void;
+
+/** An autocomplete interaction reduced to plain data (§5.10 game-backed hints). */
+export interface AutocompleteInteraction {
+  commandName: string;
+  /** The option currently being typed. */
+  focusedOption: string;
+  /** What the player has typed so far (may be empty). */
+  value: string;
+  userId: string;
+  guildId: string | null;
+}
+
+/** Returns up to 25 name/value choices; the gateway caps and responds. */
+export type AutocompleteHandler = (
+  interaction: AutocompleteInteraction,
+) => Promise<{ name: string; value: string }[]>;
+
+/**
+ * A declarative slash command in the plain shape the gateway registers with
+ * Discord (§9 boot registration). `options` values are always strings (iter 1).
+ */
+export interface CommandRegistration {
+  name: string;
+  description: string;
+  options?: { name: string; description: string; autocomplete?: boolean; required?: boolean }[];
+}
+
+/**
+ * Map CommandRegistration → Discord's application-command REST JSON. Pure and
+ * unit-tested; iteration 1 registers every option as a STRING (type 3).
+ * Discord command/option types: 1 = CHAT_INPUT command, 3 = STRING option.
+ */
+export function toApplicationCommandJson(defs: CommandRegistration[]): unknown[] {
+  return defs.map((d) => ({
+    name: d.name,
+    description: d.description,
+    type: 1,
+    options: (d.options ?? []).map((o) => ({
+      type: 3,
+      name: o.name,
+      description: o.description,
+      required: o.required ?? false,
+      autocomplete: o.autocomplete ?? false,
+    })),
+  }));
+}
+
+/**
  * A minimal FIFO queue so bursty outbound work (e.g. thirty role grants from one
  * event, §9) is serialized per bot. Capabilities pass cost hints via `weight`.
  */
@@ -63,6 +129,8 @@ export class Gateway {
   readonly queue = new CallQueue();
   private readonly log: Logger;
   private readonly componentHandlers: ComponentHandler[] = [];
+  private readonly commandHandlers: CommandHandler[] = [];
+  private readonly autocompleteHandlers: AutocompleteHandler[] = [];
 
   constructor(private readonly opts: GatewayOptions) {
     this.log = (opts.logger ?? rootLogger).child({ component: "gateway", bot: opts.botId });
@@ -75,34 +143,127 @@ export class Gateway {
         GatewayIntentBits.MessageContent,
       ],
     });
-    // Route button/select clicks to registered capability handlers as plain
-    // data. Ack immediately (deferUpdate) so Discord never shows a spinner;
-    // the visible response arrives via bus-driven renders.
+    // All interactions are reduced to plain data before capabilities see them
+    // (invariant #4): buttons/selects, slash commands, and autocomplete.
     this.client.on("interactionCreate", (interaction) => {
-      if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
-      void (async () => {
-        await interaction.deferUpdate().catch(() => {});
-        const reduced: ComponentInteraction = {
-          customId: interaction.customId,
-          values: interaction.isStringSelectMenu() ? [...interaction.values] : [],
-          userId: interaction.user.id,
-          guildId: interaction.guildId,
-          channelId: interaction.channelId,
-        };
-        for (const handler of this.componentHandlers) {
-          try {
-            await handler(reduced);
-          } catch (err) {
-            this.log.error({ err, customId: reduced.customId }, "component handler failed");
+      // Button/select clicks: ack immediately (deferUpdate) so Discord never
+      // shows a spinner; the visible response arrives via bus-driven renders.
+      if (interaction.isButton() || interaction.isStringSelectMenu()) {
+        void (async () => {
+          await interaction.deferUpdate().catch(() => {});
+          const reduced: ComponentInteraction = {
+            customId: interaction.customId,
+            values: interaction.isStringSelectMenu() ? [...interaction.values] : [],
+            userId: interaction.user.id,
+            guildId: interaction.guildId,
+            channelId: interaction.channelId,
+          };
+          for (const handler of this.componentHandlers) {
+            try {
+              await handler(reduced);
+            } catch (err) {
+              this.log.error({ err, customId: reduced.customId }, "component handler failed");
+            }
           }
-        }
-      })();
+        })();
+        return;
+      }
+
+      // Slash commands: defer ephemerally at once (the result may arrive later
+      // via a bus round-trip), reduce to plain data, hand a `reply` callback
+      // that edits the deferred response (the Interaction stays in the gateway).
+      if (interaction.isChatInputCommand()) {
+        void (async () => {
+          await interaction.deferReply({ ephemeral: true }).catch(() => {});
+          const options: Record<string, string> = {};
+          for (const opt of interaction.options.data) {
+            options[opt.name] = opt.value === undefined ? "" : String(opt.value);
+          }
+          const reduced: CommandInteraction = {
+            commandName: interaction.commandName,
+            options,
+            userId: interaction.user.id,
+            guildId: interaction.guildId,
+            channelId: interaction.channelId,
+            reply: (content: string) =>
+              this.queue
+                .enqueue(async () => {
+                  await interaction.editReply({ content });
+                }, 1)
+                .catch((err) => {
+                  this.log.warn({ err, command: interaction.commandName }, "failed to edit deferred reply");
+                }),
+          };
+          for (const handler of this.commandHandlers) {
+            try {
+              await handler(reduced);
+            } catch (err) {
+              this.log.error({ err, command: reduced.commandName }, "command handler failed");
+            }
+          }
+        })();
+        return;
+      }
+
+      // Autocomplete: resolve choices synchronously against game data and
+      // respond (must answer within Discord's 3s window; do NOT queue).
+      if (interaction.isAutocomplete()) {
+        void (async () => {
+          const focused = interaction.options.getFocused(true);
+          const reduced: AutocompleteInteraction = {
+            commandName: interaction.commandName,
+            focusedOption: focused.name,
+            value: String(focused.value ?? ""),
+            userId: interaction.user.id,
+            guildId: interaction.guildId,
+          };
+          const choices: { name: string; value: string }[] = [];
+          for (const handler of this.autocompleteHandlers) {
+            try {
+              choices.push(...(await handler(reduced)));
+            } catch (err) {
+              this.log.warn({ err, command: reduced.commandName }, "autocomplete handler failed");
+            }
+          }
+          await interaction.respond(choices.slice(0, 25)).catch(() => {});
+        })();
+      }
     });
   }
 
   /** Register a handler for button/select interactions (plain data only). */
   onComponent(handler: ComponentHandler): void {
     this.componentHandlers.push(handler);
+  }
+
+  /** Register a handler for slash-command interactions (plain data + reply cb). */
+  onCommand(handler: CommandHandler): void {
+    this.commandHandlers.push(handler);
+  }
+
+  /** Register a handler for autocomplete interactions (plain data → choices). */
+  onAutocomplete(handler: AutocompleteHandler): void {
+    this.autocompleteHandlers.push(handler);
+  }
+
+  /**
+   * Idempotently register this bot's slash commands for one guild (§9). A bulk
+   * PUT overwrites the guild's command set for this application, so re-running
+   * on every boot converges without duplicates — that IS the idempotency.
+   * Guild-scoped commands appear instantly (no ~1h global propagation).
+   */
+  async registerApplicationCommands(guildId: string, defs: CommandRegistration[]): Promise<void> {
+    const appId = this.client.application?.id ?? this.client.user?.id;
+    if (!appId) {
+      this.log.warn({ guildId }, "cannot register commands before login");
+      return;
+    }
+    const body = toApplicationCommandJson(defs);
+    const rest = new REST().setToken(this.opts.token);
+    await this.queue.enqueue(async () => {
+      await rest.put(Routes.applicationGuildCommands(appId, guildId), { body });
+      this.log.info({ guildId, commands: defs.map((d) => d.name) }, "slash commands registered");
+    }, 2);
   }
 
   async login(): Promise<void> {

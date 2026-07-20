@@ -15,6 +15,25 @@ import type { Continents, Shop } from "@empire/content-schemas";
 import type { Sql } from "@empire/db";
 import type { Logger } from "./logger.js";
 import { rootLogger } from "./logger.js";
+import { BUILD_PERMIT_ITEM } from "./capabilities/land.js";
+
+/** A buildable recipe seeded into blueprint_catalog (§5.12, §10 Builder). */
+export interface BlueprintSeed {
+  id: string;
+  name: string;
+  costGold: number;
+  baseMs: number;
+}
+
+/**
+ * The default buildable catalog for iteration-1 dev. Costs are ≤100 so a fresh
+ * 150-gold player can afford one. Build times are short so a dev can watch the
+ * tick service complete them.
+ */
+export const DEFAULT_BLUEPRINTS: BlueprintSeed[] = [
+  { id: "farm", name: "Wheat Farm", costGold: 50, baseMs: 300_000 }, // ~5m
+  { id: "forge", name: "Blacksmith Forge", costGold: 100, baseMs: 600_000 }, // ~10m
+];
 
 export interface BootstrapOptions {
   token: string;
@@ -23,6 +42,10 @@ export interface BootstrapOptions {
   /** The NPC whose stall/stock is being seeded (iteration 1: "merchant"). */
   npcId: string;
   shop: Shop;
+  /** The builder NPC that "sells" build permits (the cost sink). */
+  builderId?: string;
+  /** Buildable recipes to seed; defaults to DEFAULT_BLUEPRINTS. */
+  blueprints?: BlueprintSeed[];
   logger?: Logger;
 }
 
@@ -91,6 +114,37 @@ export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
       seeded += rows.length;
     }
     log.info({ npc: opts.npcId, seeded, items: opts.shop.items.length }, "npc + stock seeded (existing rows untouched)");
+
+    // Seed the buildable catalog idempotently (§5.12, §10 Builder). Rerunnable:
+    // ON CONFLICT DO NOTHING leaves any hand-tuned rows alone.
+    const blueprints = opts.blueprints ?? DEFAULT_BLUEPRINTS;
+    let bpSeeded = 0;
+    for (const bp of blueprints) {
+      const rows = await opts.sql`
+        INSERT INTO blueprint_catalog (id, name, cost_gold, base_ms)
+        VALUES (${bp.id}, ${bp.name}, ${bp.costGold}, ${bp.baseMs})
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id
+      `;
+      bpSeeded += rows.length;
+    }
+    log.info({ seeded: bpSeeded, total: blueprints.length }, "blueprint catalog seeded (existing rows untouched)");
+
+    // The builder NPC "sells" build permits (the cost sink for /build). Seed the
+    // NPC row and a large permit stock so the atomic trade always has stock; the
+    // ledger write still goes through `trade`.
+    if (opts.builderId) {
+      await opts.sql`
+        INSERT INTO npcs (id, kind) VALUES (${opts.builderId}, 'builder')
+        ON CONFLICT (id) DO NOTHING
+      `;
+      await opts.sql`
+        INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
+        VALUES ('npc', ${opts.builderId}, ${BUILD_PERMIT_ITEM}, 1000000)
+        ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
+      `;
+      log.info({ builder: opts.builderId }, "builder npc + permit stock seeded");
+    }
   } finally {
     await client.destroy();
   }

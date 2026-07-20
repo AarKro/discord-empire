@@ -24,6 +24,7 @@ import {
   notifyCapability,
   commandsCapability,
   type CapabilityContext,
+  type CommandDef,
 } from "@empire/core";
 import { openDb } from "@empire/db";
 
@@ -43,21 +44,59 @@ async function main(): Promise<void> {
   const bus = new EventBus(sql, `bot-${manifest.id}`, log);
   const gateway = new Gateway({ token, botId: manifest.id, personas, logger: log });
 
+  // Builder slash commands (§5.10, §10 Builder). /build is a round-trip (guards
+  // → trade → queue → ephemeral reply); /balance and /inventory answer directly
+  // from the DB. Autocomplete for blueprints is DB-backed, run inside core.
+  const commands: CommandDef[] = [
+    {
+      name: "build",
+      description: "Queue a building on your land",
+      route: "build.requested",
+      options: [{ name: "blueprint", description: "What to build", autocomplete: true, required: true }],
+      autocomplete: async (ctx, typed) => {
+        const like = `%${typed.toLowerCase()}%`;
+        const rows = await ctx.sql<{ id: string; name: string; cost_gold: number }[]>`
+          SELECT id, name, cost_gold FROM blueprint_catalog
+          WHERE lower(name) LIKE ${like} OR lower(id) LIKE ${like}
+          ORDER BY cost_gold ASC LIMIT 25
+        `;
+        return rows.map((r) => ({ name: `${r.name} (${r.cost_gold}g)`, value: r.id }));
+      },
+    },
+    {
+      name: "balance",
+      description: "How much coin you carry",
+      route: "",
+      resolve: async (ctx, { userId }) => {
+        const [bal] = await ctx.sql<{ amount: number }[]>`
+          SELECT amount FROM balances
+          WHERE owner_kind = 'player' AND owner_id = ${userId} AND currency = 'gold'
+        `;
+        return `You carry **${bal?.amount ?? 0} gold**.`;
+      },
+    },
+    {
+      name: "inventory",
+      description: "What you own",
+      route: "",
+      resolve: async (ctx, { userId }) => {
+        const rows = await ctx.sql<{ item_id: string; qty: number }[]>`
+          SELECT item_id, qty FROM inventories
+          WHERE owner_kind = 'player' AND owner_id = ${userId} AND qty > 0
+          ORDER BY item_id ASC
+        `;
+        if (rows.length === 0) return "Your packs are empty.";
+        return "You carry:\n" + rows.map((r) => `• ${r.qty}× ${r.item_id}`).join("\n");
+      },
+    },
+  ];
+
   const registry = new CapabilityRegistry();
   registry.register(tradeCapability());
   registry.register(topologyCapability());
   registry.register(landCapability());
   registry.register(notifyCapability());
-  registry.register(
-    commandsCapability([
-      {
-        name: "build",
-        description: "Queue a building on your land",
-        route: "build.start",
-        options: [{ name: "blueprint", description: "What to build", autocomplete: true, required: true }],
-      },
-    ]),
-  );
+  registry.register(commandsCapability(commands));
 
   const makeContext = (correlationId: string): CapabilityContext => ({
     bot: manifest.id,

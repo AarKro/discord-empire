@@ -193,6 +193,16 @@ export const blueprints = pgTable(
   (t) => ({ pk: primaryKey({ columns: [t.ownerId, t.blueprintId] }) }),
 );
 
+// The buildable catalog (§5.12, §10 Builder): the recipes /build offers. Cost is
+// deducted through `trade`; base_ms is tier-scaled at enqueue (scaledBuildMs).
+// Distinct from `blueprints`, which records which recipes a PLAYER owns.
+export const blueprintCatalog = pgTable("blueprint_catalog", {
+  id: text("id").primaryKey(), // e.g. "farm", "forge"
+  name: text("name").notNull(), // display name, e.g. "Wheat Farm"
+  costGold: bigint("cost_gold", { mode: "number" }).notNull().default(0),
+  baseMs: bigint("base_ms", { mode: "number" }).notNull().default(300000),
+});
+
 export const reputation = pgTable(
   "reputation",
   {

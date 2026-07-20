@@ -22,7 +22,18 @@ async function main(): Promise<void> {
 
   const { sql, close } = openDb(url);
   try {
-    await bootstrapWorld({ token, sql, continents, npcId: manifest.id, shop, logger: rootLogger });
+    await bootstrapWorld({
+      token,
+      sql,
+      continents,
+      npcId: manifest.id,
+      shop,
+      // Iteration 1 seeds the Builder's cost-sink NPC + build permit stock and
+      // the buildable catalog here too, so a single world:init covers both
+      // reference bots (§10). The merchant bot has Manage Channels, so it runs it.
+      builderId: "builder",
+      logger: rootLogger,
+    });
   } finally {
     await close();
   }
