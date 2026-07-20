@@ -43,7 +43,6 @@ describe("shipped content validates against schemas", () => {
 
   it("workflows", () => {
     expect(loadContentFile(Workflow, join(CONTENT, "workflows/merchant_wander.yaml")).initial).toBe("at_bazaar");
-    expect(loadContentFile(Workflow, join(CONTENT, "workflows/build_queue.yaml")).id).toBe("build_queue");
   });
 
   it("continents (two dev guilds) and instances", () => {

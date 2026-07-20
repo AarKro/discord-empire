@@ -5,7 +5,8 @@
  * (registered player, valid blueprint, sufficient gold), cost deducted via the
  * `trade` capability, a build_queue row with a tier-scaled timer, and a result
  * event the commands capability turns into the ephemeral reply. The tick service
- * fires build.completed; we mark the row done and notify.
+ * fires build.completed; we flip the row to 'completed' (guarded, so a redelivered
+ * tick no-ops) and emit notify.requested for the player exactly once.
  *
  * Iteration-1 shortcut: the first /build auto-provisions a starter plot (the
  * auto-register-on-first-interaction philosophy, §2.1 — mirroring ensurePlayer)
@@ -25,6 +26,9 @@ import { ensurePlayer, type Sql } from "@empire/db";
 
 /** First interaction = registration (§2.1). Mirrors dialogue-thread's default. */
 const STARTING_GOLD = Number(process.env.STARTING_GOLD ?? 150);
+
+/** Evict an awaiting-charge entry if its cost trade never settles (leak guard). */
+const CHARGE_TIMEOUT_MS = 30_000;
 
 /**
  * The single-use item a builder "sells" the player for a build. Modeling the
@@ -131,7 +135,7 @@ export function landCapability(): Capability {
    */
   const awaitingCharge = new Map<
     string,
-    { player: string; plot: string; blueprint: BlueprintRow; guildId: string | null }
+    { player: string; plot: string; blueprint: BlueprintRow; guildId: string | null; timer: ReturnType<typeof setTimeout> }
   >();
 
   /** Insert the build_queue row with a tier-scaled timer and announce it. */
@@ -205,20 +209,20 @@ export function landCapability(): Capability {
     // First build stakes a starter plot and provisions its channels.
     const plot = await ensurePlot(ctx, player, homeGuildId);
 
-    // Guard: sufficient gold. The atomic trade re-checks this authoritatively;
-    // the early read gives a friendlier message before we spend an event.
-    const [bal] = await ctx.sql<{ amount: number }[]>`
-      SELECT amount FROM balances WHERE owner_kind = 'player' AND owner_id = ${player} AND currency = 'gold'
-    `;
-    if ((bal?.amount ?? 0) < blueprint.cost_gold) {
-      await reject(ctx, player, guildId, correlationId, "You can't cover the cost of that just yet.");
-      return;
-    }
-
     // Deduct the cost through `trade` (invariant #2): a trade.request addressed
-    // to this builder. On trade.completed with this correlationId we enqueue.
+    // to this builder. The atomic trade is the authority on affordability — it
+    // fails cleanly on insufficient funds, which we turn into the same rejection.
+    // On trade.completed with this correlationId we enqueue; a trade that never
+    // settles is evicted by a timer so awaitingCharge can't leak.
     const chargeCorr = correlationId ?? `bld_${ulid()}`;
-    awaitingCharge.set(chargeCorr, { player, plot, blueprint, guildId });
+    const timer = setTimeout(() => {
+      if (awaitingCharge.delete(chargeCorr)) {
+        ctx.logger.warn({ chargeCorr, player }, "build charge never settled; evicting");
+        void reject(ctx, player, guildId, correlationId, "…the coin never cleared. Try again in a moment.");
+      }
+    }, CHARGE_TIMEOUT_MS);
+    if (timer.unref) timer.unref();
+    awaitingCharge.set(chargeCorr, { player, plot, blueprint, guildId, timer });
     await ctx.bus.publish({
       type: "trade.request",
       ...(guildId ? { guildId } : {}),
@@ -253,7 +257,12 @@ export function landCapability(): Capability {
     async handle(evt, ctx) {
       // /build invocation → guards → trade round-trip.
       if (evt.type === "build.requested") {
-        if (evt.subject && evt.subject.id !== ctx.bot) return;
+        // Broadcast bus: only the addressed builder acts. A mismatch means a
+        // mis-seeded/mis-addressed build — warn so it isn't a silent black hole.
+        if (evt.subject && evt.subject.id !== ctx.bot) {
+          ctx.logger.warn({ subject: evt.subject.id, bot: ctx.bot }, "build.requested addressed to another bot; ignoring");
+          return;
+        }
         await requestBuild(evt, ctx);
         return;
       }
@@ -265,6 +274,7 @@ export function landCapability(): Capability {
         const pending = awaitingCharge.get(corr);
         if (!pending) return; // not one of our build charges (broadcast bus).
         awaitingCharge.delete(corr);
+        clearTimeout(pending.timer);
         if (evt.type === "trade.failed") {
           await reject(ctx, pending.player, pending.guildId, corr, "You can't cover the cost of that just yet.");
           return;
@@ -273,7 +283,9 @@ export function landCapability(): Capability {
         return;
       }
 
-      // Tick service fires build.completed(queue_id); update the queue + notify.
+      // Tick service fires build.completed(queue_id). Flip the row to 'completed'
+      // — guarded on status='building' so a redelivered tick returns no row and
+      // no-ops — then ask notify to ping the player exactly once.
       if (evt.type === "build.completed") {
         const queueId = String((evt.payload as Record<string, unknown>).queue_id ?? "");
         if (!queueId) return;
@@ -283,6 +295,13 @@ export function landCapability(): Capability {
         `;
         if (!row) return;
         ctx.logger.info({ queueId, blueprint: row.blueprint_id }, "build completed");
+        await ctx.bus.publish({
+          type: "notify.requested",
+          ...(evt.guildId ? { guildId: evt.guildId } : {}),
+          actor: { kind: "player", id: row.owner_id },
+          subject: { kind: "npc", id: ctx.bot },
+          payload: { message: `Your ${row.blueprint_id} is complete!` },
+        });
       }
     },
   };

@@ -1,7 +1,8 @@
 /**
  * Unit tests for notify's delivery path (§5.9). Postgres and the gateway are
- * faked; we assert notify posts build-completion straight to the player's land
- * channel and skips-with-log when no channel exists (the fallback contract).
+ * faked; we assert notify posts a requested message straight to the player's
+ * land channel and skips-with-log when no channel exists (the fallback contract).
+ * notify carries no domain knowledge — the message text arrives on the event.
  */
 import { describe, it, expect } from "vitest";
 import { notifyCapability } from "../src/capabilities/notify.js";
@@ -38,41 +39,48 @@ function makeCtx(world: World): CapabilityContext {
   } as CapabilityContext;
 }
 
-function buildCompleted(over: Partial<BusEvent> = {}): BusEvent {
+function notifyRequested(over: Partial<BusEvent> = {}): BusEvent {
   return {
     dbId: "1", eventId: "e1", ts: "", guildId: "g1",
-    type: "build.completed",
+    type: "notify.requested",
     actor: { kind: "player", id: "u1" },
-    payload: { blueprint: "Wheat Farm" },
+    subject: { kind: "npc", id: "builder" },
+    payload: { message: "Your farm is complete!" },
     ...over,
   } as BusEvent;
 }
 
 describe("notify delivery (§5.9)", () => {
-  it("posts build-completion to the player's land channel", async () => {
+  it("posts the requested message to the player's land channel", async () => {
     const world: World = { channel: "chan1", prefs: null, sends: [] };
-    await notifyCapability().handle!(buildCompleted(), makeCtx(world));
+    await notifyCapability().handle!(notifyRequested(), makeCtx(world));
     expect(world.sends).toHaveLength(1);
     expect(world.sends[0]!.channelId).toBe("chan1");
-    expect(world.sends[0]!.content).toContain("Wheat Farm");
+    expect(world.sends[0]!.content).toBe("Your farm is complete!");
   });
 
   it("skips with no send when the plot has no land channel", async () => {
     const world: World = { channel: null, prefs: null, sends: [] };
-    await notifyCapability().handle!(buildCompleted(), makeCtx(world));
+    await notifyCapability().handle!(notifyRequested(), makeCtx(world));
     expect(world.sends).toHaveLength(0);
   });
 
   it("falls back to the land channel for a DM-opted-in player (DM not wired yet)", async () => {
     const world: World = { channel: "chan1", prefs: { target: "dm", dm: true }, sends: [] };
-    await notifyCapability().handle!(buildCompleted(), makeCtx(world));
+    await notifyCapability().handle!(notifyRequested(), makeCtx(world));
     expect(world.sends).toHaveLength(1);
     expect(world.sends[0]!.channelId).toBe("chan1");
   });
 
-  it("ignores non-build.completed events", async () => {
+  it("ignores notifications addressed to another bot (broadcast bus)", async () => {
     const world: World = { channel: "chan1", prefs: null, sends: [] };
-    await notifyCapability().handle!(buildCompleted({ type: "trade.completed" }), makeCtx(world));
+    await notifyCapability().handle!(notifyRequested({ subject: { kind: "npc", id: "merchant" } }), makeCtx(world));
+    expect(world.sends).toHaveLength(0);
+  });
+
+  it("ignores events other than notify.requested", async () => {
+    const world: World = { channel: "chan1", prefs: null, sends: [] };
+    await notifyCapability().handle!(notifyRequested({ type: "build.completed" }), makeCtx(world));
     expect(world.sends).toHaveLength(0);
   });
 });

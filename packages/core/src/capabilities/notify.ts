@@ -4,6 +4,13 @@
  * preferred target -> land channel -> skip with log. This capability runs in the
  * bot process, so it delivers straight through the gateway rather than emitting
  * a render event (the builder bot has no render surface).
+ *
+ * Delivery is driven by a single `notify.requested` event that a domain
+ * capability publishes AFTER its own guarded state transition (e.g. land emits
+ * it only when a build_queue row actually flips to 'completed'). That keeps
+ * delivery exactly-once: a redelivered build.completed no-ops in land and never
+ * reaches here, so the player is never pinged twice. notify carries no
+ * domain knowledge — the message text is decided by the publisher.
  */
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
@@ -49,7 +56,7 @@ async function deliver(ctx: CapabilityContext, playerId: string, message: string
 export function notifyCapability(): Capability {
   return {
     name: "notify",
-    consumes: ["build.completed", "research.completed"],
+    consumes: ["notify.requested"],
     actions: {
       "notify.player": async (args, _evt, ctx: CapabilityContext) => {
         await deliver(ctx, String(args.player), String(args.message));
@@ -57,9 +64,12 @@ export function notifyCapability(): Capability {
     },
 
     async handle(evt: BusEvent, ctx: CapabilityContext): Promise<void> {
-      if (evt.type !== "build.completed" || !evt.actor) return;
-      const blueprint = String((evt.payload as { blueprint?: unknown }).blueprint ?? "your building");
-      await deliver(ctx, evt.actor.id, `Your ${blueprint} is complete!`);
+      if (evt.type !== "notify.requested" || !evt.actor) return;
+      // The bus is broadcast: only deliver notifications addressed to this bot.
+      if (evt.subject && evt.subject.id !== ctx.bot) return;
+      const message = String((evt.payload as { message?: unknown }).message ?? "");
+      if (!message) return;
+      await deliver(ctx, evt.actor.id, message);
     },
   };
 }

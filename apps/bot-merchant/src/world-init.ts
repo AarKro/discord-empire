@@ -16,6 +16,9 @@ async function main(): Promise<void> {
   const manifest = loadContentFile(Manifest, join(CONTENT_DIR, "manifests/merchant.yaml"));
   const continents = loadContentFile(Continents, join(CONTENT_DIR, "continents.yaml"));
   const shop = loadContentFile(Shop, join(CONTENT_DIR, manifest.content?.shop ?? "shops/aldric.yaml"));
+  // Seed the builder's cost-sink NPC under its real manifest id (the builder bot
+  // trades as its manifest.id), so the two can never drift out of sync.
+  const builderManifest = loadContentFile(Manifest, join(CONTENT_DIR, "manifests/builder.yaml"));
 
   const token = process.env[manifest.token_env];
   if (!token) throw new Error(`${manifest.token_env} is required`);
@@ -31,7 +34,7 @@ async function main(): Promise<void> {
       // Iteration 1 seeds the Builder's cost-sink NPC + build permit stock and
       // the buildable catalog here too, so a single world:init covers both
       // reference bots (§10). The merchant bot has Manage Channels, so it runs it.
-      builderId: "builder",
+      builderId: builderManifest.id,
       logger: rootLogger,
     });
   } finally {

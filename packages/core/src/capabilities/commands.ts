@@ -26,7 +26,7 @@ import type { CommandInteraction } from "../gateway.js";
 const REPLY_TIMEOUT_MS = 10_000;
 
 /** Result event types that can resolve a held ephemeral reply by correlationId. */
-const RESULT_EVENT_TYPES = ["build.queued", "build.rejected", "command.reply"];
+const RESULT_EVENT_TYPES = ["build.queued", "build.rejected"];
 
 export interface CommandDef {
   name: string;
@@ -72,10 +72,17 @@ export function commandsCapability(defs: CommandDef[]): Capability {
     const def = byName.get(i.commandName);
     if (!def) return; // another bot's command on the shared gateway — ignore.
 
-    // Direct commands answer straight from the DB, no round-trip.
+    // Direct commands answer straight from the DB, no round-trip. Unlike the
+    // round-trip path there's no result-event timeout to fall back on, so a
+    // throwing resolver must reply here or the ephemeral interaction hangs.
     if (def.resolve) {
-      const content = await def.resolve(ctx, { options: i.options, userId: i.userId, guildId: i.guildId });
-      await i.reply(content);
+      try {
+        const content = await def.resolve(ctx, { options: i.options, userId: i.userId, guildId: i.guildId });
+        await i.reply(content);
+      } catch (err) {
+        ctx.logger.error({ err, command: i.commandName }, "direct command resolve failed");
+        await i.reply("…the ledger is smudged just now. Try again in a moment.");
+      }
       return;
     }
 

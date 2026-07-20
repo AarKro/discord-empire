@@ -23,6 +23,7 @@ import {
   landCapability,
   notifyCapability,
   commandsCapability,
+  BUILD_PERMIT_ITEM,
   type CapabilityContext,
   type CommandDef,
 } from "@empire/core";
@@ -80,9 +81,11 @@ async function main(): Promise<void> {
       description: "What you own",
       route: "",
       resolve: async (ctx, { userId }) => {
+        // build_permit is an internal cost-modeling token (the builder "sells" it
+        // to charge for a build); it must never surface in the player's packs.
         const rows = await ctx.sql<{ item_id: string; qty: number }[]>`
           SELECT item_id, qty FROM inventories
-          WHERE owner_kind = 'player' AND owner_id = ${userId} AND qty > 0
+          WHERE owner_kind = 'player' AND owner_id = ${userId} AND qty > 0 AND item_id <> ${BUILD_PERMIT_ITEM}
           ORDER BY item_id ASC
         `;
         if (rows.length === 0) return "Your packs are empty.";

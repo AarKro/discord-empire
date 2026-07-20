@@ -25,6 +25,8 @@ interface World {
   /** spies for the provisioning path. */
   plotChannelCalls?: number;
   channelUpdates?: number;
+  /** row the guarded build_queue completion UPDATE returns (null = already done). */
+  completeRow?: { owner_id: string; blueprint_id: string } | null;
 }
 
 function makeCtx(world: World): CapabilityContext {
@@ -47,6 +49,8 @@ function makeCtx(world: World): CapabilityContext {
     if (q.includes("FROM balances")) return Promise.resolve([{ amount: world.gold }]);
     if (q.includes("SELECT tier FROM players")) return Promise.resolve([{ tier: 1 }]);
     if (q.includes("INSERT INTO build_queue")) return Promise.resolve([{ id: "q1" }]);
+    if (q.includes("UPDATE build_queue"))
+      return Promise.resolve(world.completeRow === undefined ? [{ owner_id: "u1", blueprint_id: "farm" }] : world.completeRow ? [world.completeRow] : []);
     return Promise.resolve([]);
   };
   (sql as unknown as { begin: unknown }).begin = async (fn: (tx: unknown) => Promise<unknown>) => {
@@ -137,10 +141,15 @@ describe("/build guards (§10 Builder)", () => {
     expect(world.published.find((e) => e.type === "trade.request")).toBeDefined();
   });
 
-  it("rejects when the player can't afford the blueprint", async () => {
+  it("routes an unaffordable build to the trade — the atomic ledger is the authority", async () => {
     const world: World = { gold: 10, blueprint: farm, hasPlot: true, playerExists: true, plotInserts: 0, published: [] };
     const cap = landCapability();
-    await cap.handle!(evt({ type: "build.requested", payload: { blueprint: "farm" } }), makeCtx(world));
+    const ctx = makeCtx(world);
+    await cap.handle!(evt({ type: "build.requested", payload: { blueprint: "farm" } }), ctx);
+    // No early reject: the trade decides affordability and fails cleanly.
+    expect(world.published.find((e) => e.type === "build.rejected")).toBeUndefined();
+    expect(world.published.find((e) => e.type === "trade.request")).toBeDefined();
+    await cap.handle!(evt({ type: "trade.failed", correlationId: "cmd_1" }), ctx);
     expect(world.published.find((e) => e.type === "build.rejected")).toBeDefined();
   });
 
@@ -213,6 +222,30 @@ describe("land plot channel provisioning (§2.4)", () => {
     expect(world.plotChannelCalls).toBe(1);
     expect(world.channelUpdates).toBeUndefined(); // no ids to store
     expect(world.published.find((e) => e.type === "trade.request")).toBeDefined();
+  });
+});
+
+describe("build completion → notify (§5.9, exactly-once)", () => {
+  it("flips the queue row and asks notify to ping the owner", async () => {
+    const world: World = {
+      gold: 150, blueprint: farm, hasPlot: true, playerExists: true, plotInserts: 0, published: [],
+      completeRow: { owner_id: "u1", blueprint_id: "farm" },
+    };
+    const cap = landCapability();
+    await cap.handle!(evt({ type: "build.completed", payload: { queue_id: "q1" } }), makeCtx(world));
+    const n = world.published.find((e) => e.type === "notify.requested");
+    expect(n).toBeDefined();
+    expect(String(n?.payload?.message)).toContain("farm");
+  });
+
+  it("no-ops (no notify) when the completion transition already happened", async () => {
+    const world: World = {
+      gold: 150, blueprint: farm, hasPlot: true, playerExists: true, plotInserts: 0, published: [],
+      completeRow: null, // the guarded UPDATE returns no row on a replayed tick
+    };
+    const cap = landCapability();
+    await cap.handle!(evt({ type: "build.completed", payload: { queue_id: "q1" } }), makeCtx(world));
+    expect(world.published.find((e) => e.type === "notify.requested")).toBeUndefined();
   });
 });
 
