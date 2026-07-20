@@ -9,13 +9,17 @@ personas:
     nickname: "Mei Lin"
     avatar: meilin.png
     locale_flavor: harbor
+# Registration order = dispatch order; render stays last so it draws the latest
+# state. topology (presence gate) and render (bus→Discord surface) are infra.
 capabilities:
-  - presence.voice
+  - trade
+  - topology
   - stall
   - dialogue.thread
-  - trade
+  - presence.voice
   - voicelines
   - ambient.chatter
+  - render
 home:
   "${GUILD_CONTINENT_ONE}": { voice_channel: bazaar_vc }
   "${GUILD_CONTINENT_TWO}": { voice_channel: harbor_vc }

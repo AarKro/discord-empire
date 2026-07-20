@@ -9,8 +9,10 @@ personas:
     nickname: "Foreman Kai"
     avatar: kai.png
     locale_flavor: harbor
+# Registration order = dispatch order. topology is the infra presence gate.
 capabilities:
-  - commands
+  - trade
+  - topology
   - land
   - notify
-  - trade
+  - commands
