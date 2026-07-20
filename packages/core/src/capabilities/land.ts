@@ -7,13 +7,15 @@
  * event the commands capability turns into the ephemeral reply. The tick service
  * fires build.completed; we mark the row done and notify.
  *
- * Iteration-1 shortcut: the first /build auto-provisions a DB-only starter
- * plot (the auto-register-on-first-interaction philosophy, §2.1 — mirroring
- * ensurePlayer). No Discord channels are created for it yet; land channel
- * provisioning is a later pass, and notify's skip-with-log fallback (§5.9)
- * covers the absent channel.
+ * Iteration-1 shortcut: the first /build auto-provisions a starter plot (the
+ * auto-register-on-first-interaction philosophy, §2.1 — mirroring ensurePlayer)
+ * and provisions its Discord surface: one text channel (the anchor for building
+ * threads, later) and one voice channel (where NPCs gather) under the guild's
+ * "Land" category. Provisioning needs Manage Channels; if the category or that
+ * permission is absent the plot stays DB-only and notify's skip-with-log
+ * fallback (§5.9) covers the missing channel — provisioning never blocks a build.
  *
- * Channel/thread provisioning is exercised on dev servers; queue state and the
+ * Channel provisioning is exercised on dev servers; queue state and the
  * charge→enqueue handshake are the testable core.
  */
 import { ulid } from "ulid";
@@ -56,22 +58,61 @@ async function loadBlueprint(sql: Sql, id: string): Promise<BlueprintRow | null>
 }
 
 /**
- * Resolve the player's land plot, auto-provisioning a DB-only starter plot on
- * first /build (iteration-1 shortcut; see header). The deterministic id plus
- * ON CONFLICT DO NOTHING makes concurrent double-invocations safe — both
- * callers converge on the same row.
+ * Give a plot its Discord surface: a text + voice channel under the guild's
+ * "Land" category (seeded by world:init as a `locations` row of kind 'land').
+ * Best-effort — a missing category or Manage Channels permission logs and
+ * leaves the plot DB-only rather than failing the build (§5.9 fallback).
  */
-async function ensurePlot(sql: Sql, playerId: string, guildId: string): Promise<string> {
-  const [existing] = await sql<{ id: string }[]>`
-    SELECT id FROM land_plots WHERE owner_id = ${playerId} AND pruned = false LIMIT 1
+async function provisionPlotChannels(
+  ctx: CapabilityContext,
+  plotId: string,
+  playerId: string,
+  guildId: string,
+): Promise<void> {
+  const [loc] = await ctx.sql<{ channel_id: string | null }[]>`
+    SELECT channel_id FROM locations WHERE guild_id = ${guildId} AND kind = 'land' LIMIT 1
   `;
-  if (existing) return existing.id;
-  const id = `plot_${playerId}`;
-  await sql`
-    INSERT INTO land_plots (id, owner_id, guild_id)
-    VALUES (${id}, ${playerId}, ${guildId})
-    ON CONFLICT (id) DO NOTHING
+  if (!loc?.channel_id) {
+    ctx.logger.warn({ guildId }, "no land category for guild — run world:init; plot stays DB-only");
+    return;
+  }
+  const channels = await ctx.gateway.createPlotChannels(guildId, playerId, loc.channel_id);
+  if (!channels) {
+    ctx.logger.warn({ plotId, guildId }, "plot channel provisioning failed (needs Manage Channels)");
+    return;
+  }
+  await ctx.sql`
+    UPDATE land_plots
+       SET text_channel_id = ${channels.textId}, voice_channel_id = ${channels.voiceId}
+     WHERE id = ${plotId}
   `;
+  ctx.logger.info({ plotId, ...channels }, "plot channels provisioned");
+}
+
+/**
+ * Resolve the player's land plot, auto-provisioning a starter plot on first
+ * /build (iteration-1 shortcut; see header). The deterministic id plus ON
+ * CONFLICT DO NOTHING makes concurrent double-invocations safe — both callers
+ * converge on the same row. A plot without Discord channels (freshly staked, or
+ * staked before this permission was granted) gets them provisioned here.
+ */
+async function ensurePlot(ctx: CapabilityContext, playerId: string, guildId: string): Promise<string> {
+  const [existing] = await ctx.sql<{ id: string; text_channel_id: string | null }[]>`
+    SELECT id, text_channel_id FROM land_plots WHERE owner_id = ${playerId} AND pruned = false LIMIT 1
+  `;
+  const id = existing?.id ?? `plot_${playerId}`;
+  if (!existing) {
+    // A pruned plot shares this deterministic id but was filtered out above;
+    // building reclaims it (un-prune) rather than leaving a stale pruned row.
+    await ctx.sql`
+      INSERT INTO land_plots (id, owner_id, guild_id)
+      VALUES (${id}, ${playerId}, ${guildId})
+      ON CONFLICT (id) DO UPDATE SET pruned = false
+    `;
+  }
+  if (!existing?.text_channel_id) {
+    await provisionPlotChannels(ctx, id, playerId, guildId);
+  }
   return id;
 }
 
@@ -161,8 +202,8 @@ export function landCapability(): Capability {
       return;
     }
 
-    // First build stakes a starter plot (DB-only; see header shortcut).
-    const plot = await ensurePlot(ctx.sql, player, homeGuildId);
+    // First build stakes a starter plot and provisions its channels.
+    const plot = await ensurePlot(ctx, player, homeGuildId);
 
     // Guard: sufficient gold. The atomic trade re-checks this authoritatively;
     // the early read gives a friendlier message before we spend an event.

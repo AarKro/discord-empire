@@ -16,16 +16,32 @@ interface World {
   playerExists: boolean;
   plotInserts: number;
   published: { type: string; correlationId?: string; payload?: Record<string, unknown> }[];
+  /** text_channel_id of the existing plot (null = provisioned-but-channelless). */
+  existingChannel?: string | null;
+  /** channel_id of the guild's "Land" category, or undefined = not seeded. */
+  landCategoryId?: string | null;
+  /** true = gateway.createPlotChannels reports a permission failure (returns null). */
+  provisionFails?: boolean;
+  /** spies for the provisioning path. */
+  plotChannelCalls?: number;
+  channelUpdates?: number;
 }
 
 function makeCtx(world: World): CapabilityContext {
   const sql = (strings: TemplateStringsArray): Promise<unknown[]> => {
     const q = strings.join("?");
     if (q.includes("FROM blueprint_catalog")) return Promise.resolve(world.blueprint ? [world.blueprint] : []);
-    if (q.includes("FROM land_plots")) return Promise.resolve(world.hasPlot ? [{ id: "plot1" }] : []);
+    if (q.includes("FROM locations"))
+      return Promise.resolve(world.landCategoryId ? [{ channel_id: world.landCategoryId }] : []);
+    if (q.includes("FROM land_plots"))
+      return Promise.resolve(world.hasPlot ? [{ id: "plot1", text_channel_id: world.existingChannel ?? null }] : []);
     if (q.includes("INSERT INTO land_plots")) {
       world.plotInserts += 1;
       world.hasPlot = true; // the starter plot now exists
+      return Promise.resolve([]);
+    }
+    if (q.includes("UPDATE land_plots")) {
+      world.channelUpdates = (world.channelUpdates ?? 0) + 1;
       return Promise.resolve([]);
     }
     if (q.includes("FROM balances")) return Promise.resolve([{ amount: world.gold }]);
@@ -52,7 +68,12 @@ function makeCtx(world: World): CapabilityContext {
         return input as never;
       },
     } as unknown as CapabilityContext["bus"],
-    gateway: {} as CapabilityContext["gateway"],
+    gateway: {
+      createPlotChannels: async () => {
+        world.plotChannelCalls = (world.plotChannelCalls ?? 0) + 1;
+        return world.provisionFails ? null : { textId: "t1", voiceId: "v1" };
+      },
+    } as unknown as CapabilityContext["gateway"],
     personas: { guildIds: ["g1"] } as unknown as CapabilityContext["personas"],
     logger: log as unknown as CapabilityContext["logger"],
     config: {},
@@ -131,6 +152,67 @@ describe("/build guards (§10 Builder)", () => {
     expect(req?.payload).toMatchObject({ item: "build_permit", qty: 1, price: 50 });
     expect(req?.correlationId).toBe("cmd_1"); // same id resolves the reply
     expect(world.published.find((e) => e.type === "build.queued")).toBeUndefined(); // not yet
+  });
+});
+
+describe("land plot channel provisioning (§2.4)", () => {
+  it("creates text+voice channels under the Land category and stores their ids", async () => {
+    const world: World = {
+      gold: 150, blueprint: farm, hasPlot: false, playerExists: true, plotInserts: 0, published: [],
+      landCategoryId: "cat1",
+    };
+    const cap = landCapability();
+    await cap.handle!(evt({ type: "build.requested", payload: { blueprint: "farm" } }), makeCtx(world));
+    expect(world.plotInserts).toBe(1);
+    expect(world.plotChannelCalls).toBe(1);
+    expect(world.channelUpdates).toBe(1); // ids persisted to land_plots
+  });
+
+  it("leaves the plot DB-only (no channel call) when no Land category is seeded", async () => {
+    const world: World = {
+      gold: 150, blueprint: farm, hasPlot: false, playerExists: true, plotInserts: 0, published: [],
+    };
+    const cap = landCapability();
+    await cap.handle!(evt({ type: "build.requested", payload: { blueprint: "farm" } }), makeCtx(world));
+    expect(world.plotChannelCalls).toBeUndefined();
+    expect(world.channelUpdates).toBeUndefined();
+    // provisioning never blocks the build — the flow still reaches the cost trade.
+    expect(world.published.find((e) => e.type === "trade.request")).toBeDefined();
+  });
+
+  it("back-fills channels for an existing plot that has none", async () => {
+    const world: World = {
+      gold: 150, blueprint: farm, hasPlot: true, playerExists: true, plotInserts: 0, published: [],
+      existingChannel: null, landCategoryId: "cat1",
+    };
+    const cap = landCapability();
+    await cap.handle!(evt({ type: "build.requested", payload: { blueprint: "farm" } }), makeCtx(world));
+    expect(world.plotInserts).toBe(0); // not re-staked
+    expect(world.plotChannelCalls).toBe(1);
+    expect(world.channelUpdates).toBe(1);
+  });
+
+  it("does not touch channels when the plot already has one", async () => {
+    const world: World = {
+      gold: 150, blueprint: farm, hasPlot: true, playerExists: true, plotInserts: 0, published: [],
+      existingChannel: "chan1", landCategoryId: "cat1",
+    };
+    const cap = landCapability();
+    await cap.handle!(evt({ type: "build.requested", payload: { blueprint: "farm" } }), makeCtx(world));
+    expect(world.plotChannelCalls).toBeUndefined();
+    expect(world.channelUpdates).toBeUndefined();
+  });
+
+  it("skips the id write when provisioning fails (missing Manage Channels)", async () => {
+    const world: World = {
+      gold: 150, blueprint: farm, hasPlot: false, playerExists: true, plotInserts: 0, published: [],
+      landCategoryId: "cat1", provisionFails: true,
+    };
+    const cap = landCapability();
+    await cap.handle!(evt({ type: "build.requested", payload: { blueprint: "farm" } }), makeCtx(world));
+    expect(world.plotChannelCalls).toBe(1);
+    expect(world.channelUpdates).toBeUndefined(); // no ids to store
+    expect(world.published.find((e) => e.type === "trade.request")).toBeDefined();
   });
 });
 

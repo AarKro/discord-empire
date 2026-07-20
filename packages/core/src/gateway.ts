@@ -394,6 +394,41 @@ export class Gateway {
     }, 2);
   }
 
+  /**
+   * Provision a land plot's Discord surface: a text channel (the anchor for the
+   * owner's building threads, later) and a voice channel (where NPCs gather),
+   * both under the given "Land" category. Needs Manage Channels; returns null on
+   * a missing guild or permission failure so the caller can fall back to a
+   * DB-only plot. Both channels share the owner's display name for readability.
+   */
+  createPlotChannels(
+    guildId: string,
+    userId: string,
+    parentId: string,
+  ): Promise<{ textId: string; voiceId: string } | null> {
+    return this.queue.enqueue(async () => {
+      const guild = await this.fetchGuild(guildId);
+      if (!guild) {
+        this.log.warn({ guildId }, "cannot provision plot channels: guild not cached");
+        return null;
+      }
+      const user = await this.client.users.fetch(userId).catch(() => null);
+      const label = user?.displayName ?? user?.username ?? "settler";
+      // Track the text channel so we can roll it back if the voice create fails —
+      // otherwise a half-provisioned plot leaks an orphan the caller can't see.
+      let text: Awaited<ReturnType<typeof guild.channels.create>> | null = null;
+      try {
+        text = await guild.channels.create({ name: `${label}'s Estate`, type: ChannelType.GuildText, parent: parentId });
+        const voice = await guild.channels.create({ name: `${label}'s Estate`, type: ChannelType.GuildVoice, parent: parentId });
+        return { textId: text.id, voiceId: voice.id };
+      } catch (err) {
+        this.log.warn({ err, guildId, userId }, "failed to create plot channels (need Manage Channels)");
+        if (text) await text.delete().catch(() => {}); // roll back the orphaned text channel
+        return null;
+      }
+    }, 2);
+  }
+
   archiveThread(threadId: string): Promise<void> {
     return this.queue.enqueue(async () => {
       const channel = await this.client.channels.fetch(threadId).catch(() => null);

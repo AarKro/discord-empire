@@ -88,11 +88,27 @@ export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
         ON CONFLICT (id) DO UPDATE SET channel_id = EXCLUDED.channel_id, requires_presence = EXCLUDED.requires_presence
       `;
 
+      // The "Land" category holds every player's plot channels (§2.4). The
+      // builder bot creates per-plot text+voice channels under it at /build time,
+      // so world:init just ensures the category exists and maps it in locations.
+      let landCat = channels.find((c) => c?.type === ChannelType.GuildCategory && c.name === "Land") ?? null;
+      let createdCat = false;
+      if (!landCat) {
+        landCat = await guild.channels.create({ name: "Land", type: ChannelType.GuildCategory });
+        createdCat = true;
+      }
+      await opts.sql`
+        INSERT INTO locations (id, guild_id, channel_id, kind, requires_presence)
+        VALUES (${`land_${guildId}`}, ${guildId}, ${landCat.id}, 'land', false)
+        ON CONFLICT (id) DO UPDATE SET channel_id = EXCLUDED.channel_id, requires_presence = EXCLUDED.requires_presence
+      `;
+
       log.info(
         {
           guild: guild.name,
           bazaar: `${bazaar.id}${createdText ? " (created)" : " (found)"}`,
           voice: `${bazaarVc.id}${createdVoice ? " (created)" : " (found)"}`,
+          land: `${landCat.id}${createdCat ? " (created)" : " (found)"}`,
         },
         "bazaar mapped",
       );
