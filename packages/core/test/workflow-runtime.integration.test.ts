@@ -7,19 +7,25 @@
  *
  * Proves the embedded path: a trigger event creates a scoped instance and
  * dispatches its actions through the bot's capability registry; a re-delivered
- * trigger (bus replay on reboot) is de-duped by the singleton guard; an event
- * transition advances the instance to a final state.
+ * trigger (bus replay on reboot) is de-duped by a singleton workflow; event
+ * transitions advance the instance to a final state. A second suite drives the
+ * SHIPPED player_build workflow through its charge/complete + rejection paths
+ * (verbs stubbed) to prove the state machine's wiring.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { openDb, type DbHandle } from "@empire/db";
-import { parseContent, Workflow } from "@empire/content-schemas";
+import { parseContent, loadContentFile, Workflow } from "@empire/content-schemas";
 import { WorkflowRuntime } from "../src/workflow/runtime.js";
 import { EventBus, type BusEvent } from "../src/bus.js";
-import { CapabilityRegistry, type Capability, type CapabilityContext } from "../src/capability.js";
+import { CapabilityRegistry, type Capability, type CapabilityContext, type ActionHandler } from "../src/capability.js";
 import { rootLogger } from "../src/logger.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const suite = url ? describe : describe.skip;
+
+const CONTENT = join(dirname(fileURLToPath(import.meta.url)), "../../../content");
 
 const wander = parseContent(
   Workflow,
@@ -27,6 +33,7 @@ const wander = parseContent(
 id: test_wander
 trigger: { event: bot.ready }
 scope: npc
+singleton: true
 context: { npc: merchant }
 initial: at_bazaar
 states:
@@ -41,19 +48,38 @@ states:
 );
 
 /** A bus event as the runtime consumes it (onEvent takes a BusEvent directly). */
-function evt(type: string, subjectId = "merchant"): BusEvent {
+function npcEvt(type: string, subjectId = "merchant"): BusEvent {
   return {
     dbId: "0", eventId: `e_${type}`, type, ts: "", guildId: null,
     actor: null, subject: { kind: "npc", id: subjectId }, payload: {}, correlationId: null,
   };
 }
 
+/** A player-actored event (build.requested / trade.* / build.completed shape). */
+function playerEvt(type: string, playerId: string, correlationId: string | null = null, payload: Record<string, unknown> = {}): BusEvent {
+  return {
+    dbId: "0", eventId: `e_${type}`, type, ts: "", guildId: null,
+    actor: { kind: "player", id: playerId }, subject: { kind: "npc", id: "builder" }, payload, correlationId,
+  };
+}
+
 let h: DbHandle;
 
-suite("embedded workflow runtime (§7)", () => {
-  let moves: { stop: unknown }[];
-  let runtime: WorkflowRuntime;
+function makeRuntime(workflows: Workflow[], actions: Record<string, ActionHandler>): WorkflowRuntime {
+  const cap: Capability = { name: "spy", consumes: [], actions };
+  const registry = new CapabilityRegistry();
+  registry.register(cap);
+  const bus = new EventBus(h.sql, "test-runtime", rootLogger);
+  const makeContext = (correlationId: string): CapabilityContext => ({
+    bot: "builder", sql: h.sql, bus,
+    gateway: {} as unknown as CapabilityContext["gateway"],
+    personas: {} as unknown as CapabilityContext["personas"],
+    logger: rootLogger.child({ correlation_id: correlationId }), config: {},
+  });
+  return new WorkflowRuntime(workflows, { sql: h.sql, bus, registry, logger: rootLogger, makeContext });
+}
 
+suite("embedded workflow runtime (§7)", () => {
   beforeAll(async () => {
     h = openDb(url!, { max: 4 });
     await ensureSchema(h);
@@ -65,49 +91,106 @@ suite("embedded workflow runtime (§7)", () => {
 
   beforeEach(async () => {
     await h.sql`TRUNCATE workflow_instances, events RESTART IDENTITY CASCADE`;
-    moves = [];
-    const spy: Capability = {
-      name: "spy",
-      consumes: [],
-      actions: { spy_move: (args) => { moves.push({ stop: args.stop }); } },
-    };
-    const registry = new CapabilityRegistry();
-    registry.register(spy);
-    const bus = new EventBus(h.sql, "test-runtime", rootLogger);
-    const makeContext = (correlationId: string): CapabilityContext => ({
-      bot: "merchant", sql: h.sql, bus,
-      gateway: {} as unknown as CapabilityContext["gateway"],
-      personas: {} as unknown as CapabilityContext["personas"],
-      logger: rootLogger.child({ correlation_id: correlationId }), config: {},
+  });
+
+  describe("singleton npc loop (test_wander)", () => {
+    let moves: { stop: unknown }[];
+    let runtime: WorkflowRuntime;
+
+    beforeEach(() => {
+      moves = [];
+      runtime = makeRuntime([wander], { spy_move: (args) => { moves.push({ stop: args.stop }); } });
     });
-    runtime = new WorkflowRuntime([wander], { sql: h.sql, bus, registry, logger: rootLogger, makeContext });
+
+    it("a trigger creates a scoped instance and dispatches its actions through the registry", async () => {
+      await runtime.onEvent(npcEvt("bot.ready"));
+
+      const rows = await h.sql`SELECT workflow_id, scope, scope_key, state, status FROM workflow_instances`;
+      expect(rows.length).toBe(1);
+      expect(rows[0]).toMatchObject({ workflow_id: "test_wander", scope: "npc", scope_key: "merchant", state: "at_bazaar", status: "active" });
+      expect(moves).toEqual([{ stop: "bazaar" }]);
+    });
+
+    it("de-dupes a re-delivered trigger (singleton per workflow+scope)", async () => {
+      await runtime.onEvent(npcEvt("bot.ready"));
+      await runtime.onEvent(npcEvt("bot.ready")); // replay on reboot
+
+      const [{ n }] = await h.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM workflow_instances`;
+      expect(n).toBe(1);
+      expect(moves).toEqual([{ stop: "bazaar" }]); // second trigger ran no actions
+    });
+
+    it("advances the instance to a final state on an event transition", async () => {
+      await runtime.onEvent(npcEvt("bot.ready"));
+      await runtime.onEvent(npcEvt("go.square"));
+
+      const [row] = await h.sql`SELECT state, status FROM workflow_instances`;
+      expect(row).toMatchObject({ state: "at_square", status: "final" });
+      expect(moves).toEqual([{ stop: "bazaar" }, { stop: "square" }]);
+    });
   });
 
-  it("a trigger creates a scoped instance and dispatches its actions through the registry", async () => {
-    await runtime.onEvent(evt("bot.ready"));
+  describe("player_build (the shipped /build workflow)", () => {
+    const buildWf = loadContentFile(Workflow, join(CONTENT, "workflows/player_build.yaml"));
+    let calls: string[];
+    let runtime: WorkflowRuntime;
 
-    const rows = await h.sql`SELECT workflow_id, scope, scope_key, state, status FROM workflow_instances`;
-    expect(rows.length).toBe(1);
-    expect(rows[0]).toMatchObject({ workflow_id: "test_wander", scope: "npc", scope_key: "merchant", state: "at_bazaar", status: "active" });
-    expect(moves).toEqual([{ stop: "bazaar" }]);
-  });
+    beforeEach(() => {
+      calls = [];
+      const record = (verb: string): ActionHandler => () => { calls.push(verb); };
+      runtime = makeRuntime([buildWf], {
+        "build.request": record("build.request"),
+        "build.enqueue": record("build.enqueue"),
+        "build.complete": record("build.complete"),
+        "build.reject": record("build.reject"),
+      });
+    });
 
-  it("de-dupes a re-delivered trigger (singleton per workflow+scope)", async () => {
-    await runtime.onEvent(evt("bot.ready"));
-    await runtime.onEvent(evt("bot.ready")); // replay on reboot
+    it("charge → complete: requested → charging → building → done, one verb per state", async () => {
+      await runtime.onEvent(playerEvt("build.requested", "p1", "c1", { blueprint: "farm" }));
+      let [row] = await h.sql`SELECT scope, scope_key, state, status FROM workflow_instances`;
+      expect(row).toMatchObject({ scope: "player", scope_key: "p1", state: "charging", status: "active" });
 
-    const [{ n }] = await h.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM workflow_instances`;
-    expect(n).toBe(1);
-    expect(moves).toEqual([{ stop: "bazaar" }]); // second trigger ran no actions
-  });
+      await runtime.onEvent(playerEvt("trade.completed", "p1", "c1"));
+      [row] = await h.sql`SELECT state, status FROM workflow_instances`;
+      expect(row).toMatchObject({ state: "building", status: "active" });
 
-  it("advances the instance to a final state on an event transition", async () => {
-    await runtime.onEvent(evt("bot.ready"));
-    await runtime.onEvent(evt("go.square"));
+      await runtime.onEvent(playerEvt("build.completed", "p1", null, { queue_id: "q1" }));
+      [row] = await h.sql`SELECT state, status FROM workflow_instances`;
+      expect(row).toMatchObject({ state: "done", status: "final" });
 
-    const [row] = await h.sql`SELECT state, status FROM workflow_instances`;
-    expect(row).toMatchObject({ state: "at_square", status: "final" });
-    expect(moves).toEqual([{ stop: "bazaar" }, { stop: "square" }]);
+      expect(calls).toEqual(["build.request", "build.enqueue", "build.complete"]);
+    });
+
+    it("insufficient funds: trade.failed routes charging → rejected (final)", async () => {
+      await runtime.onEvent(playerEvt("build.requested", "p2", "c2", { blueprint: "farm" }));
+      await runtime.onEvent(playerEvt("trade.failed", "p2", "c2"));
+
+      const [row] = await h.sql`SELECT state, status FROM workflow_instances WHERE scope_key = 'p2'`;
+      expect(row).toMatchObject({ state: "rejected", status: "final" });
+      expect(calls).toEqual(["build.request", "build.reject"]);
+    });
+
+    it("pre-charge failure: a throwing build.request aborts via on_error to rejected_pre (final)", async () => {
+      const rt = makeRuntime([buildWf], {
+        "build.request": () => { throw new Error("already building"); },
+        "build.enqueue": () => {},
+        "build.complete": () => {},
+        "build.reject": () => {},
+      });
+      await rt.onEvent(playerEvt("build.requested", "p3", "c3", { blueprint: "farm" }));
+
+      const [row] = await h.sql`SELECT state, status FROM workflow_instances WHERE scope_key = 'p3'`;
+      expect(row).toMatchObject({ state: "rejected_pre", status: "final" });
+    });
+
+    it("is not a singleton: two players build independently", async () => {
+      await runtime.onEvent(playerEvt("build.requested", "a", "ca", { blueprint: "farm" }));
+      await runtime.onEvent(playerEvt("build.requested", "b", "cb", { blueprint: "farm" }));
+
+      const [{ n }] = await h.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM workflow_instances WHERE workflow_id = 'player_build'`;
+      expect(n).toBe(2);
+    });
   });
 });
 

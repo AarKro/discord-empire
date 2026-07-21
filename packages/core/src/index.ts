@@ -62,6 +62,5 @@ export { notifyCapability } from "./capabilities/notify.js";
 export { commandsCapability } from "./capabilities/commands.js";
 export type { CommandDef } from "./capabilities/commands.js";
 export { landCapability, scaledBuildMs, BUILD_PERMIT_ITEM } from "./capabilities/land.js";
-export type { BuildStartArgs } from "./capabilities/land.js";
 export { topologyCapability, requiresPresence } from "./capabilities/topology.js";
 export type { PresenceCheck } from "./capabilities/topology.js";

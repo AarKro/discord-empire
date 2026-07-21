@@ -5,6 +5,7 @@
 id: merchant_wander
 trigger: { event: bot.ready }
 scope: npc
+singleton: true
 context: { npc: merchant }
 initial: at_bazaar
 states:

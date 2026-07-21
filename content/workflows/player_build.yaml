@@ -1,0 +1,39 @@
+# The /build flow as a declarative workflow (§7). One instance per /build,
+# scoped to the player; builds are serialized (build.request rejects a second
+# concurrent build), so this per-player instance matches its charge + completion
+# events unambiguously. Composes the land + trade verbs.
+id: player_build
+trigger: { event: build.requested }
+scope: player
+initial: charging
+states:
+  # Guard, stake the plot, and charge the cost via `trade`. build.request emits
+  # trade.request and records a 'queued' build_queue row (the carry across the
+  # async charge); a pre-charge failure (already building / bad blueprint) emits
+  # its own reply and throws → on_error routes here-final for cleanup.
+  charging:
+    actions:
+      - { "build.request": {} }
+    on:
+      trade.completed: building
+      trade.failed: rejected
+    on_error: rejected_pre
+  # Cost settled: promote the queued row to a timed 'building' and announce it.
+  building:
+    actions:
+      - { "build.enqueue": {} }
+    on:
+      build.completed: done
+  # Tick fired build.completed: finish the row and notify the player (once).
+  done:
+    actions:
+      - { "build.complete": {} }
+    final: true
+  # Charge failed (insufficient funds): discard the pending row, reply in-fiction.
+  rejected:
+    actions:
+      - { "build.reject": { message: "You can't cover the cost of that just yet." } }
+    final: true
+  # Pre-charge rejection already replied inside build.request; nothing to undo.
+  rejected_pre:
+    final: true

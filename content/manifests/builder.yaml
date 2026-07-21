@@ -16,3 +16,6 @@ capabilities:
   - land
   - notify
   - commands
+content:
+  workflows:
+    - workflows/player_build.yaml

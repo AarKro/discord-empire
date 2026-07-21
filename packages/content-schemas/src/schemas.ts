@@ -119,6 +119,11 @@ export const Workflow = z.object({
   trigger: Trigger.optional(),
   scope: z.enum(["player", "npc", "world"]).default("world"),
   context: z.record(z.unknown()).default({}),
+  // When true, a re-delivered trigger (e.g. bus replay on reboot) won't spawn a
+  // duplicate while an instance for the same scope key is already active — for
+  // perpetual/timer-loop workflows. Off by default: trigger-per-event workflows
+  // (a per-build charge, a random appearance) want one instance per firing.
+  singleton: z.boolean().default(false),
   initial: z.string().min(1),
   states: z.record(z.string(), WorkflowState),
 });

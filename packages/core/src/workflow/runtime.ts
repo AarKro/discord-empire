@@ -92,19 +92,27 @@ export class WorkflowRuntime {
     const id = `wfi_${ulid()}`;
     const dec = entry(wf);
     if (dec.nextState === null) return; // guards blocked entry
-    // Singleton per (workflow, scope): only insert when no active instance for
-    // this scope key already exists. Guards against a re-delivered trigger (bus
-    // replay on reboot) spawning a duplicate of a perpetual/timer-loop workflow;
-    // the conditional insert makes the check race-safe. If nothing was inserted,
-    // an instance is already running — the recovered timer keeps it alive.
-    const inserted = await this.deps.sql`
-      INSERT INTO workflow_instances (id, workflow_id, scope, scope_key, state, context, correlation_id, status)
-      SELECT ${id}, ${wf.id}, ${wf.scope}, ${scopeKey}, ${dec.nextState}, ${jsonParam(this.deps.sql, wf.context)}, ${correlationId}, ${dec.final ? "final" : "active"}
-      WHERE NOT EXISTS (
-        SELECT 1 FROM workflow_instances
-        WHERE workflow_id = ${wf.id} AND scope_key = ${scopeKey} AND status = 'active'
-      )
-    `;
+    // Singleton workflows (wf.singleton) only spawn when no instance for this
+    // scope key is already active — a race-safe conditional insert that guards a
+    // re-delivered trigger (bus replay on reboot) from duplicating a perpetual/
+    // timer-loop workflow. If nothing was inserted, one is already running and
+    // the recovered timer keeps it alive. Non-singleton workflows spawn one
+    // instance per firing (a per-build charge, a random appearance).
+    const status = dec.final ? "final" : "active";
+    const context = jsonParam(this.deps.sql, wf.context);
+    const inserted = wf.singleton
+      ? await this.deps.sql`
+          INSERT INTO workflow_instances (id, workflow_id, scope, scope_key, state, context, correlation_id, status)
+          SELECT ${id}, ${wf.id}, ${wf.scope}, ${scopeKey}, ${dec.nextState}, ${context}, ${correlationId}, ${status}
+          WHERE NOT EXISTS (
+            SELECT 1 FROM workflow_instances
+            WHERE workflow_id = ${wf.id} AND scope_key = ${scopeKey} AND status = 'active'
+          )
+        `
+      : await this.deps.sql`
+          INSERT INTO workflow_instances (id, workflow_id, scope, scope_key, state, context, correlation_id, status)
+          VALUES (${id}, ${wf.id}, ${wf.scope}, ${scopeKey}, ${dec.nextState}, ${context}, ${correlationId}, ${status})
+        `;
     if (inserted.count === 0) return;
     const errGoto = await this.runActions(dec.actions, evt, correlationId, wf, dec.nextState);
     if (errGoto !== null) {

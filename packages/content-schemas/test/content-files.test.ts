@@ -42,7 +42,12 @@ describe("shipped content validates against schemas", () => {
   });
 
   it("workflows", () => {
-    expect(loadContentFile(Workflow, join(CONTENT, "workflows/merchant_wander.yaml")).initial).toBe("at_bazaar");
+    const wander = loadContentFile(Workflow, join(CONTENT, "workflows/merchant_wander.yaml"));
+    expect(wander.initial).toBe("at_bazaar");
+    expect(wander.singleton).toBe(true); // perpetual loop opts into reboot-dedup
+    const build = loadContentFile(Workflow, join(CONTENT, "workflows/player_build.yaml"));
+    expect(build.scope).toBe("player");
+    expect(build.singleton).toBe(false); // one instance per /build (default)
   });
 
   it("continents (two dev guilds) and instances", () => {
