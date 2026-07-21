@@ -60,21 +60,6 @@ importers:
         specifier: workspace:*
         version: link:../../packages/db
 
-  apps/workflow-engine:
-    dependencies:
-      '@empire/content-schemas':
-        specifier: workspace:*
-        version: link:../../packages/content-schemas
-      '@empire/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@empire/db':
-        specifier: workspace:*
-        version: link:../../packages/db
-      ulid:
-        specifier: ^2.3.0
-        version: 2.4.0
-
   packages/content-schemas:
     dependencies:
       yaml:

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { decide, entry, guardsPass, parseOnError, scopeMatches } from "../src/engine.js";
-import { parseDuration } from "../src/duration.js";
+import { decide, entry, guardsPass, parseOnError, scopeMatches } from "../src/workflow/engine.js";
+import { parseDuration } from "../src/workflow/duration.js";
 import { Workflow, parseContent } from "@empire/content-schemas";
 
 const secretMerchant = parseContent(

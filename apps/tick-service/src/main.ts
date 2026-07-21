@@ -2,7 +2,7 @@
  * Tick service (framework spec §3, §5-adjacent) — the idle-game heartbeat.
  * Emits scheduled events only: tick.minute / tick.hour, build.completed,
  * stock.restocked, and auction closings. Contains ZERO Discord code — it just
- * publishes onto the bus, which bots and the workflow engine react to.
+ * publishes onto the bus, which the bots (and their embedded workflows) react to.
  */
 import { EventBus, rootLogger } from "@empire/core";
 import { openDb } from "@empire/db";

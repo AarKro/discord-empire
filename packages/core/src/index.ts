@@ -35,6 +35,13 @@ export type { BootstrapOptions, BlueprintSeed } from "./bootstrap.js";
 export { DialogueRunner, evalGuard } from "./dialogue.js";
 export type { GuardScope } from "./dialogue.js";
 
+// Workflow engine (§7): pure transition core + embedded runtime
+export { decide, entry, guardsPass, parseOnError, scopeMatches } from "./workflow/engine.js";
+export type { Stimulus, TransitionDecision } from "./workflow/engine.js";
+export { WorkflowRuntime } from "./workflow/runtime.js";
+export type { RuntimeDeps } from "./workflow/runtime.js";
+export { parseDuration } from "./workflow/duration.js";
+
 // Capability modules (Merchant + Builder scope, plus cross-cutting topology)
 export { tradeCapability, effectiveFloor } from "./capabilities/trade.js";
 export type { QuoteInput } from "./capabilities/trade.js";

@@ -1,4 +1,4 @@
-# Generic build for any @empire app (bot-merchant, bot-builder, workflow-engine,
+# Generic build for any @empire app (bot-merchant, bot-builder,
 # tick-service). Runtime choice: Node LTS (see root README) for discord.js voice
 # + Drizzle compatibility.
 FROM node:20-bookworm-slim AS base

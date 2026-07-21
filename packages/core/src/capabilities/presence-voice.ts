@@ -4,11 +4,12 @@
  * per guild ("one place at a time" per continent).
  *
  * At boot the NPC joins the first stop of its wander route (or its home voice
- * channel if it has no route) self-muted; on each tick.hour it hops to the next
- * stop in that guild's route, announcing npc.arrived so the stall re-opens and
- * voicelines fire. The gateway holds the actual @discordjs/voice connection; the
- * DB position + events remain the authoritative, testable core. Dwell is one hop
- * per tick.hour — the schedule's min_dwell is not separately enforced yet.
+ * channel if it has no route) self-muted. Wandering itself is now driven by a
+ * declarative workflow (§7, e.g. merchant_wander): it composes this capability's
+ * `npc.move_to` verb on a timer, which connects voice, records the DB position,
+ * and announces npc.arrived so the stall re-opens and voicelines fire. The
+ * gateway holds the actual @discordjs/voice connection; the DB position + events
+ * remain the authoritative, testable core.
  *
  * Logical stop names (e.g. "bazaar_vc") resolve to real voice channels via the
  * `locations` rows world:init seeds (id = `<name>_<guildId>`, kind='voice').
@@ -31,7 +32,6 @@ export function presenceVoiceCapability(route: WanderStop[] = []): Capability {
     list.push(stop.channel);
     stopsByGuild.set(stop.guildId, list);
   }
-  const currentIndex = new Map<string, number>();
 
   /** Resolve a logical stop name to its Discord voice channel id (world:init map). */
   async function resolveChannel(ctx: CapabilityContext, guildId: string, channel: string): Promise<string | null> {
@@ -69,14 +69,15 @@ export function presenceVoiceCapability(route: WanderStop[] = []): Capability {
 
   return {
     name: "presence.voice",
-    consumes: ["npc.move", "tick.hour"],
+    // Movement is workflow-driven (via the npc.move_to action); this capability
+    // no longer reacts to bus events itself, only boots position and exports verbs.
+    consumes: [],
 
     /** Take up the first stop per guild (or the home voice channel if no route). */
     async init(ctx: CapabilityContext): Promise<void> {
       for (const guildId of ctx.personas.guildIds) {
         const stops = stopsByGuild.get(guildId);
         if (stops && stops.length > 0) {
-          currentIndex.set(guildId, 0);
           await moveTo(ctx, guildId, stops[0]!, false);
           continue;
         }
@@ -92,17 +93,6 @@ export function presenceVoiceCapability(route: WanderStop[] = []): Capability {
         const guildId = ctx.personas.homeGuild(evt?.guildId);
         await moveTo(ctx, guildId, String(args.channel), true);
       },
-    },
-
-    /** Wander: on each hour, hop to the next stop in every routed guild. */
-    async handle(evt, ctx: CapabilityContext): Promise<void> {
-      if (evt.type !== "tick.hour") return;
-      for (const [guildId, stops] of stopsByGuild) {
-        if (stops.length < 2) continue; // nothing to wander between
-        const next = ((currentIndex.get(guildId) ?? 0) + 1) % stops.length;
-        currentIndex.set(guildId, next);
-        await moveTo(ctx, guildId, stops[next]!, true);
-      }
     },
   };
 }

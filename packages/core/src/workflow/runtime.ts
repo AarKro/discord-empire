@@ -7,7 +7,9 @@
  * workflow_instances; timers reconciled from `timer_at` on boot).
  */
 import type { Workflow } from "@empire/content-schemas";
-import type { BusEvent, CapabilityContext, CapabilityRegistry, EventBus, Logger } from "@empire/core";
+import type { BusEvent, EventBus } from "../bus.js";
+import type { CapabilityContext, CapabilityRegistry } from "../capability.js";
+import type { Logger } from "../logger.js";
 import type { Sql } from "@empire/db";
 import { jsonParam } from "@empire/db";
 import { ulid } from "ulid";
@@ -90,10 +92,20 @@ export class WorkflowRuntime {
     const id = `wfi_${ulid()}`;
     const dec = entry(wf);
     if (dec.nextState === null) return; // guards blocked entry
-    await this.deps.sql`
+    // Singleton per (workflow, scope): only insert when no active instance for
+    // this scope key already exists. Guards against a re-delivered trigger (bus
+    // replay on reboot) spawning a duplicate of a perpetual/timer-loop workflow;
+    // the conditional insert makes the check race-safe. If nothing was inserted,
+    // an instance is already running — the recovered timer keeps it alive.
+    const inserted = await this.deps.sql`
       INSERT INTO workflow_instances (id, workflow_id, scope, scope_key, state, context, correlation_id, status)
-      VALUES (${id}, ${wf.id}, ${wf.scope}, ${scopeKey}, ${dec.nextState}, ${jsonParam(this.deps.sql, wf.context)}, ${correlationId}, ${dec.final ? "final" : "active"})
+      SELECT ${id}, ${wf.id}, ${wf.scope}, ${scopeKey}, ${dec.nextState}, ${jsonParam(this.deps.sql, wf.context)}, ${correlationId}, ${dec.final ? "final" : "active"}
+      WHERE NOT EXISTS (
+        SELECT 1 FROM workflow_instances
+        WHERE workflow_id = ${wf.id} AND scope_key = ${scopeKey} AND status = 'active'
+      )
     `;
+    if (inserted.count === 0) return;
     const errGoto = await this.runActions(dec.actions, evt, correlationId, wf, dec.nextState);
     if (errGoto !== null) {
       await this.forceTransition(id, wf, errGoto, evt, correlationId);

@@ -10,7 +10,7 @@
  * database or Discord.
  */
 import type { Workflow, WorkflowState } from "@empire/content-schemas";
-import { evalGuard, type GuardScope } from "@empire/core";
+import { evalGuard, type GuardScope } from "../dialogue.js";
 import { parseDuration } from "./duration.js";
 
 export interface Stimulus {

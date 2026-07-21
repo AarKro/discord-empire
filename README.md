@@ -37,11 +37,10 @@ event bus).
 packages/
   db/              # Drizzle schema + migrations, ledger + event log, atomic trade helper (FIRST commit)
   content-schemas/ # Zod schemas for manifests/shops/dialogue/workflows + boot validation
-  core/            # gateway, event bus, capability registry, ui.kit, persona resolution, capabilities
+  core/            # gateway, event bus, capability registry, ui.kit, persona resolution, capabilities, embedded workflow runtime (§7)
 apps/
   bot-merchant/    # reference bot #1 (§10)
   bot-builder/     # reference bot #2 (§10)
-  workflow-engine/ # custom declarative state-machine runtime (§7)
   tick-service/    # idle-game heartbeat; zero Discord code
 content/           # YAML: manifests, shops, dialogue, schedules, workflows, continents.yaml, instances.yaml
 infra/             # docker-compose, Dockerfiles, deploy + backup scripts

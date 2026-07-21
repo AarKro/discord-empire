@@ -1,9 +1,10 @@
 /**
- * Unit tests for presence.voice wandering (§5.1): at boot the NPC takes its
- * first route stop; on each tick.hour it hops to the next, announcing npc.arrived;
- * a routeless guild just stands in its home voice channel. Postgres and the
- * gateway are faked — the real @discordjs/voice connection is a dev-server
- * concern; here we assert the resolve→join→announce wiring and the rotation.
+ * Unit tests for presence.voice (§5.1): at boot the NPC takes its first route
+ * stop (no announce — the boot ping is elsewhere); a routeless guild just stands
+ * in its home voice channel. Wandering itself is now workflow-driven — a workflow
+ * composes the npc.move_to verb, tested here directly (resolve→join→announce).
+ * Postgres and the gateway are faked — the real @discordjs/voice connection is a
+ * dev-server concern; here we assert the resolve→join→announce wiring.
  */
 import { describe, it, expect } from "vitest";
 import { presenceVoiceCapability, type WanderStop } from "../src/capabilities/presence-voice.js";
@@ -48,37 +49,26 @@ function makeCtx(world: World, guildIds: string[]): CapabilityContext {
         return true;
       },
     } as unknown as CapabilityContext["gateway"],
-    personas: { guildIds } as unknown as CapabilityContext["personas"],
+    personas: {
+      guildIds,
+      homeGuild: (guildId?: string) => guildId ?? guildIds[0]!,
+    } as unknown as CapabilityContext["personas"],
     logger: { info: () => {}, warn: () => {}, error: () => {}, child() { return this; } } as unknown as CapabilityContext["logger"],
     config: {},
   } as CapabilityContext;
 }
 
-const tickHour = (): BusEvent => ({ type: "tick.hour" } as BusEvent);
 const route: WanderStop[] = [
   { guildId: "g1", channel: "bazaar_vc" },
   { guildId: "g1", channel: "market_square_vc" },
 ];
 
-describe("presence.voice wandering (§5.1)", () => {
+describe("presence.voice (§5.1)", () => {
   it("takes the first route stop at boot without announcing (boot ping is elsewhere)", async () => {
     const world: World = { channels: { bazaar_vc_g1: "vcB", market_square_vc_g1: "vcM" }, joins: [], arrivals: [] };
     await presenceVoiceCapability(route).init!(makeCtx(world, ["g1"]));
     expect(world.joins).toEqual([{ guildId: "g1", channelId: "vcB" }]);
     expect(world.arrivals).toHaveLength(0);
-  });
-
-  it("hops to the next stop on tick.hour and wraps around, announcing each arrival", async () => {
-    const world: World = { channels: { bazaar_vc_g1: "vcB", market_square_vc_g1: "vcM" }, joins: [], arrivals: [] };
-    const cap = presenceVoiceCapability(route);
-    await cap.init!(makeCtx(world, ["g1"])); // -> vcB
-    await cap.handle!(tickHour(), makeCtx(world, ["g1"])); // -> vcM
-    await cap.handle!(tickHour(), makeCtx(world, ["g1"])); // wrap -> vcB
-    expect(world.joins.map((j) => j.channelId)).toEqual(["vcB", "vcM", "vcB"]);
-    expect(world.arrivals).toEqual([
-      { guildId: "g1", channel: "market_square_vc" },
-      { guildId: "g1", channel: "bazaar_vc" },
-    ]);
   });
 
   it("stands in the home voice channel for a guild with no route", async () => {
@@ -87,11 +77,12 @@ describe("presence.voice wandering (§5.1)", () => {
     expect(world.joins).toEqual([{ guildId: "g2", channelId: "vcB2" }]); // first location id, sorted
   });
 
-  it("does not wander a guild with a single stop, and ignores non-tick events", async () => {
-    const world: World = { channels: { bazaar_vc_g1: "vcB" }, joins: [], arrivals: [] };
-    const cap = presenceVoiceCapability([{ guildId: "g1", channel: "bazaar_vc" }]);
-    await cap.handle!(tickHour(), makeCtx(world, ["g1"]));
-    await cap.handle!({ type: "npc.move" } as BusEvent, makeCtx(world, ["g1"]));
-    expect(world.joins).toHaveLength(0);
+  it("npc.move_to (the workflow-driven verb) joins the stop and announces arrival", async () => {
+    const world: World = { channels: { market_square_vc_g1: "vcM" }, joins: [], arrivals: [] };
+    const cap = presenceVoiceCapability(route);
+    const ctx = makeCtx(world, ["g1"]);
+    await cap.actions["npc.move_to"]!({ channel: "market_square_vc" }, { guildId: "g1" } as BusEvent, ctx);
+    expect(world.joins).toEqual([{ guildId: "g1", channelId: "vcM" }]);
+    expect(world.arrivals).toEqual([{ guildId: "g1", channel: "market_square_vc" }]);
   });
 });

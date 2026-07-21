@@ -15,7 +15,7 @@
  * in core because it wires core's own pieces (gateway, bus, capabilities).
  */
 import { isAbsolute, join } from "node:path";
-import { loadContentFile, Manifest, Shop, Dialogue, Schedule } from "@empire/content-schemas";
+import { loadContentFile, Manifest, Shop, Dialogue, Schedule, Workflow } from "@empire/content-schemas";
 import { openDb } from "@empire/db";
 import { rootLogger, type Logger } from "./logger.js";
 import { CapabilityRegistry, type Capability, type CapabilityContext } from "./capability.js";
@@ -33,6 +33,7 @@ import { landCapability } from "./capabilities/land.js";
 import { notifyCapability } from "./capabilities/notify.js";
 import { commandsCapability, type CommandDef } from "./capabilities/commands.js";
 import { renderCapability } from "./capabilities/render.js";
+import { WorkflowRuntime } from "./workflow/runtime.js";
 
 /** Code-provided capability config that can't live in YAML, keyed by capability name. */
 export interface CapabilityConfigs {
@@ -125,18 +126,35 @@ export async function runBot(opts: RunBotOptions): Promise<void> {
     config: (manifest.content ?? {}) as Record<string, unknown>,
   });
 
+  // Embedded workflow runtime (§7): declarative workflows the manifest lists run
+  // in-process, so their action verbs dispatch through THIS bot's gateway/registry
+  // (the standalone engine had no gateway and no-op'd). Timers are recovered from
+  // persisted instances before the bus replays, so a reboot re-arms in-flight
+  // workflows without the replayed trigger spawning a duplicate (singleton guard).
+  const workflowPaths = manifest.content?.workflows ?? [];
+  const runtime = workflowPaths.length
+    ? new WorkflowRuntime(
+        workflowPaths.map((rel) => loadContentFile(Workflow, join(contentDir, rel))),
+        { sql, bus, registry, logger: log, makeContext },
+      )
+    : null;
+
   await gateway.login();
   await gateway.applyPersonas();
   for (const cap of registry.list()) await cap.init?.(makeContext(`boot_${manifest.id}`));
+  await runtime?.recoverTimers();
 
   await bus.publish({ type: "bot.ready", subject: { kind: "npc", id: manifest.id } });
 
   // Bus boot sequence (subscribe → replay → drain de-duped) is inside subscribe().
+  // The workflow runtime shares this single subscription (EventBus.subscribe is
+  // one-shot); it advances after the capabilities so their state is settled first.
   await bus.subscribe(async (evt) => {
     const ctx = makeContext(evt.correlationId ?? evt.eventId);
     for (const cap of registry.matching(evt.type)) {
       await cap.handle?.(evt, ctx);
     }
+    if (runtime) await runtime.onEvent(evt);
   });
 
   // A bot with a home announces arrival per guild (§4): the stall opens and the

@@ -1,7 +1,8 @@
 # Discord Empire — single-VPS Docker Compose (tech spec §Environments, §CI/CD).
 # Only services actually built for iteration 1 (framework spec §10): Postgres,
-# the two reference bots, the workflow engine, and the tick service. The four
-# remaining bots are intentionally NOT scaffolded yet.
+# the two reference bots, and the tick service. The workflow engine is no longer a
+# standalone service — it runs embedded inside each bot (§7). The four remaining
+# bots are intentionally NOT scaffolded yet.
 services:
   postgres:
     image: postgres:16-alpine
@@ -32,22 +33,6 @@ services:
       postgres:
         condition: service_healthy
     restart: "no"
-
-  workflow-engine:
-    build:
-      context: ..
-      dockerfile: infra/Dockerfile.service
-      args:
-        APP: workflow-engine
-    environment:
-      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
-      CONTENT_DIR: /app/content
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-    volumes:
-      - ../content:/app/content:ro
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
 
   tick-service:
     build:

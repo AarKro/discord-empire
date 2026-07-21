@@ -1,7 +1,9 @@
-# Merchant wander between two locations (§10). Timer-driven; actions call the
-# presence.voice + stall verbs the Merchant registers.
+# Merchant wander between two locations (§10). Starts once when the merchant boots
+# (bot.ready), then self-loops on its own 30m timers; actions call the
+# presence.voice + stall verbs the Merchant registers. A singleton per (workflow,
+# scope) keeps a reboot's replayed bot.ready from spawning a duplicate loop.
 id: merchant_wander
-trigger: { event: tick.hour }
+trigger: { event: bot.ready }
 scope: npc
 context: { npc: merchant }
 initial: at_bazaar
