@@ -110,6 +110,12 @@ export const WorkflowState = z.object({
   on_error: z
     .union([z.literal("abort"), z.string().regex(/^retry\(\d+\)$/), z.string()])
     .optional(),
+  // Player-facing prompt (§5.4 dialogue as workflow): the bot line rendered on
+  // entry, plus the option buttons whose clicks (a `dialogue.choose` event
+  // carrying the option id) drive guarded, per-option transitions. Reuses the
+  // DialogueOption shape so a haggle tree is authored as a workflow.
+  prompt: z.string().optional(),
+  options: z.array(DialogueOption).default([]),
   final: z.boolean().default(false),
 });
 export type WorkflowState = z.infer<typeof WorkflowState>;

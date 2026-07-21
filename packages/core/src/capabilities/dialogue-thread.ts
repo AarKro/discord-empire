@@ -13,29 +13,10 @@ import type { Dialogue } from "@empire/content-schemas";
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
 import { notForMe } from "../events.js";
-import type { Sql } from "@empire/db";
-import { ensurePlayer, DEFAULT_STARTING_GOLD, readBalance } from "@empire/db";
-import { DialogueRunner, type GuardScope } from "../dialogue.js";
+import { ensurePlayer, DEFAULT_STARTING_GOLD } from "@empire/db";
+import { DialogueRunner, loadGuardScope, DIALOGUE_OPTION_PREFIX, type GuardScope } from "../dialogue.js";
 
-/** Custom-id prefix for dialogue option buttons rendered by the bot. */
-export const DIALOGUE_OPTION_PREFIX = "dlg:";
-
-/** Load the player's guard scope (§7 guards) from game state. Reads only. */
-export async function loadGuardScope(sql: Sql, playerId: string): Promise<GuardScope> {
-  const gold = await readBalance(sql, "player", playerId, "gold");
-  const reputationRows = await sql<{ npc_id: string; score: number }[]>`
-    SELECT npc_id, score FROM reputation WHERE player_id = ${playerId}
-  `;
-  const [player] = await sql<{ flags: Record<string, boolean>; position_district_id: string | null }[]>`
-    SELECT flags, position_district_id FROM players WHERE discord_user_id = ${playerId}
-  `;
-  return {
-    gold,
-    reputation: Object.fromEntries(reputationRows.map((rep) => [rep.npc_id, rep.score])),
-    flags: player?.flags ?? {},
-    position: { district: player?.position_district_id ?? null },
-  };
-}
+export { DIALOGUE_OPTION_PREFIX };
 
 export function dialogueThreadCapability(tree: Dialogue): Capability {
   /** One live runner per player; created on open, dropped when the tree ends. */

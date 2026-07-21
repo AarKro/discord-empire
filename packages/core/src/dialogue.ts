@@ -7,6 +7,11 @@
  * + goto + emit data, so it is authorable without code.
  */
 import type { Dialogue, DialogueNode, DialogueOption } from "@empire/content-schemas";
+import type { Sql } from "@empire/db";
+import { readBalance } from "@empire/db";
+
+/** Custom-id prefix for the option buttons a prompt-bearing state renders. */
+export const DIALOGUE_OPTION_PREFIX = "dlg:";
 
 /** Game-state facts a guard can reference (§7 guards). */
 export interface GuardScope {
@@ -14,6 +19,23 @@ export interface GuardScope {
   reputation: Record<string, number>;
   flags: Record<string, boolean>;
   position?: { district: string | null };
+}
+
+/** Load a player's guard scope (§7 guards) from game state. Reads only. */
+export async function loadGuardScope(sql: Sql, playerId: string): Promise<GuardScope> {
+  const gold = await readBalance(sql, "player", playerId, "gold");
+  const reputationRows = await sql<{ npc_id: string; score: number }[]>`
+    SELECT npc_id, score FROM reputation WHERE player_id = ${playerId}
+  `;
+  const [player] = await sql<{ flags: Record<string, boolean>; position_district_id: string | null }[]>`
+    SELECT flags, position_district_id FROM players WHERE discord_user_id = ${playerId}
+  `;
+  return {
+    gold,
+    reputation: Object.fromEntries(reputationRows.map((rep) => [rep.npc_id, rep.score])),
+    flags: player?.flags ?? {},
+    position: { district: player?.position_district_id ?? null },
+  };
 }
 
 /**

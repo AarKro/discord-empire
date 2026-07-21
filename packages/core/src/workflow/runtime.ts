@@ -13,8 +13,12 @@ import type { Logger } from "../logger.js";
 import type { Sql } from "@empire/db";
 import { jsonParam } from "@empire/db";
 import { ulid } from "ulid";
-import { decide, entry, parseOnError, scopeMatches, type Stimulus } from "./engine.js";
+import { availableOptions, decide, entry, parseOnError, scopeMatches, type Stimulus, type TransitionDecision } from "./engine.js";
+import { loadGuardScope, DIALOGUE_OPTION_PREFIX, type GuardScope } from "../dialogue.js";
 import { parseDuration } from "./duration.js";
+
+/** Scope with no game-state facts — used for workflows that reference none. */
+const EMPTY_SCOPE: GuardScope = { gold: 0, reputation: {}, flags: {} };
 
 export interface RuntimeDeps {
   sql: Sql;
@@ -28,16 +32,68 @@ export interface RuntimeDeps {
 export class WorkflowRuntime {
   private readonly byTrigger = new Map<string, Workflow[]>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
+  /** Workflow ids that reference player game-state (guards/options) — the only
+   *  ones for which we load a real GuardScope; the rest run against EMPTY_SCOPE. */
+  private readonly needsScope = new Set<string>();
+  private botId?: string;
 
   constructor(
     private readonly workflows: Workflow[],
     private readonly deps: RuntimeDeps,
   ) {
     for (const wf of workflows) {
+      if (Object.values(wf.states).some((s) => s.guards.length > 0 || s.options.length > 0)) {
+        this.needsScope.add(wf.id);
+      }
       if (!wf.trigger) continue;
       const list = this.byTrigger.get(wf.trigger.event) ?? [];
       list.push(wf);
       this.byTrigger.set(wf.trigger.event, list);
+    }
+  }
+
+  /** The owning bot's id (constant); cached from the context factory. */
+  private bot(): string {
+    return (this.botId ??= this.deps.makeContext("wf").bot);
+  }
+
+  /** Player guard scope for a player-scoped, guard/option-bearing workflow; else empty. */
+  private async scopeFor(wf: Workflow, scope: string, scopeKey: string): Promise<GuardScope> {
+    if (scope === "player" && this.needsScope.has(wf.id)) return loadGuardScope(this.deps.sql, scopeKey);
+    return EMPTY_SCOPE;
+  }
+
+  /**
+   * If a state carries a player-facing prompt (§5.4 dialogue-as-workflow),
+   * publish the render event the `render` capability turns into thread messages:
+   * dialogue.opened on the initial state, dialogue.closed on a final state, else
+   * dialogue.node — with the bot line and the guard-filtered option buttons.
+   */
+  private async renderPrompt(wf: Workflow, stateId: string, scope: GuardScope, evt: BusEvent | null, playerId: string, opened: boolean): Promise<void> {
+    const state = wf.states[stateId];
+    if (!state?.prompt) return;
+    const type = opened ? "dialogue.opened" : state.final ? "dialogue.closed" : "dialogue.node";
+    const options = availableOptions(state, scope).map((o) => ({ id: `${DIALOGUE_OPTION_PREFIX}${o.id}`, label: o.label, kind: o.kind }));
+    await this.deps.bus.publish({
+      type,
+      guildId: evt?.guildId ?? null,
+      actor: { kind: "player", id: playerId },
+      subject: { kind: "npc", id: this.bot() },
+      payload: { dialogue: wf.id, node: stateId, text: state.prompt, options },
+    });
+  }
+
+  /** Publish the events a chosen option emits (player as actor, npc as subject). */
+  private async publishEmits(emits: TransitionDecision["emits"], playerId: string, evt: BusEvent | null, correlationId: string): Promise<void> {
+    for (const e of emits) {
+      await this.deps.bus.publish({
+        type: e.type,
+        guildId: evt?.guildId ?? null,
+        actor: { kind: "player", id: playerId },
+        subject: { kind: "npc", id: this.bot() },
+        payload: e.payload ?? {},
+        correlationId,
+      });
     }
   }
 
@@ -90,7 +146,8 @@ export class WorkflowRuntime {
       wf.scope === "npc" ? (evt.subject?.id ?? String(wf.context.npc ?? "npc")) :
       "world";
     const id = `wfi_${ulid()}`;
-    const dec = entry(wf);
+    const scope = await this.scopeFor(wf, wf.scope, scopeKey);
+    const dec = entry(wf, scope);
     if (dec.nextState === null) return; // guards blocked entry
     // Singleton workflows (wf.singleton) only spawn when no instance for this
     // scope key is already active — a race-safe conditional insert that guards a
@@ -120,15 +177,17 @@ export class WorkflowRuntime {
       return;
     }
     await this.finishOrArm(id, wf, dec);
+    await this.renderPrompt(wf, dec.nextState, scope, evt, scopeKey, true);
   }
 
   private async advance(
-    inst: { id: string; workflow_id: string; state: string; correlation_id: string | null },
+    inst: { id: string; workflow_id: string; scope: string; scope_key: string; state: string; correlation_id: string | null },
     wf: Workflow,
     stimulus: Stimulus,
     evt: BusEvent | null,
   ): Promise<void> {
-    const dec = decide(wf, inst.state, stimulus);
+    const scope = await this.scopeFor(wf, inst.scope, inst.scope_key);
+    const dec = decide(wf, inst.state, stimulus, scope);
     if (dec.nextState === null) return;
     const correlationId = inst.correlation_id ?? `wf_${ulid()}`;
     await this.deps.sql`
@@ -136,12 +195,15 @@ export class WorkflowRuntime {
         status = ${dec.final ? "final" : "active"}
       WHERE id = ${inst.id}
     `;
+    // A chosen option's emits fire on the transition, before entering the target.
+    await this.publishEmits(dec.emits, inst.scope_key, evt, correlationId);
     const errGoto = await this.runActions(dec.actions, evt, correlationId, wf, dec.nextState);
     if (errGoto !== null) {
       await this.forceTransition(inst.id, wf, errGoto, evt, correlationId);
       return;
     }
     await this.finishOrArm(inst.id, wf, dec);
+    await this.renderPrompt(wf, dec.nextState, scope, evt, inst.scope_key, false);
   }
 
   /**
@@ -184,6 +246,7 @@ export class WorkflowRuntime {
     await this.finishOrArm(id, wf, {
       nextState: stateId,
       actions: target.actions,
+      emits: [],
       final: target.final,
       timerMs: target.timer ? parseDuration(target.timer.after) : null,
       timerGoto: target.timer?.goto ?? null,
@@ -226,8 +289,8 @@ export class WorkflowRuntime {
   private async onTimer(id: string, workflowId: string, state: string): Promise<void> {
     const wf = this.workflows.find((w) => w.id === workflowId);
     if (!wf) return;
-    const [inst] = await this.deps.sql<{ id: string; workflow_id: string; state: string; correlation_id: string | null }[]>`
-      SELECT id, workflow_id, state, correlation_id FROM workflow_instances WHERE id = ${id} AND status = 'active'
+    const [inst] = await this.deps.sql<{ id: string; workflow_id: string; scope: string; scope_key: string; state: string; correlation_id: string | null }[]>`
+      SELECT id, workflow_id, scope, scope_key, state, correlation_id FROM workflow_instances WHERE id = ${id} AND status = 'active'
     `;
     if (!inst || inst.state !== state) return;
     await this.advance(inst, wf, { kind: "timer" }, null);

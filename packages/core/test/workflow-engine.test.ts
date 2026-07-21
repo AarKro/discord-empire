@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { decide, entry, guardsPass, parseOnError, scopeMatches } from "../src/workflow/engine.js";
+import { availableOptions, CHOOSE_EVENT, decide, entry, guardsPass, parseOnError, scopeMatches } from "../src/workflow/engine.js";
 import { parseDuration } from "../src/workflow/duration.js";
+import type { GuardScope } from "../src/dialogue.js";
 import { Workflow, parseContent } from "@empire/content-schemas";
 
 const secretMerchant = parseContent(
@@ -126,5 +127,60 @@ describe("scopeMatches (§7 instance routing)", () => {
     expect(scopeMatches("npc", "merchant", fromA)).toBe(true);
     expect(scopeMatches("npc", "builder", fromA)).toBe(false);
     expect(scopeMatches("npc", "merchant", {})).toBe(false);
+  });
+});
+
+const haggle = parseContent(
+  Workflow,
+  `
+id: haggle
+scope: player
+initial: offer
+states:
+  offer:
+    prompt: "120 gold. A fair price."
+    options:
+      - id: buy
+        label: "Buy (120g)"
+        guard: { expr: "player.gold >= 120" }
+        goto: sold
+        emit: [{ type: trade.request, payload: { item: forge, price: 120 } }]
+      - { id: walk, label: "Too steep", goto: farewell }
+  sold: { prompt: "A pleasure.", final: true }
+  farewell: { prompt: "Safe travels.", final: true }
+`,
+  "haggle.yaml",
+);
+
+const scopeWith = (gold: number): GuardScope => ({ gold, reputation: {}, flags: {} });
+const choose = (option: string) => ({ kind: "event" as const, eventType: CHOOSE_EVENT, payload: { option } });
+
+describe("option-driven transitions (§5.4 dialogue-as-workflow)", () => {
+  it("takes a chosen option's goto and returns its emits", () => {
+    const dec = decide(haggle, "offer", choose("buy"), scopeWith(200));
+    expect(dec.nextState).toBe("sold");
+    expect(dec.final).toBe(true);
+    expect(dec.emits).toEqual([{ type: "trade.request", payload: { item: "forge", price: 120 } }]);
+  });
+
+  it("blocks an option whose guard fails (stale/unaffordable click)", () => {
+    const dec = decide(haggle, "offer", choose("buy"), scopeWith(10));
+    expect(dec.nextState).toBe(null);
+  });
+
+  it("ignores an unknown option id", () => {
+    expect(decide(haggle, "offer", choose("nope"), scopeWith(200)).nextState).toBe(null);
+  });
+
+  it("an unguarded option transitions with no emits", () => {
+    const dec = decide(haggle, "offer", choose("walk"), scopeWith(0));
+    expect(dec.nextState).toBe("farewell");
+    expect(dec.emits).toEqual([]);
+  });
+
+  it("availableOptions filters by the per-option guard", () => {
+    const offer = haggle.states.offer!;
+    expect(availableOptions(offer, scopeWith(200)).map((o) => o.id)).toEqual(["buy", "walk"]);
+    expect(availableOptions(offer, scopeWith(10)).map((o) => o.id)).toEqual(["walk"]);
   });
 });
