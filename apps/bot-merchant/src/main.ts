@@ -17,7 +17,11 @@ runBot({
   manifest: "manifests/merchant.yaml",
   configs: {
     voicelines: { triggers: { "trade.completed": ["sale_1.opus"], "npc.arrived": ["greet_1.opus"] } },
-    "ambient.chatter": { reactions: { "world.rumor": ["Did you hear...?"] } },
+    "ambient.chatter": {
+      reactions: {
+        "world.rumor": ["Did you hear...?", "Word around the stalls:", "A little bird whispers:", "They say"],
+      },
+    },
   },
 }).catch((err) => {
   rootLogger.error({ err }, "merchant crashed");
