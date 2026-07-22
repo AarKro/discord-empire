@@ -16,8 +16,6 @@ interface World {
   playerExists: boolean;
   plotInserts: number;
   published: { type: string; correlationId?: string | null; payload?: Record<string, unknown> }[];
-  /** true = the player already has a 'queued'/'building' row (serialize guard). */
-  activeBuild?: boolean;
   /** the pending 'queued' row build.enqueue reads (null = none). */
   pending?: { id: string; plot_id: string; blueprint_id: string } | null;
   /** text_channel_id of the existing plot (null = provisioned-but-channelless). */
@@ -51,7 +49,6 @@ function makeCtx(world: World): CapabilityContext {
     }
     if (q.includes("SELECT tier FROM players")) return Promise.resolve([{ tier: 1 }]);
     if (q.includes("build_queue")) {
-      if (q.includes("status IN ('queued', 'building')")) return Promise.resolve(world.activeBuild ? [{ id: "qX" }] : []);
       if (q.includes("SELECT id, plot_id, blueprint_id")) return Promise.resolve(world.pending ? [world.pending] : []);
       if (q.includes("SET status = 'completed'"))
         return Promise.resolve(world.completeRow === undefined ? [{ owner_id: "u1", blueprint_id: "farm" }] : world.completeRow ? [world.completeRow] : []);
@@ -133,15 +130,6 @@ describe("build.request — guards → stake → charge (§10 Builder)", () => {
     expect(world.published.find((e) => e.type === "trade.request")).toBeUndefined();
   });
 
-  it("rejects a second concurrent build (serialize) before staking or charging", async () => {
-    const world = base({ activeBuild: true });
-    const ctx = makeCtx(world);
-    await expect(verb(landCapability(), "build.request", {}, evt({ type: "build.requested", payload: { blueprint: "farm" } }), ctx)).rejects.toThrow();
-    expect(world.published.find((e) => e.type === "build.rejected")).toBeDefined();
-    expect(world.plotInserts).toBe(0);
-    expect(world.published.find((e) => e.type === "trade.request")).toBeUndefined();
-  });
-
   it("publishes a trade.request (cost via trade) when guards pass — no build.queued yet", async () => {
     const world = base({});
     await verb(landCapability(), "build.request", {}, evt({ type: "build.requested", payload: { blueprint: "farm" } }), makeCtx(world));
@@ -162,6 +150,16 @@ describe("build.request — guards → stake → charge (§10 Builder)", () => {
     const world = base({});
     await verb(landCapability(), "build.request", {}, evt({ type: "build.requested", payload: { blueprint: "farm" } }), makeCtx(world));
     expect(world.plotInserts).toBe(0);
+  });
+
+  it("allows concurrent builds — a second request also charges (no serialize block)", async () => {
+    const world = base({});
+    const ctx = makeCtx(world);
+    await verb(landCapability(), "build.request", {}, evt({ type: "build.requested", payload: { blueprint: "farm" }, correlationId: "cmd_A" }), ctx);
+    await verb(landCapability(), "build.request", {}, evt({ type: "build.requested", payload: { blueprint: "farm" }, correlationId: "cmd_B" }), ctx);
+    const charges = world.published.filter((e) => e.type === "trade.request").map((e) => e.correlationId);
+    expect(charges).toEqual(["cmd_A", "cmd_B"]); // both proceed, each on its own correlation
+    expect(world.published.find((e) => e.type === "build.rejected")).toBeUndefined();
   });
 });
 

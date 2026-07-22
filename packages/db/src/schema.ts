@@ -166,6 +166,9 @@ export const buildQueue = pgTable(
     blueprintId: text("blueprint_id").notNull(),
     threadId: text("thread_id"),
     status: text("status").notNull().default("queued"), // queued | building | completed | cancelled
+    // The originating workflow instance's correlation, threaded onto build.completed
+    // so a concurrent build's completion routes back to the right instance (§7).
+    correlationId: text("correlation_id"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completesAt: timestamp("completes_at", { withTimezone: true }),
   },

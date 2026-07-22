@@ -33,14 +33,17 @@ async function main(): Promise<void> {
 
   /** build.completed for any build whose timer has elapsed (§2.4, §10 Builder). */
   async function fireDueBuilds(): Promise<void> {
-    const due = await sql<{ id: string; owner_id: string; blueprint_id: string }[]>`
-      SELECT id, owner_id, blueprint_id FROM build_queue
+    const due = await sql<{ id: string; owner_id: string; blueprint_id: string; correlation_id: string | null }[]>`
+      SELECT id, owner_id, blueprint_id, correlation_id FROM build_queue
       WHERE status = 'building' AND completes_at <= now()
     `;
     for (const b of due) {
       await bus.publish({
         type: "build.completed",
         actor: { kind: "player", id: b.owner_id },
+        // Thread the build's correlation so the completion routes back to the
+        // originating player_build instance among a player's concurrent builds.
+        correlationId: b.correlation_id,
         payload: { queue_id: b.id, blueprint: b.blueprint_id },
       });
     }

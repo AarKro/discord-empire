@@ -297,6 +297,11 @@ export class WorkflowRuntime {
       const at = new Date(Date.now() + dec.timerMs).toISOString();
       await this.deps.sql`UPDATE workflow_instances SET timer_at = ${at} WHERE id = ${id}`;
       this.armTimer(id, wf.id, dec.nextState, dec.timerMs);
+    } else {
+      // Entering a state with no timer — drop any deadline carried from a prior
+      // one (e.g. charging→building) so no stale timer lingers.
+      this.clearTimer(id);
+      await this.deps.sql`UPDATE workflow_instances SET timer_at = NULL WHERE id = ${id}`;
     }
   }
 

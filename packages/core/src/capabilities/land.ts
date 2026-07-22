@@ -10,10 +10,10 @@
  * tier-scaled timer), build.complete (tick's build.completed → finish, notify),
  * and build.reject (charge failed → clean up + in-fiction reply). A pending build
  * is carried across the async charge as a build_queue row in status 'queued'
- * (blueprint + plot known, completes_at null) — the engine has no per-instance
- * mutable context, so the row IS the carry. Builds are serialized per player (one
- * 'queued'/'building' row at a time), which is what lets the per-player workflow
- * instance match the charge and completion events unambiguously.
+ * (blueprint + plot known, completes_at null), keyed by the workflow instance's
+ * correlation. A player may have several builds in flight: each event (the charge's
+ * trade.completed, the tick's build.completed) carries that correlation, so the
+ * runtime routes it to the right instance and the verbs act on the matching row.
  *
  * Iteration-1 shortcut: the first /build auto-provisions a starter plot (the
  * auto-register-on-first-interaction philosophy, §2.1 — mirroring ensurePlayer)
@@ -145,10 +145,11 @@ export function landCapability(): Capability {
     actions: {
       /**
        * /build entry: guards → stake plot → charge via `trade`. Records the
-       * pending build as a 'queued' build_queue row (the carry across the async
-       * charge) and emits trade.request. On a pre-charge failure (already
-       * building, unknown blueprint) it emits the rejection itself and THROWS so
-       * the workflow's on_error routes to its final cleanup state.
+       * pending build as a 'queued' build_queue row keyed by the instance's
+       * correlation (the carry across the async charge; concurrent builds each get
+       * their own row) and emits trade.request. On an unknown blueprint it emits
+       * the rejection itself and THROWS so the workflow's on_error routes to its
+       * final cleanup state.
        */
       "build.request": async (_args, evt, ctx: CapabilityContext) => {
         const player = evt?.actor?.id;
@@ -162,17 +163,6 @@ export function landCapability(): Capability {
         const { created } = await ensurePlayer(ctx.sql, player, homeGuildId, DEFAULT_STARTING_GOLD);
         if (created) ctx.logger.info({ player, startingGold: DEFAULT_STARTING_GOLD }, "player registered via /build");
 
-        // Guard: serialize — one active build per player (§ decision). A second
-        // /build while one is queued/building gets an in-fiction "already
-        // building" reply; the workflow instance then aborts via on_error.
-        const [active] = await ctx.sql<{ id: string }[]>`
-          SELECT id FROM build_queue WHERE owner_id = ${player} AND status IN ('queued', 'building') LIMIT 1
-        `;
-        if (active) {
-          await publishRejection(ctx, player, guildId, correlationId, "You've a project underway already — one at a time, friend.");
-          throw new Error("already building");
-        }
-
         // Guard: valid blueprint.
         const blueprint = blueprintId ? await loadBlueprint(ctx.sql, blueprintId) : null;
         if (!blueprint) {
@@ -183,15 +173,16 @@ export function landCapability(): Capability {
         // First build stakes a starter plot and provisions its channels.
         const plot = await ensurePlot(ctx, player, homeGuildId);
 
-        // Record the pending build so build.enqueue can find it once the charge
-        // settles (completes_at null = not yet building). Then deduct the cost
-        // through `trade` (invariant #2): a trade.request addressed to this
-        // builder. The atomic trade is the authority on affordability — it fails
-        // cleanly on insufficient funds, which trade.failed → build.reject turns
-        // into a rejection. correlationId threads to the ephemeral reply.
+        // Record the pending build (correlation-keyed so build.enqueue/reject find
+        // THIS build among a player's concurrent ones once the charge settles;
+        // completes_at null = not yet building). Then deduct the cost through
+        // `trade` (invariant #2): a trade.request addressed to this builder. The
+        // atomic trade is the authority on affordability — it fails cleanly on
+        // insufficient funds, which trade.failed → build.reject turns into a
+        // rejection. correlationId threads to the ephemeral reply too.
         await ctx.sql`
-          INSERT INTO build_queue (owner_id, plot_id, blueprint_id, status)
-          VALUES (${player}, ${plot}, ${blueprint.id}, 'queued')
+          INSERT INTO build_queue (owner_id, plot_id, blueprint_id, status, correlation_id)
+          VALUES (${player}, ${plot}, ${blueprint.id}, 'queued', ${correlationId})
         `;
         await ctx.bus.publish({
           type: "trade.request",
@@ -203,16 +194,18 @@ export function landCapability(): Capability {
         });
       },
 
-      /** Charge settled: promote the player's 'queued' row to a timed 'building' and announce it. */
+      /** Charge settled: promote this build's 'queued' row to a timed 'building' and announce it. */
       "build.enqueue": async (_args, evt, ctx: CapabilityContext) => {
         const player = evt?.actor?.id;
+        const correlationId = evt?.correlationId ?? null;
         if (!player) return;
         const [pending] = await ctx.sql<{ id: string; plot_id: string; blueprint_id: string }[]>`
           SELECT id, plot_id, blueprint_id FROM build_queue
-          WHERE owner_id = ${player} AND status = 'queued' ORDER BY id DESC LIMIT 1
+          WHERE owner_id = ${player} AND correlation_id = ${correlationId} AND status = 'queued'
+          ORDER BY id DESC LIMIT 1
         `;
         if (!pending) {
-          ctx.logger.warn({ player }, "build.enqueue: no queued build for player");
+          ctx.logger.warn({ player, correlationId }, "build.enqueue: no queued build for this charge");
           return;
         }
         const blueprint = await loadBlueprint(ctx.sql, pending.blueprint_id);
@@ -220,7 +213,7 @@ export function landCapability(): Capability {
         const durationMs = scaledBuildMs(blueprint?.base_ms ?? 0, tier);
         const completesAt = new Date(Date.now() + durationMs);
         await ctx.sql`
-          UPDATE build_queue SET status = 'building', started_at = now(), completes_at = ${completesAt}
+          UPDATE build_queue SET status = 'building', started_at = now(), completes_at = ${completesAt.toISOString()}
           WHERE id = ${pending.id}
         `;
         const mins = Math.max(1, Math.round(durationMs / 60000));
@@ -263,14 +256,20 @@ export function landCapability(): Capability {
         });
       },
 
-      /** Charge failed: discard the player's pending 'queued' row and reply in-fiction. */
+      /**
+       * Charge failed or timed out: discard this build's pending 'queued' row and
+       * reply in-fiction. Keyed by correlation so it drops only the affected build
+       * (concurrent ones untouched); on the timeout path the runtime's synthetic
+       * timer event supplies the instance's player + correlation.
+       */
       "build.reject": async (args, evt, ctx: CapabilityContext) => {
         const player = evt?.actor?.id;
+        const correlationId = evt?.correlationId ?? null;
         const message = String((args as { message?: unknown }).message ?? "That build fell through, friend.");
         if (player) {
-          await ctx.sql`DELETE FROM build_queue WHERE owner_id = ${player} AND status = 'queued'`;
+          await ctx.sql`DELETE FROM build_queue WHERE owner_id = ${player} AND correlation_id = ${correlationId} AND status = 'queued'`;
         }
-        await publishRejection(ctx, player ?? "", evt?.guildId ?? null, evt?.correlationId ?? null, message);
+        await publishRejection(ctx, player ?? "", evt?.guildId ?? null, correlationId, message);
       },
     },
   };
