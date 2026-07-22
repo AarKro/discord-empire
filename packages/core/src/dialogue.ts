@@ -19,6 +19,9 @@ export interface GuardScope {
   position?: { district: string | null };
 }
 
+/** The zero scope — used by workflows that reference no player game-state. */
+export const EMPTY_SCOPE: GuardScope = { gold: 0, reputation: {}, flags: {} };
+
 /** Load a player's guard scope (§7 guards) from game state. Reads only. */
 export async function loadGuardScope(sql: Sql, playerId: string): Promise<GuardScope> {
   const gold = await readBalance(sql, "player", playerId, "gold");

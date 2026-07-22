@@ -14,11 +14,8 @@ import type { Sql } from "@empire/db";
 import { jsonParam } from "@empire/db";
 import { ulid } from "ulid";
 import { availableOptions, decide, entry, parseOnError, scopeMatches, type Stimulus, type TransitionDecision } from "./engine.js";
-import { loadGuardScope, DIALOGUE_OPTION_PREFIX, type GuardScope } from "../dialogue.js";
+import { loadGuardScope, DIALOGUE_OPTION_PREFIX, EMPTY_SCOPE, type GuardScope } from "../dialogue.js";
 import { parseDuration } from "./duration.js";
-
-/** Scope with no game-state facts — used for workflows that reference none. */
-const EMPTY_SCOPE: GuardScope = { gold: 0, reputation: {}, flags: {} };
 
 export interface RuntimeDeps {
   sql: Sql;
@@ -31,6 +28,7 @@ export interface RuntimeDeps {
 
 export class WorkflowRuntime {
   private readonly byTrigger = new Map<string, Workflow[]>();
+  private readonly byId = new Map<string, Workflow>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
   /** Workflow ids that reference player game-state (guards/options) — the only
    *  ones for which we load a real GuardScope; the rest run against EMPTY_SCOPE. */
@@ -38,10 +36,11 @@ export class WorkflowRuntime {
   private botId?: string;
 
   constructor(
-    private readonly workflows: Workflow[],
+    workflows: Workflow[],
     private readonly deps: RuntimeDeps,
   ) {
     for (const wf of workflows) {
+      this.byId.set(wf.id, wf);
       if (Object.values(wf.states).some((s) => s.guards.length > 0 || s.options.length > 0)) {
         this.needsScope.add(wf.id);
       }
@@ -58,8 +57,8 @@ export class WorkflowRuntime {
   }
 
   /** Player guard scope for a player-scoped, guard/option-bearing workflow; else empty. */
-  private async scopeFor(wf: Workflow, scope: string, scopeKey: string): Promise<GuardScope> {
-    if (scope === "player" && this.needsScope.has(wf.id)) return loadGuardScope(this.deps.sql, scopeKey);
+  private async scopeFor(wf: Workflow, scopeKey: string): Promise<GuardScope> {
+    if (wf.scope === "player" && this.needsScope.has(wf.id)) return loadGuardScope(this.deps.sql, scopeKey);
     return EMPTY_SCOPE;
   }
 
@@ -126,7 +125,7 @@ export class WorkflowRuntime {
       SELECT id, workflow_id, scope, scope_key, state, correlation_id FROM workflow_instances WHERE status = 'active'
     `;
     for (const inst of instances) {
-      const wf = this.workflows.find((w) => w.id === inst.workflow_id);
+      const wf = this.byId.get(inst.workflow_id);
       if (!wf) continue;
       if (!scopeMatches(inst.scope, inst.scope_key, evt)) continue;
       await this.advance(inst, wf, { kind: "event", eventType: evt.type, payload: evt.payload }, evt);
@@ -146,7 +145,7 @@ export class WorkflowRuntime {
       wf.scope === "npc" ? (evt.subject?.id ?? String(wf.context.npc ?? "npc")) :
       "world";
     const id = `wfi_${ulid()}`;
-    const scope = await this.scopeFor(wf, wf.scope, scopeKey);
+    const scope = await this.scopeFor(wf, scopeKey);
     const dec = entry(wf, scope);
     if (dec.nextState === null) return; // guards blocked entry
     // Singleton workflows (wf.singleton) only spawn when no instance for this
@@ -186,7 +185,7 @@ export class WorkflowRuntime {
     stimulus: Stimulus,
     evt: BusEvent | null,
   ): Promise<void> {
-    const scope = await this.scopeFor(wf, inst.scope, inst.scope_key);
+    const scope = await this.scopeFor(wf, inst.scope_key);
     const dec = decide(wf, inst.state, stimulus, scope);
     if (dec.nextState === null) return;
     const correlationId = inst.correlation_id ?? `wf_${ulid()}`;
@@ -287,7 +286,7 @@ export class WorkflowRuntime {
   }
 
   private async onTimer(id: string, workflowId: string, state: string): Promise<void> {
-    const wf = this.workflows.find((w) => w.id === workflowId);
+    const wf = this.byId.get(workflowId);
     if (!wf) return;
     const [inst] = await this.deps.sql<{ id: string; workflow_id: string; scope: string; scope_key: string; state: string; correlation_id: string | null }[]>`
       SELECT id, workflow_id, scope, scope_key, state, correlation_id FROM workflow_instances WHERE id = ${id} AND status = 'active'

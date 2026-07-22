@@ -10,7 +10,7 @@
  * database or Discord.
  */
 import type { DialogueOption, Workflow, WorkflowState } from "@empire/content-schemas";
-import { evalGuard, type GuardScope } from "../dialogue.js";
+import { evalGuard, EMPTY_SCOPE, type GuardScope } from "../dialogue.js";
 import { parseDuration } from "./duration.js";
 
 /** The event a player's option click arrives as; its payload carries `option`. */
@@ -57,7 +57,7 @@ export function decide(
   wf: Workflow,
   currentStateId: string,
   stimulus: Stimulus,
-  scope: GuardScope = { gold: 0, reputation: {}, flags: {} },
+  scope: GuardScope = EMPTY_SCOPE,
 ): TransitionDecision {
   const state = wf.states[currentStateId];
   if (!state) throw new Error(`unknown state "${currentStateId}" in workflow "${wf.id}"`);
@@ -98,7 +98,7 @@ export function decide(
 }
 
 /** The initial-state entry decision when an instance is created. */
-export function entry(wf: Workflow, scope: GuardScope = { gold: 0, reputation: {}, flags: {} }): TransitionDecision {
+export function entry(wf: Workflow, scope: GuardScope = EMPTY_SCOPE): TransitionDecision {
   const state = wf.states[wf.initial];
   if (!state) throw new Error(`initial state "${wf.initial}" missing in workflow "${wf.id}"`);
   if (!guardsPass(state, scope)) return empty();
