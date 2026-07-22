@@ -14,6 +14,8 @@ states:
     prompt: "Welcome, traveller. Care to see the Arcane Forge blueprint?"
     options:
       - { id: browse, label: "Show me", goto: offer }
+      # Hands off to the merchant_quest workflow (a separate private thread).
+      - { id: work, label: "Any work for me?", goto: farewell, emit: [{ type: quest.start }] }
       - { id: leave, label: "Not today", goto: farewell }
   offer:
     prompt: "120 gold. A fair price for such craft."

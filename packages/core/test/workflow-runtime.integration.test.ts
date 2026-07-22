@@ -63,6 +63,11 @@ function playerEvt(type: string, playerId: string, correlationId: string | null 
   };
 }
 
+/** An unattributed world event (tick.hour shape). */
+function worldEvt(type: string): BusEvent {
+  return { dbId: "0", eventId: `e_${type}`, type, ts: "", guildId: null, actor: null, subject: null, payload: {}, correlationId: null };
+}
+
 let h: DbHandle;
 
 function makeRuntime(workflows: Workflow[], actions: Record<string, ActionHandler>): WorkflowRuntime {
@@ -349,6 +354,70 @@ states:
       expect(seen).toEqual({ actor: "pt", corr: "corrZ" });
       const [row] = await h.sql`SELECT state, status FROM workflow_instances WHERE workflow_id = 'timer_wf'`;
       expect(row).toMatchObject({ state: "expired", status: "final" });
+    });
+  });
+
+  describe("shipped sample workflows", () => {
+    const quest = loadContentFile(Workflow, join(CONTENT, "workflows/merchant_quest.yaml"));
+    // A no-random, fast-timer twin of secret_merchant.yaml so appear→vanish is
+    // deterministic (the shipped file's random_chance is validated in content-files).
+    const secret = parseContent(Workflow, `
+id: secret_test
+scope: world
+singleton: true
+trigger: { event: tick.hour }
+initial: appear
+states:
+  appear:
+    actions: [{ emit: { type: world.rumor, payload: { hint: "seen" } } }]
+    timer: { after: 50ms, goto: vanish }
+  vanish:
+    actions: [{ emit: { type: world.rumor, payload: { hint: "gone" } } }]
+    final: true
+`, "secret_test.yaml");
+
+    const optionIds = (payload: Record<string, unknown>) => (payload.options as { id: string }[]).map((o) => o.id);
+    const latestNode = () => h.sql<{ payload: Record<string, unknown> }[]>`SELECT payload FROM events WHERE type = 'dialogue.node' ORDER BY id DESC LIMIT 1`;
+
+    it("merchant_quest: an early choice (set:) gates the reward option several states later", async () => {
+      const rt = makeRuntime([quest], {});
+      await rt.onEvent(playerEvt("quest.start", "q1"));
+      await rt.onEvent(playerEvt("dialogue.choose", "q1", null, { option: "scholar" }));
+
+      const [mid] = await h.sql<{ state: string; context: { path?: string } }[]>`SELECT state, context FROM workflow_instances WHERE workflow_id = 'merchant_quest'`;
+      expect(mid).toMatchObject({ state: "trial" });
+      expect(mid!.context.path).toBe("scholar"); // remembered across the coming node
+
+      await rt.onEvent(playerEvt("dialogue.choose", "q1", null, { option: "fortune" }));
+      const [verdict] = await latestNode();
+      expect(optionIds(verdict!.payload)).toEqual(["dlg:take_scholar", "dlg:decline"]); // soldier boon guarded out
+
+      await rt.onEvent(playerEvt("dialogue.choose", "q1", null, { option: "take_scholar" }));
+      const [done] = await h.sql`SELECT state, status FROM workflow_instances WHERE workflow_id = 'merchant_quest'`;
+      expect(done).toMatchObject({ state: "rewarded_scholar", status: "final" });
+    });
+
+    it("merchant_quest: the soldier path is offered the soldier boon instead", async () => {
+      const rt = makeRuntime([quest], {});
+      await rt.onEvent(playerEvt("quest.start", "q2"));
+      await rt.onEvent(playerEvt("dialogue.choose", "q2", null, { option: "soldier" }));
+      await rt.onEvent(playerEvt("dialogue.choose", "q2", null, { option: "wisdom" }));
+
+      const [verdict] = await latestNode();
+      expect(optionIds(verdict!.payload)).toEqual(["dlg:take_soldier", "dlg:decline"]);
+    });
+
+    it("secret_merchant: appears on the tick, then vanishes on its timer (two rumours)", async () => {
+      const rt = makeRuntime([secret], {});
+      await rt.onEvent(worldEvt("tick.hour"));
+      const [appeared] = await h.sql`SELECT scope, scope_key, state FROM workflow_instances WHERE workflow_id = 'secret_test'`;
+      expect(appeared).toMatchObject({ scope: "world", scope_key: "world", state: "appear" });
+
+      await new Promise((r) => setTimeout(r, 150));
+      const [gone] = await h.sql`SELECT state, status FROM workflow_instances WHERE workflow_id = 'secret_test'`;
+      expect(gone).toMatchObject({ state: "vanish", status: "final" });
+      const rumours = await h.sql<{ payload: { hint?: string } }[]>`SELECT payload FROM events WHERE type = 'world.rumor' ORDER BY id`;
+      expect(rumours.map((r) => r.payload.hint)).toEqual(["seen", "gone"]);
     });
   });
 });

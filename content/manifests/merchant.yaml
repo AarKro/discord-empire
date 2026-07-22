@@ -30,3 +30,5 @@ content:
   workflows:
     - workflows/merchant_wander.yaml
     - workflows/aldric_haggle.yaml
+    - workflows/merchant_quest.yaml
+    - workflows/secret_merchant.yaml

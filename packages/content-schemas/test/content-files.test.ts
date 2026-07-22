@@ -50,6 +50,14 @@ describe("shipped content validates against schemas", () => {
     const haggle = loadContentFile(Workflow, join(CONTENT, "workflows/aldric_haggle.yaml"));
     expect(haggle.scope).toBe("player");
     expect(haggle.states.offer!.options.some((o) => o.guard?.expr.includes("gold"))).toBe(true);
+    // Sample quest: remembers a choice via set: and gates a later option on context.
+    const quest = loadContentFile(Workflow, join(CONTENT, "workflows/merchant_quest.yaml"));
+    expect(quest.states.trial!.set).toMatchObject({ path: "event.payload.option" });
+    expect(quest.states.verdict!.options.some((o) => o.guard?.expr.includes("context.path"))).toBe(true);
+    // Sample ambient event: world-scoped random appearance with a timer.
+    const secret = loadContentFile(Workflow, join(CONTENT, "workflows/secret_merchant.yaml"));
+    expect(secret.scope).toBe("world");
+    expect(secret.trigger?.filter?.random_chance).toBe(0.15);
   });
 
   it("continents (two dev guilds) and instances", () => {

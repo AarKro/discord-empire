@@ -1,0 +1,39 @@
+# A sample branching quest (framework spec §7) that showcases the workflow engine's
+# per-instance context: the player's early choice is remembered with `set:`, and a
+# much later state's options branch on it via a `context.*` guard — without
+# duplicating the whole tree per path. Rendered as a private-thread dialogue like
+# the haggle; triggered by quest.start (Aldric's "Any work?" option emits it).
+id: merchant_quest
+scope: player
+singleton: true
+trigger: { event: quest.start }
+initial: intro
+states:
+  intro:
+    prompt: "Aye, a small matter. First, tell me — are you a scholar or a soldier?"
+    options:
+      - { id: scholar, label: "A scholar", goto: trial }
+      - { id: soldier, label: "A soldier", goto: trial }
+  trial:
+    # Remember the path chosen at intro (the option id that led here) — this value
+    # outlives the trial node and gates the reward two states on.
+    set: { path: event.payload.option }
+    prompt: "Hm. And do you prize fortune, or wisdom?"
+    options:
+      - { id: fortune, label: "Fortune", goto: verdict }
+      - { id: wisdom, label: "Wisdom", goto: verdict }
+  verdict:
+    prompt: "Then I've just the thing set aside for one like you."
+    options:
+      - { id: take_scholar, label: "Accept the boon", guard: { expr: "context.path == scholar" }, goto: rewarded_scholar }
+      - { id: take_soldier, label: "Accept the boon", guard: { expr: "context.path == soldier" }, goto: rewarded_soldier }
+      - { id: decline, label: "Decline, thanks", goto: farewell }
+  rewarded_scholar:
+    prompt: "A charter of the old trade routes — knowledge is the sharper blade. Safe travels."
+    final: true
+  rewarded_soldier:
+    prompt: "A guardsman's token — strength opens doors coin can't. Safe travels."
+    final: true
+  farewell:
+    prompt: "No matter. Another time, perhaps."
+    final: true
