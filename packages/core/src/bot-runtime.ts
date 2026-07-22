@@ -15,7 +15,7 @@
  * in core because it wires core's own pieces (gateway, bus, capabilities).
  */
 import { isAbsolute, join } from "node:path";
-import { loadContentFile, Manifest, Shop, Dialogue, Schedule, Workflow } from "@empire/content-schemas";
+import { loadContentFile, Manifest, Shop, Schedule, Workflow } from "@empire/content-schemas";
 import { openDb } from "@empire/db";
 import { rootLogger, type Logger } from "./logger.js";
 import { CapabilityRegistry, type Capability, type CapabilityContext } from "./capability.js";
@@ -25,7 +25,7 @@ import { PersonaResolver } from "./persona.js";
 import { tradeCapability } from "./capabilities/trade.js";
 import { topologyCapability } from "./capabilities/topology.js";
 import { stallCapability } from "./capabilities/stall.js";
-import { dialogueThreadCapability } from "./capabilities/dialogue-thread.js";
+import { dialogueCapability } from "./capabilities/dialogue.js";
 import { presenceVoiceCapability } from "./capabilities/presence-voice.js";
 import { voicelinesCapability, type VoicelineConfig } from "./capabilities/voicelines.js";
 import { ambientChatterCapability, type ChatterConfig } from "./capabilities/ambient-chatter.js";
@@ -49,7 +49,7 @@ interface FactoryDeps {
 }
 
 /** Resolve a manifest content path against the content dir; throw if the cap needs it. */
-function content(deps: FactoryDeps, key: "shop" | "dialogue" | "schedule", capName: string): string {
+function content(deps: FactoryDeps, key: "shop" | "schedule", capName: string): string {
   const rel = deps.manifest.content?.[key];
   if (!rel) throw new Error(`capability "${capName}" needs content.${key} in manifest "${deps.manifest.id}"`);
   return join(deps.contentDir, rel);
@@ -60,7 +60,7 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
   trade: (deps) => tradeCapability(deps.manifest.content?.shop ? loadContentFile(Shop, join(deps.contentDir, deps.manifest.content.shop)) : undefined),
   topology: () => topologyCapability(),
   stall: (deps) => stallCapability(loadContentFile(Shop, content(deps, "shop", "stall"))),
-  "dialogue.thread": (deps) => dialogueThreadCapability(loadContentFile(Dialogue, content(deps, "dialogue", "dialogue.thread"))),
+  dialogue: () => dialogueCapability(),
   "presence.voice": (deps) => {
     const rel = deps.manifest.content?.schedule;
     const stops = rel ? loadContentFile(Schedule, join(deps.contentDir, rel)).stops : [];

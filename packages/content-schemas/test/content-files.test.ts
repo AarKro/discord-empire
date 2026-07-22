@@ -11,7 +11,6 @@ import {
   loadContentFile,
   Manifest,
   Shop,
-  Dialogue,
   Workflow,
   Schedule,
   Continents,
@@ -35,9 +34,8 @@ describe("shipped content validates against schemas", () => {
     expect(Object.keys(merchant.personas).length).toBeGreaterThanOrEqual(2);
   });
 
-  it("shop, dialogue, schedule", () => {
+  it("shop, schedule", () => {
     expect(loadContentFile(Shop, join(CONTENT, "shops/aldric.yaml")).items.length).toBeGreaterThan(0);
-    expect(loadContentFile(Dialogue, join(CONTENT, "dialogue/aldric.yaml")).start).toBe("greet");
     expect(loadContentFile(Schedule, join(CONTENT, "schedules/aldric.yaml")).stops.length).toBeGreaterThan(0);
   });
 
@@ -48,6 +46,10 @@ describe("shipped content validates against schemas", () => {
     const build = loadContentFile(Workflow, join(CONTENT, "workflows/player_build.yaml"));
     expect(build.scope).toBe("player");
     expect(build.singleton).toBe(false); // one instance per /build (default)
+    // The haggle tree is now a workflow: player-scoped, prompt + guarded options.
+    const haggle = loadContentFile(Workflow, join(CONTENT, "workflows/aldric_haggle.yaml"));
+    expect(haggle.scope).toBe("player");
+    expect(haggle.states.offer!.options.some((o) => o.guard?.expr.includes("gold"))).toBe(true);
   });
 
   it("continents (two dev guilds) and instances", () => {

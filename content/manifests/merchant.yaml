@@ -15,7 +15,7 @@ capabilities:
   - trade
   - topology
   - stall
-  - dialogue.thread
+  - dialogue
   - presence.voice
   - voicelines
   - ambient.chatter
@@ -25,8 +25,8 @@ home:
   "${GUILD_CONTINENT_TWO}": { voice_channel: harbor_vc }
 content:
   shop: shops/aldric.yaml
-  dialogue: dialogue/aldric.yaml
   voicelines: audio/aldric/
   schedule: schedules/aldric.yaml
   workflows:
     - workflows/merchant_wander.yaml
+    - workflows/aldric_haggle.yaml

@@ -57,7 +57,7 @@ export function stallCapability(shop: Shop): Capability {
         });
       },
     },
-    /** Route Enter-the-stall clicks into the bus; dialogue.thread opens on it. */
+    /** Route Enter-the-stall clicks into the bus; the dialogue workflow triggers on it. */
     init(ctx: CapabilityContext): void {
       ctx.gateway.onComponent(async (interaction) => {
         if (interaction.customId !== ENTER_STALL_BUTTON) return;

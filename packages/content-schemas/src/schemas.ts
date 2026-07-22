@@ -27,7 +27,6 @@ export const Manifest = z.object({
   content: z
     .object({
       shop: z.string().optional(),
-      dialogue: z.string().optional(),
       voicelines: z.string().optional(),
       schedule: z.string().optional(),
       workflows: z.array(z.string()).optional(),
@@ -55,11 +54,13 @@ export const Shop = z.object({
 });
 export type Shop = z.infer<typeof Shop>;
 
-// --- Dialogue tree (§5.4) — same node/transition shape as workflows ----------
+// --- Guards + player options (§5.4) — the pieces a dialogue workflow uses -----
 export const Guard = z.object({
   expr: z.string().min(1), // e.g. "player.gold >= 50", "player.reputation.merchant >= 3"
 });
 
+// A player-facing choice on a workflow state's `prompt` (see WorkflowState): a
+// button with an optional guard, a goto, and events it emits when chosen.
 export const DialogueOption = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
@@ -69,23 +70,6 @@ export const DialogueOption = z.object({
   emit: z.array(z.object({ type: z.string(), payload: z.record(z.unknown()).optional() })).optional(),
 });
 export type DialogueOption = z.infer<typeof DialogueOption>;
-
-export const DialogueNode = z.object({
-  id: z.string().min(1),
-  // "generated" is reserved for future LLM wording (§5.4); wording only.
-  type: z.enum(["text", "generated"]).default("text"),
-  text: z.string().optional(),
-  options: z.array(DialogueOption).default([]),
-  final: z.boolean().default(false),
-});
-export type DialogueNode = z.infer<typeof DialogueNode>;
-
-export const Dialogue = z.object({
-  id: z.string().min(1),
-  start: z.string().min(1),
-  nodes: z.array(DialogueNode).min(1),
-});
-export type Dialogue = z.infer<typeof Dialogue>;
 
 // --- Workflow (§7) ------------------------------------------------------------
 export const Trigger = z.object({

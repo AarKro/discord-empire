@@ -1,11 +1,11 @@
 /**
  * Merchant — reference bot #1 (framework spec §4 roster, §10 validation path).
  *
- * Capabilities (see manifests/merchant.yaml): trade, topology, stall,
- * dialogue.thread, presence.voice, voicelines, ambient.chatter, render. Stands
- * in the Bazaar with a stall embed; Enter → private thread → scripted haggle
- * against a hidden, reputation-adjusted floor → atomic purchase (via `trade`) →
- * receipt; wanders between voice channels on the hour.
+ * Capabilities (see manifests/merchant.yaml): trade, topology, stall, dialogue,
+ * presence.voice, voicelines, ambient.chatter, render. Stands in the Bazaar with
+ * a stall embed; Enter → the aldric_haggle workflow renders a private-thread
+ * haggle against a hidden, reputation-adjusted floor → atomic purchase (via
+ * `trade`) → receipt; wanders between voice channels on the hour.
  *
  * The generic runner (core's runBot) owns the whole lifecycle; this entrypoint
  * only supplies the manifest and the code-only config that can't live in YAML —

@@ -1,12 +1,10 @@
 /**
- * Dialogue tree resolution (framework spec §5.4). Trees are data: nodes with bot
- * text, player options with guards, gotos, and emitted events — the same
- * node/transition model as workflows. Pure & unit-testable; no Discord here.
- *
- * Haggling (offers/counteroffers against a hidden floor) is expressible as guard
- * + goto + emit data, so it is authorable without code.
+ * Guard evaluation + player scope loading (framework spec §5.4, §7). Guards are
+ * tiny data expressions (`player.gold >= 120`) shared by dialogue options and
+ * workflow state guards; dialogue itself is now expressed as workflows (states
+ * with prompts + options), so the tree runner that once lived here is retired —
+ * the workflow engine resolves options and transitions. Pure & unit-testable.
  */
-import type { Dialogue, DialogueNode, DialogueOption } from "@empire/content-schemas";
 import type { Sql } from "@empire/db";
 import { readBalance } from "@empire/db";
 
@@ -80,36 +78,4 @@ function resolvePath(path: string, scope: GuardScope): unknown {
   if (parts[0] === "flags") return scope.flags[parts[1] ?? ""] ?? false;
   if (parts[0] === "position") return scope.position?.district ?? null;
   return undefined;
-}
-
-export class DialogueRunner {
-  private readonly nodes: Map<string, DialogueNode>;
-  private current: string;
-
-  constructor(tree: Dialogue) {
-    this.nodes = new Map(tree.nodes.map((node) => [node.id, node]));
-    if (!this.nodes.has(tree.start)) throw new Error(`dialogue start node "${tree.start}" not found`);
-    this.current = tree.start;
-  }
-
-  get node(): DialogueNode {
-    return this.nodes.get(this.current)!;
-  }
-
-  /** Options visible to a player given their game-state scope (guards applied). */
-  availableOptions(scope: GuardScope): DialogueOption[] {
-    return this.node.options.filter((option) => !option.guard || evalGuard(option.guard.expr, scope));
-  }
-
-  /** Take an option by id; returns the emitted events and whether the tree ended. */
-  choose(optionId: string, scope: GuardScope): { emit: DialogueOption["emit"]; done: boolean } {
-    const option = this.availableOptions(scope).find((candidate) => candidate.id === optionId);
-    if (!option) throw new Error(`option "${optionId}" not available at node "${this.current}"`);
-    if (option.goto) {
-      if (!this.nodes.has(option.goto)) throw new Error(`goto target "${option.goto}" not found`);
-      this.current = option.goto;
-    }
-    const done = this.node.final;
-    return { emit: option.emit, done };
-  }
 }

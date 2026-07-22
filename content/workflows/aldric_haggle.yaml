@@ -1,0 +1,43 @@
+# Aldric's haggle, as a workflow (§5.4 → §7 "one authoring model"). A per-player
+# conversation started when the player enters the stall; each state is a node with
+# a bot `prompt` and player `options` (guarded, with gotos + emits). The hidden
+# floor still lives in the shop file and the trade capability enforces it; here the
+# options only shape which offers a player can make. Singleton: one conversation
+# per player at a time (re-enter mid-chat continues; after it ends, a new one).
+id: aldric_haggle
+scope: player
+singleton: true
+trigger: { event: stall.entered }
+initial: greet
+states:
+  greet:
+    prompt: "Welcome, traveller. Care to see the Arcane Forge blueprint?"
+    options:
+      - { id: browse, label: "Show me", goto: offer }
+      - { id: leave, label: "Not today", goto: farewell }
+  offer:
+    prompt: "120 gold. A fair price for such craft."
+    options:
+      - id: buy
+        label: "Buy it (120g)"
+        kind: button
+        guard: { expr: "player.gold >= 120" }
+        goto: sold
+        emit:
+          - type: trade.request
+            payload: { item: blueprint_arcane_forge, qty: 1, price: 120 }
+      - id: haggle
+        label: "Offer 90g (regulars only)"
+        kind: button
+        guard: { expr: "player.reputation.merchant >= 3" }
+        goto: sold
+        emit:
+          - type: trade.request
+            payload: { item: blueprint_arcane_forge, qty: 1, price: 90 }
+      - { id: walk, label: "Too steep", goto: farewell }
+  sold:
+    prompt: "A pleasure. May it serve you well."
+    final: true
+  farewell:
+    prompt: "Safe travels."
+    final: true

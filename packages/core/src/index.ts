@@ -31,8 +31,8 @@ export type { RunBotOptions, CapabilityConfigs } from "./bot-runtime.js";
 export { bootstrapWorld, DEFAULT_BLUEPRINTS } from "./bootstrap.js";
 export type { BootstrapOptions, BlueprintSeed } from "./bootstrap.js";
 
-// Pure engines (unit-tested)
-export { DialogueRunner, evalGuard, loadGuardScope, DIALOGUE_OPTION_PREFIX } from "./dialogue.js";
+// Guard evaluation + player scope (unit-tested)
+export { evalGuard, loadGuardScope, DIALOGUE_OPTION_PREFIX } from "./dialogue.js";
 export type { GuardScope } from "./dialogue.js";
 
 // Workflow engine (§7): pure transition core + embedded runtime
@@ -47,7 +47,7 @@ export { tradeCapability, effectiveFloor } from "./capabilities/trade.js";
 export type { QuoteInput } from "./capabilities/trade.js";
 export { stallCapability, ENTER_STALL_BUTTON } from "./capabilities/stall.js";
 export { renderCapability } from "./capabilities/render.js";
-export { dialogueThreadCapability } from "./capabilities/dialogue-thread.js";
+export { dialogueCapability } from "./capabilities/dialogue.js";
 export { presenceVoiceCapability } from "./capabilities/presence-voice.js";
 export type { WanderStop } from "./capabilities/presence-voice.js";
 export { voicelinesCapability } from "./capabilities/voicelines.js";
