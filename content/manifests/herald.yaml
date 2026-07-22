@@ -1,0 +1,20 @@
+# The herald — player world-navigation bot (framework spec §9). Its own bot/token
+# so player travel commands don't ride on the merchant or builder. Present in every
+# continent guild (to register /travel + post arrival lines), but stands in no voice
+# — it's a command surface, not a wandering NPC. Same face everywhere.
+id: herald
+token_env: HERALD_TOKEN
+personas:
+  "${GUILD_CONTINENT_ONE}":
+    nickname: "The Wayfarers' Guild"
+    locale_flavor: highlands
+  "${GUILD_CONTINENT_TWO}":
+    nickname: "The Wayfarers' Guild"
+    locale_flavor: harbor
+capabilities:
+  - commands
+  - wayfare
+content:
+  continents: continents.yaml
+  workflows:
+    - workflows/player_travel.yaml

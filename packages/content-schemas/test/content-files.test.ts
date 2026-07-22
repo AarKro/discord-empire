@@ -36,6 +36,10 @@ describe("shipped content validates against schemas", () => {
     const secretMerchant = loadContentFile(Manifest, join(CONTENT, "manifests/secret_merchant.yaml"));
     expect(secretMerchant.capabilities).toContain("travel");
     expect(secretMerchant.content?.continents).toBe("continents.yaml");
+    // §9 player travel: the herald hosts /travel via commands + wayfare.
+    const herald = loadContentFile(Manifest, join(CONTENT, "manifests/herald.yaml"));
+    expect(herald.capabilities).toEqual(expect.arrayContaining(["commands", "wayfare"]));
+    expect(herald.content?.continents).toBe("continents.yaml");
   });
 
   it("shop, schedule", () => {
@@ -64,6 +68,11 @@ describe("shipped content validates against schemas", () => {
     expect(secret.singleton).toBe(true);
     expect(secret.trigger?.event).toBe("bot.ready");
     expect(Object.keys(secret.states)).toEqual(["arriving", "departing"]);
+    // Player travel (§9): player-scoped, travel.requested, remembers the destination.
+    const playerTravel = loadContentFile(Workflow, join(CONTENT, "workflows/player_travel.yaml"));
+    expect(playerTravel.scope).toBe("player");
+    expect(playerTravel.trigger?.event).toBe("travel.requested");
+    expect(playerTravel.states.departing!.set).toMatchObject({ destination: "event.payload.continent" });
   });
 
   it("continents (two dev guilds) and instances", () => {

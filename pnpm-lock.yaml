@@ -39,6 +39,18 @@ importers:
         specifier: workspace:*
         version: link:../../packages/db
 
+  apps/bot-herald:
+    dependencies:
+      '@empire/content-schemas':
+        specifier: workspace:*
+        version: link:../../packages/content-schemas
+      '@empire/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@empire/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+
   apps/bot-merchant:
     dependencies:
       '@empire/content-schemas':
