@@ -28,11 +28,17 @@ states:
       - { id: take_scholar, label: "Accept the boon", guard: { expr: "context.path == scholar" }, goto: rewarded_scholar }
       - { id: take_soldier, label: "Accept the boon", guard: { expr: "context.path == soldier" }, goto: rewarded_soldier }
       - { id: decline, label: "Decline, thanks", goto: farewell }
+  # Real rewards: a flavour item + reputation (enough to unlock the rep-gated haggle
+  # discount), and a prompt that names the remembered path via {{context.path}}.
   rewarded_scholar:
-    prompt: "A charter of the old trade routes — knowledge is the sharper blade. Safe travels."
+    actions:
+      - { "grant.give": { item: trade_charter, qty: 1, reputation: 3 } }
+    prompt: "A charter of the old trade routes, for a {{context.path}} — knowledge is the sharper blade. My trust goes with it. Safe travels."
     final: true
   rewarded_soldier:
-    prompt: "A guardsman's token — strength opens doors coin can't. Safe travels."
+    actions:
+      - { "grant.give": { item: guard_token, qty: 1, reputation: 3 } }
+    prompt: "A guardsman's token, for a {{context.path}} — strength opens doors coin can't. You've my trust. Safe travels."
     final: true
   farewell:
     prompt: "No matter. Another time, perhaps."

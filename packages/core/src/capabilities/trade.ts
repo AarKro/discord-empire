@@ -15,7 +15,7 @@
  *     shapes which offers a player can make; the trade capability decides
  *     which offers the NPC accepts.
  */
-import { executeTrade, type Party } from "@empire/db";
+import { executeTrade, grantReward, type Party } from "@empire/db";
 import type { Shop, ShopItem } from "@empire/content-schemas";
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
@@ -97,6 +97,29 @@ export function tradeCapability(shop?: Shop): Capability {
        */
       "trade.execute": async (args, _evt, ctx: CapabilityContext) => {
         await runQuote(args as unknown as QuoteInput, ctx);
+      },
+
+      /**
+       * `grant.give` — hand the player a reward (gold / item / reputation) from a
+       * workflow (§7 quest/dialogue rewards). Ledger-safe via grantReward (world →
+       * player), keeping the "ledger only through trade" invariant. The player is
+       * the acting event's actor; reputation is scored against this NPC.
+       */
+      "grant.give": async (args, evt, ctx: CapabilityContext) => {
+        const player = evt?.actor?.id;
+        if (!player) return;
+        const a = args as { gold?: number; item?: string; qty?: number; reputation?: number };
+        // Spread only the keys the workflow actually set (no explicit undefineds).
+        await grantReward(ctx.sql, { player, npc: ctx.bot, ...a });
+        ctx.logger.info({ player, ...a }, "reward granted");
+        await ctx.bus.publish({
+          type: "reward.granted",
+          guildId: evt?.guildId ?? null,
+          actor: { kind: "player", id: player },
+          subject: { kind: "npc", id: ctx.bot },
+          payload: { ...a },
+          correlationId: evt?.correlationId ?? null,
+        });
       },
     },
 

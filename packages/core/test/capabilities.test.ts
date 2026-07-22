@@ -137,3 +137,18 @@ describe("trade capability consumes trade.request", () => {
     expect(world.published.find((e) => e.type === "trade.failed")).toBeUndefined();
   });
 });
+
+describe("grant.give hands out a reward (§7)", () => {
+  it("opens a ledger tx and announces reward.granted with the spec", async () => {
+    const world = newWorld();
+    const cap = tradeCapability();
+    await cap.actions["grant.give"]!(
+      { item: "trade_charter", qty: 1, reputation: 3 },
+      busEvent({ type: "dialogue.choose", actor: { kind: "player", id: "p1" }, subject: { kind: "npc", id: "merchant" } }),
+      makeFakeCtx(world),
+    );
+    expect(world.ledgerCalls).toBe(1); // grantReward opened the atomic tx
+    const granted = world.published.find((e) => e.type === "reward.granted");
+    expect(granted?.payload).toMatchObject({ item: "trade_charter", qty: 1, reputation: 3 });
+  });
+});

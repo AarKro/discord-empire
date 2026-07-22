@@ -403,8 +403,9 @@ states:
     const optionIds = (payload: Record<string, unknown>) => (payload.options as { id: string }[]).map((o) => o.id);
     const latestNode = () => h.sql<{ payload: Record<string, unknown> }[]>`SELECT payload FROM events WHERE type = 'dialogue.node' ORDER BY id DESC LIMIT 1`;
 
-    it("merchant_quest: an early choice (set:) gates the reward option several states later", async () => {
-      const rt = makeRuntime([quest], {});
+    it("merchant_quest: an early choice (set:) gates the reward, grants it, and templates the farewell", async () => {
+      const grants: Record<string, unknown>[] = [];
+      const rt = makeRuntime([quest], { "grant.give": (args) => { grants.push(args); } });
       await rt.onEvent(playerEvt("quest.start", "q1"));
       await rt.onEvent(playerEvt("dialogue.choose", "q1", null, { option: "scholar" }));
 
@@ -419,6 +420,10 @@ states:
       await rt.onEvent(playerEvt("dialogue.choose", "q1", null, { option: "take_scholar" }));
       const [done] = await h.sql`SELECT state, status FROM workflow_instances WHERE workflow_id = 'merchant_quest'`;
       expect(done).toMatchObject({ state: "rewarded_scholar", status: "final" });
+      // The reward fired with the scholar boon, and the farewell names the path.
+      expect(grants).toEqual([{ item: "trade_charter", qty: 1, reputation: 3 }]);
+      const [closed] = await h.sql<{ payload: { text?: string } }[]>`SELECT payload FROM events WHERE type = 'dialogue.closed' ORDER BY id DESC LIMIT 1`;
+      expect(closed!.payload.text).toContain("for a scholar");
     });
 
     it("merchant_quest: the soldier path is offered the soldier boon instead", async () => {

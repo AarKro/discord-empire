@@ -53,3 +53,60 @@ export async function ensurePlayer(
     return { created: true };
   });
 }
+
+/** A reward handed to a player by a workflow (§7): any of gold / item / reputation. */
+export interface GrantSpec {
+  player: string;
+  /** The NPC crediting the reward — reputation is scored against them. */
+  npc: string;
+  gold?: number;
+  item?: string;
+  qty?: number;
+  reputation?: number;
+  /** Ledger reason for the gold/item grant (default 'reward'). */
+  reason?: string;
+}
+
+/**
+ * Grant a player a reward atomically. Gold/items are a `world → player` ledger
+ * transaction (one row records both), so balances stay reconcilable (invariant
+ * #2), mirroring ensurePlayer's starting grant. Reputation is a score bump on the
+ * `reputation` table (not economy, so not ledgered). A no-op if nothing is given.
+ */
+export async function grantReward(sql: Sql, spec: GrantSpec): Promise<void> {
+  const gold = spec.gold ?? 0;
+  const qty = spec.item ? (spec.qty ?? 1) : 0;
+  const rep = spec.reputation ?? 0;
+  if (gold <= 0 && qty <= 0 && rep === 0) return;
+
+  await sql.begin(async (tx) => {
+    if (gold > 0) {
+      await tx`
+        INSERT INTO balances (owner_kind, owner_id, currency, amount)
+        VALUES ('player', ${spec.player}, 'gold', ${gold})
+        ON CONFLICT (owner_kind, owner_id, currency) DO UPDATE SET amount = balances.amount + ${gold}
+      `;
+    }
+    if (spec.item && qty > 0) {
+      await tx`
+        INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
+        VALUES ('player', ${spec.player}, ${spec.item}, ${qty})
+        ON CONFLICT (owner_kind, owner_id, item_id) DO UPDATE SET qty = inventories.qty + ${qty}
+      `;
+    }
+    if (gold > 0 || qty > 0) {
+      const itemDeltas = spec.item && qty > 0 ? { [spec.item]: qty } : {};
+      await tx`
+        INSERT INTO ledger (actor_kind, actor_id, counterparty_kind, counterparty_id, currency, currency_delta, item_deltas, reason)
+        VALUES ('player', ${spec.player}, 'world', 'world', 'gold', ${gold}, ${jsonParam(sql, itemDeltas)}, ${spec.reason ?? "reward"})
+      `;
+    }
+    if (rep !== 0) {
+      await tx`
+        INSERT INTO reputation (player_id, npc_id, score)
+        VALUES (${spec.player}, ${spec.npc}, ${rep})
+        ON CONFLICT (player_id, npc_id) DO UPDATE SET score = reputation.score + ${rep}
+      `;
+    }
+  });
+}
