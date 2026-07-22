@@ -62,3 +62,4 @@ export { landCapability, scaledBuildMs, BUILD_PERMIT_ITEM } from "./capabilities
 export { topologyCapability, requiresPresence } from "./capabilities/topology.js";
 export type { PresenceCheck } from "./capabilities/topology.js";
 export { travelCapability, startContinent, nextContinent } from "./capabilities/travel.js";
+export { wayfareCapability } from "./capabilities/wayfare.js";

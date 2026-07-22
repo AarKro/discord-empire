@@ -26,8 +26,10 @@ import type { CommandInteraction } from "../gateway.js";
 /** How long we wait for a result event before an in-fiction fallback reply. */
 const REPLY_TIMEOUT_MS = 10_000;
 
-/** Result event types that can resolve a held ephemeral reply by correlationId. */
-const RESULT_EVENT_TYPES = ["build.queued", "build.rejected"];
+/** Result event types that can resolve a held ephemeral reply by correlationId.
+ *  `command.reply` is the generic channel any round-trip command can settle with
+ *  (e.g. /travel); the build.* ones double as domain events other caps consume. */
+const RESULT_EVENT_TYPES = ["build.queued", "build.rejected", "command.reply"];
 
 export interface CommandDef {
   name: string;

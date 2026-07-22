@@ -34,6 +34,7 @@ import { notifyCapability } from "./capabilities/notify.js";
 import { commandsCapability, type CommandDef } from "./capabilities/commands.js";
 import { renderCapability } from "./capabilities/render.js";
 import { travelCapability } from "./capabilities/travel.js";
+import { wayfareCapability } from "./capabilities/wayfare.js";
 import { WorkflowRuntime } from "./workflow/runtime.js";
 
 /** Code-provided capability config that can't live in YAML, keyed by capability name. */
@@ -77,6 +78,11 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
     const rel = deps.manifest.content?.continents;
     if (!rel) throw new Error(`capability "travel" needs content.continents in manifest "${deps.manifest.id}"`);
     return travelCapability(loadContentFile(Continents, join(deps.contentDir, rel)));
+  },
+  wayfare: (deps) => {
+    const rel = deps.manifest.content?.continents;
+    if (!rel) throw new Error(`capability "wayfare" needs content.continents in manifest "${deps.manifest.id}"`);
+    return wayfareCapability(loadContentFile(Continents, join(deps.contentDir, rel)));
   },
 };
 

@@ -19,6 +19,7 @@ import { openDb, ensurePlayer, type DbHandle } from "@empire/db";
 import { parseContent, loadContentFile, Workflow } from "@empire/content-schemas";
 import { WorkflowRuntime } from "../src/workflow/runtime.js";
 import { travelCapability } from "../src/capabilities/travel.js";
+import { wayfareCapability } from "../src/capabilities/wayfare.js";
 import { EventBus, type BusEvent } from "../src/bus.js";
 import { CapabilityRegistry, type Capability, type CapabilityContext, type ActionHandler } from "../src/capability.js";
 import { rootLogger } from "../src/logger.js";
@@ -531,6 +532,84 @@ states:
       expect(rumours.map((r) => r.guild_id)).toEqual(["g1", "g1", "g2"]);
     });
   });
+
+  // §9 player travel: drive the REAL wayfare capability against Postgres. A
+  // fast-timer twin of player_travel that terminates after one hop (g1 → on the
+  // road → g2) so the position transition is deterministic.
+  describe("player travels between continents (§9)", () => {
+    const continents = {
+      continents: {
+        g1: { name: "Continent One", order: 1, neighbors: ["g2"] },
+        g2: { name: "Continent Two", order: 2, neighbors: ["g1"] },
+      },
+    };
+    const travelWf = parseContent(Workflow, `
+id: player_travel_test
+scope: player
+trigger: { event: travel.requested }
+initial: departing
+states:
+  departing:
+    set: { destination: event.payload.continent }
+    actions: [ { wayfare.depart: { destination: "{{context.destination}}" } } ]
+    on_error: rejected
+    timer: { after: 40ms, goto: arriving }
+  arriving:
+    actions: [ { wayfare.arrive: { destination: "{{context.destination}}" } } ]
+    final: true
+  rejected:
+    final: true
+`, "player_travel_test.yaml");
+
+    let posts: { channelId: string; content: string }[];
+    let rt: WorkflowRuntime;
+
+    beforeEach(async () => {
+      posts = [];
+      await h.sql`INSERT INTO players (discord_user_id, home_guild_id, position_guild_id) VALUES ('p1', 'g1', 'g1')`;
+      await h.sql`INSERT INTO locations (id, guild_id, channel_id, kind) VALUES ('bazaar_g2', 'g2', 'vc2', 'bazaar') ON CONFLICT (id) DO NOTHING`;
+      const registry = new CapabilityRegistry();
+      registry.register(wayfareCapability(continents));
+      const bus = new EventBus(h.sql, "test-wayfare", rootLogger);
+      const gateway = {
+        sendToChannel: async (channelId: string, content: { content?: string }) => { posts.push({ channelId, content: content.content ?? "" }); return "m"; },
+      } as unknown as CapabilityContext["gateway"];
+      const makeContext = (correlationId: string): CapabilityContext => ({
+        bot: "herald", sql: h.sql, bus, gateway,
+        personas: { homeGuild: (g?: string) => g ?? "g1" } as unknown as CapabilityContext["personas"],
+        logger: rootLogger.child({ correlation_id: correlationId }), config: {},
+      });
+      rt = new WorkflowRuntime([travelWf], { sql: h.sql, bus, registry, logger: rootLogger, makeContext });
+    });
+
+    it("departs (position cleared + reply), then arrives on the neighbour and announces it", async () => {
+      await rt.onEvent(playerEvt("travel.requested", "p1", "cmd_1", { continent: "g2" }));
+
+      // On the road: position cleared, an ephemeral command.reply queued for /travel.
+      const [mid] = await h.sql<{ position_guild_id: string | null }[]>`SELECT position_guild_id FROM players WHERE discord_user_id = 'p1'`;
+      expect(mid!.position_guild_id).toBeNull();
+      const [reply] = await h.sql<{ payload: { message?: string } }[]>`SELECT payload FROM events WHERE type = 'command.reply' ORDER BY id DESC LIMIT 1`;
+      expect(reply!.payload.message).toContain("Continent Two");
+
+      // Transit timer fires → arrive on g2 and post to its bazaar.
+      await new Promise((r) => setTimeout(r, 200));
+      const [end] = await h.sql<{ position_guild_id: string | null }[]>`SELECT position_guild_id FROM players WHERE discord_user_id = 'p1'`;
+      expect(end!.position_guild_id).toBe("g2");
+      expect(posts).toEqual([{ channelId: "vc2", content: expect.stringContaining("arrives in Continent Two") }]);
+      const [inst] = await h.sql`SELECT status FROM workflow_instances WHERE workflow_id = 'player_travel_test'`;
+      expect(inst).toMatchObject({ status: "final" });
+    });
+
+    it("rejects a non-neighbour hop: replies with a reason, position unchanged, no arrival", async () => {
+      await rt.onEvent(playerEvt("travel.requested", "p1", "cmd_2", { continent: "g9" }));
+      const [reply] = await h.sql<{ payload: { message?: string } }[]>`SELECT payload FROM events WHERE type = 'command.reply' ORDER BY id DESC LIMIT 1`;
+      expect(reply!.payload.message).toContain("no road that way");
+      const [p] = await h.sql<{ position_guild_id: string | null }[]>`SELECT position_guild_id FROM players WHERE discord_user_id = 'p1'`;
+      expect(p!.position_guild_id).toBe("g1"); // unchanged
+      const [inst] = await h.sql`SELECT state, status FROM workflow_instances WHERE workflow_id = 'player_travel_test'`;
+      expect(inst).toMatchObject({ state: "rejected", status: "final" });
+    });
+  });
 });
 
 /** Create only the tables this suite exercises, if migrations haven't run. */
@@ -567,7 +646,9 @@ async function ensureSchema(handle: DbHandle) {
   )`;
   await sql`CREATE TABLE IF NOT EXISTS players (
     discord_user_id text PRIMARY KEY,
-    flags jsonb NOT NULL DEFAULT '{}', position_district_id text,
+    home_guild_id text, position_guild_id text, position_district_id text,
+    flags jsonb NOT NULL DEFAULT '{}',
+    notification_prefs jsonb NOT NULL DEFAULT '{"target":"land","dm":false}',
     tier int NOT NULL DEFAULT 1
   )`;
   await sql`CREATE TABLE IF NOT EXISTS reputation (

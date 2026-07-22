@@ -1,0 +1,23 @@
+# Player travel between continents (§9). A /travel command emits travel.requested;
+# this player-scoped workflow carries the chosen destination across an in-transit
+# leg. `departing` composes wayfare.depart (validate the ring hop + go on the road),
+# then after the transit timer `arriving` sets the new position and announces it. A
+# bad hop makes wayfare.depart throw → on_error routes to `rejected` (a bare final
+# state) without arming the timer; wayfare.depart has already sent the reason.
+id: player_travel
+scope: player
+trigger: { event: travel.requested }
+initial: departing
+states:
+  departing:
+    set: { destination: event.payload.continent }
+    actions:
+      - { wayfare.depart: { destination: "{{context.destination}}" } }
+    on_error: rejected
+    timer: { after: 3m, goto: arriving }
+  arriving:
+    actions:
+      - { wayfare.arrive: { destination: "{{context.destination}}" } }
+    final: true
+  rejected:
+    final: true
