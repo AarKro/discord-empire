@@ -5,10 +5,12 @@
  * gateway ("the visible response arrives via bus-driven renders").
  *
  * Placement: the location channel comes from the `locations` table (§8: guild +
- * channel mapping), seeded by world:init. The stall's pinned message id is
- * persisted in npcs.state so a restart edits the embed instead of re-posting;
- * per-player dialogue threads are in-memory, matching the dialogue capability's
- * in-memory sessions (open conversations do not survive restarts in iteration 1).
+ * channel mapping), seeded by world:init. Both durable surfaces live in
+ * npcs.state so a restart resumes them: the stall's pinned message id (a restart
+ * edits the embed instead of re-posting) and each player's open dialogue thread
+ * id (a restart still posts to the ongoing conversation, matching the dialogue
+ * workflow instance that also survives). A thread entry is dropped when its tree
+ * closes, so only open conversations are held.
  */
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
@@ -47,10 +49,35 @@ async function saveStallMessageId(sql: Sql, npcId: string, guildId: string, mess
   `;
 }
 
-export function renderCapability(): Capability {
-  /** playerId → open conversation thread. */
-  const threads = new Map<string, string>();
+// A player's open dialogue thread, persisted in npcs.state (mirroring
+// stall_messages) so a mid-conversation restart can still post to it — the
+// workflow instance survives a restart, and now so does its rendered thread.
+// Only OPEN conversations live here: the entry is removed when the tree closes.
+// Exported for the persistence round-trip integration test.
+export async function loadThreadId(sql: Sql, npcId: string, playerId: string): Promise<string | null> {
+  const [npc] = await sql<{ state: { dialogue_threads?: Record<string, string> } }[]>`
+    SELECT state FROM npcs WHERE id = ${npcId}
+  `;
+  return npc?.state.dialogue_threads?.[playerId] ?? null;
+}
 
+export async function saveThreadId(sql: Sql, npcId: string, playerId: string, threadId: string): Promise<void> {
+  await sql`
+    UPDATE npcs
+       SET state = jsonb_set(
+         jsonb_set(state, '{dialogue_threads}', COALESCE(state->'dialogue_threads', '{}'::jsonb)),
+         ARRAY['dialogue_threads', ${playerId}],
+         ${jsonParam(sql, threadId)}
+       )
+     WHERE id = ${npcId}
+  `;
+}
+
+export async function removeThreadId(sql: Sql, npcId: string, playerId: string): Promise<void> {
+  await sql`UPDATE npcs SET state = state #- ARRAY['dialogue_threads', ${playerId}]::text[] WHERE id = ${npcId}`;
+}
+
+export function renderCapability(): Capability {
   async function renderStall(evt: BusEvent, ctx: CapabilityContext): Promise<void> {
     const guildId = evt.guildId;
     if (!guildId) return;
@@ -73,7 +100,7 @@ export function renderCapability(): Capability {
 
   async function openThread(evt: BusEvent, ctx: CapabilityContext): Promise<string | null> {
     const playerId = evt.actor!.id;
-    const known = threads.get(playerId);
+    const known = await loadThreadId(ctx.sql, ctx.bot, playerId);
     if (known) return known;
     const guildId = evt.guildId;
     if (!guildId) return null;
@@ -84,7 +111,7 @@ export function renderCapability(): Capability {
     }
     const persona = ctx.personas.resolve(guildId);
     const threadId = await ctx.gateway.createPrivateThread(channelId, `${persona.nickname} & {user}`, playerId);
-    if (threadId) threads.set(playerId, threadId);
+    if (threadId) await saveThreadId(ctx.sql, ctx.bot, playerId, threadId);
     return threadId;
   }
 
@@ -140,9 +167,9 @@ export function renderCapability(): Capability {
 
         case "dialogue.node": {
           if (!evt.actor) return;
-          const threadId = threads.get(evt.actor.id);
+          const threadId = await loadThreadId(ctx.sql, ctx.bot, evt.actor.id);
           if (!threadId) {
-            ctx.logger.warn({ player: evt.actor.id }, "dialogue.node with no open thread (restart?)");
+            ctx.logger.warn({ player: evt.actor.id }, "dialogue.node with no open thread");
             return;
           }
           await postNode(threadId, evt, ctx);
@@ -151,17 +178,17 @@ export function renderCapability(): Capability {
 
         case "dialogue.closed": {
           if (!evt.actor) return;
-          const threadId = threads.get(evt.actor.id);
+          const threadId = await loadThreadId(ctx.sql, ctx.bot, evt.actor.id);
           if (!threadId) return;
           await postNode(threadId, evt, ctx);
-          threads.delete(evt.actor.id);
+          await removeThreadId(ctx.sql, ctx.bot, evt.actor.id);
           await ctx.gateway.archiveThread(threadId);
           return;
         }
 
         case "trade.completed": {
           if (!evt.actor || evt.actor.kind !== "player") return;
-          const threadId = threads.get(evt.actor.id);
+          const threadId = await loadThreadId(ctx.sql, ctx.bot, evt.actor.id);
           if (!threadId) return;
           const payload = evt.payload as { item?: string; qty?: number; price?: number; currency?: string };
           const currency = payload.currency ?? "gold";
@@ -176,7 +203,7 @@ export function renderCapability(): Capability {
 
         case "trade.failed": {
           if (!evt.actor || evt.actor.kind !== "player") return;
-          const threadId = threads.get(evt.actor.id);
+          const threadId = await loadThreadId(ctx.sql, ctx.bot, evt.actor.id);
           if (!threadId) return;
           const payload = evt.payload as { message?: string };
           await ctx.gateway.sendToChannel(threadId, { content: `*${payload.message ?? "The deal falls through."}*` });
