@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import { openDb, ensurePlayer, type DbHandle } from "@empire/db";
 import { parseContent, loadContentFile, Workflow } from "@empire/content-schemas";
 import { WorkflowRuntime } from "../src/workflow/runtime.js";
+import { travelCapability } from "../src/capabilities/travel.js";
 import { EventBus, type BusEvent } from "../src/bus.js";
 import { CapabilityRegistry, type Capability, type CapabilityContext, type ActionHandler } from "../src/capability.js";
 import { rootLogger } from "../src/logger.js";
@@ -95,7 +96,7 @@ suite("embedded workflow runtime (§7)", () => {
   });
 
   beforeEach(async () => {
-    await h.sql`TRUNCATE workflow_instances, events, balances, players, reputation RESTART IDENTITY CASCADE`;
+    await h.sql`TRUNCATE workflow_instances, events, balances, players, reputation, npcs, locations RESTART IDENTITY CASCADE`;
   });
 
   describe("singleton npc loop (test_wander)", () => {
@@ -449,6 +450,87 @@ states:
       expect(rumours.map((r) => r.payload.hint)).toEqual(["seen", "gone"]);
     });
   });
+
+  // §9 intercontinental travel: drive the REAL travel capability against real
+  // Postgres (position persists in npcs.state; voice hops resolve through
+  // locations). A fast-timer twin of the shipped secret_merchant workflow that
+  // terminates after one full hop (g1 → on-the-road → g2) so the assertion is
+  // deterministic (the perpetual loop would race the transient states).
+  describe("secret_merchant travels between continents (§9)", () => {
+    const continents = {
+      continents: {
+        g1: { name: "Continent One", order: 1, neighbors: ["g2"] },
+        g2: { name: "Continent Two", order: 2, neighbors: ["g1"] },
+      },
+    };
+    const travelWf = parseContent(Workflow, `
+id: secret_travel
+scope: world
+singleton: true
+trigger: { event: bot.ready }
+initial: arriving
+states:
+  arriving:
+    actions: [{ travel.enter: { channel: market_square_vc } }]
+    timer: { after: 40ms, goto: departing }
+  departing:
+    actions: [{ travel.leave: {} }]
+    timer: { after: 40ms, goto: arrived_two }
+  arrived_two:
+    actions: [{ travel.enter: { channel: market_square_vc } }]
+    final: true
+`, "secret_travel.yaml");
+
+    let joins: { guildId: string; channelId: string }[];
+    let leaves: string[];
+    let rt: WorkflowRuntime;
+
+    beforeEach(async () => {
+      joins = [];
+      leaves = [];
+      await h.sql`INSERT INTO npcs (id, kind) VALUES ('secret_merchant', 'wanderer') ON CONFLICT (id) DO NOTHING`;
+      await h.sql`INSERT INTO locations (id, guild_id, channel_id, kind) VALUES
+        ('market_square_vc_g1', 'g1', 'vc1', 'voice'),
+        ('market_square_vc_g2', 'g2', 'vc2', 'voice')
+        ON CONFLICT (id) DO NOTHING`;
+      const registry = new CapabilityRegistry();
+      registry.register(travelCapability(continents));
+      const bus = new EventBus(h.sql, "test-travel", rootLogger);
+      const gateway = {
+        joinVoice: async (guildId: string, channelId: string) => { joins.push({ guildId, channelId }); return true; },
+        leaveVoice: (guildId: string) => { leaves.push(guildId); },
+      } as unknown as CapabilityContext["gateway"];
+      const makeContext = (correlationId: string): CapabilityContext => ({
+        bot: "secret_merchant", sql: h.sql, bus, gateway,
+        personas: {} as unknown as CapabilityContext["personas"],
+        logger: rootLogger.child({ correlation_id: correlationId }), config: {},
+      });
+      rt = new WorkflowRuntime([travelWf], { sql: h.sql, bus, registry, logger: rootLogger, makeContext });
+    });
+
+    it("appears on continent one, leaves its voice, and reappears on continent two", async () => {
+      await rt.onEvent(worldEvt("bot.ready"));
+      // Arrived at the starting continent (lowest order) and joined its stop.
+      const [start] = await h.sql<{ state: Record<string, unknown> }[]>`SELECT state FROM npcs WHERE id = 'secret_merchant'`;
+      expect(start!.state).toMatchObject({ guild: "g1", destination: null });
+      expect(joins).toEqual([{ guildId: "g1", channelId: "vc1" }]);
+
+      // Let the depart + arrive timers fire (40ms + 40ms), then it goes final.
+      await new Promise((r) => setTimeout(r, 200));
+
+      const [end] = await h.sql<{ state: Record<string, unknown> }[]>`SELECT state FROM npcs WHERE id = 'secret_merchant'`;
+      expect(end!.state).toMatchObject({ guild: "g2", destination: null, previous: "g1" });
+      expect(leaves).toEqual(["g1"]); // left continent one's voice while on the road
+      expect(joins).toEqual([{ guildId: "g1", channelId: "vc1" }, { guildId: "g2", channelId: "vc2" }]);
+
+      const [inst] = await h.sql`SELECT status FROM workflow_instances WHERE workflow_id = 'secret_travel'`;
+      expect(inst).toMatchObject({ status: "final" });
+
+      // Three rumours: arrive g1, depart g1, arrive g2 — each attributed to its continent.
+      const rumours = await h.sql<{ guild_id: string }[]>`SELECT guild_id FROM events WHERE type = 'world.rumor' ORDER BY id`;
+      expect(rumours.map((r) => r.guild_id)).toEqual(["g1", "g1", "g2"]);
+    });
+  });
 });
 
 /** Create only the tables this suite exercises, if migrations haven't run. */
@@ -491,5 +573,14 @@ async function ensureSchema(handle: DbHandle) {
   await sql`CREATE TABLE IF NOT EXISTS reputation (
     player_id text NOT NULL, npc_id text NOT NULL, score int NOT NULL DEFAULT 0,
     PRIMARY KEY (player_id, npc_id)
+  )`;
+  // Traveling-NPC position (npcs.state) + voice-stop resolution (locations), for
+  // the §9 travel suite. IF NOT EXISTS defers to the real migrated schema in CI.
+  await sql`CREATE TABLE IF NOT EXISTS npcs (
+    id text PRIMARY KEY, kind text NOT NULL, state jsonb NOT NULL DEFAULT '{}'
+  )`;
+  await sql`CREATE TABLE IF NOT EXISTS locations (
+    id text PRIMARY KEY, guild_id text NOT NULL, channel_id text, kind text NOT NULL,
+    requires_presence boolean NOT NULL DEFAULT false
   )`;
 }

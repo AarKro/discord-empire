@@ -6,6 +6,7 @@
     { "path": "packages/core" },
     { "path": "apps/tick-service" },
     { "path": "apps/bot-merchant" },
-    { "path": "apps/bot-builder" }
+    { "path": "apps/bot-builder" },
+    { "path": "apps/bot-secret-merchant" }
   ]
 }

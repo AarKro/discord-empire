@@ -32,6 +32,10 @@ describe("shipped content validates against schemas", () => {
     expect(builder.capabilities).toContain("land");
     // §10 DoD: distinct personas per guild.
     expect(Object.keys(merchant.personas).length).toBeGreaterThanOrEqual(2);
+    // §9 traveling NPC: its own bot, the travel capability, a continents ring.
+    const secretMerchant = loadContentFile(Manifest, join(CONTENT, "manifests/secret_merchant.yaml"));
+    expect(secretMerchant.capabilities).toContain("travel");
+    expect(secretMerchant.content?.continents).toBe("continents.yaml");
   });
 
   it("shop, schedule", () => {
@@ -54,10 +58,12 @@ describe("shipped content validates against schemas", () => {
     const quest = loadContentFile(Workflow, join(CONTENT, "workflows/merchant_quest.yaml"));
     expect(quest.states.trial!.set).toMatchObject({ path: "event.payload.option" });
     expect(quest.states.verdict!.options.some((o) => o.guard?.expr.includes("context.path"))).toBe(true);
-    // Sample ambient event: world-scoped random appearance with a timer.
+    // Traveling NPC (§9): world-scoped singleton, boot-triggered, arrive/depart loop.
     const secret = loadContentFile(Workflow, join(CONTENT, "workflows/secret_merchant.yaml"));
     expect(secret.scope).toBe("world");
-    expect(secret.trigger?.filter?.random_chance).toBe(0.15);
+    expect(secret.singleton).toBe(true);
+    expect(secret.trigger?.event).toBe("bot.ready");
+    expect(Object.keys(secret.states)).toEqual(["arriving", "departing"]);
   });
 
   it("continents (two dev guilds) and instances", () => {
