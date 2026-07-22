@@ -14,7 +14,7 @@ import type { Sql } from "@empire/db";
 import { jsonParam } from "@empire/db";
 import { ulid } from "ulid";
 import { availableOptions, decide, entry, parseOnError, scopeMatches, type Stimulus, type TransitionDecision } from "./engine.js";
-import { loadGuardScope, resolveSource, DIALOGUE_OPTION_PREFIX, EMPTY_SCOPE, type GuardScope } from "../dialogue.js";
+import { loadGuardScope, resolveSource, interpolate, DIALOGUE_OPTION_PREFIX, EMPTY_SCOPE, type GuardScope } from "../dialogue.js";
 import { parseDuration } from "./duration.js";
 
 /** A persisted instance row's routing/context fields (as advance() needs them). */
@@ -101,26 +101,28 @@ export class WorkflowRuntime {
   private async renderPrompt(wf: Workflow, stateId: string, scope: GuardScope, evt: BusEvent | null, playerId: string, opened: boolean): Promise<void> {
     const state = wf.states[stateId];
     if (!state?.prompt) return;
+    const ctx = scope.context ?? {};
     const type = opened ? "dialogue.opened" : state.final ? "dialogue.closed" : "dialogue.node";
-    const options = availableOptions(state, scope).map((o) => ({ id: `${DIALOGUE_OPTION_PREFIX}${o.id}`, label: o.label, kind: o.kind }));
+    // Prompt + labels weave in remembered context ({{context.x}}).
+    const options = availableOptions(state, scope).map((o) => ({ id: `${DIALOGUE_OPTION_PREFIX}${o.id}`, label: interpolate(o.label, evt, ctx), kind: o.kind }));
     await this.deps.bus.publish({
       type,
       guildId: evt?.guildId ?? null,
       actor: { kind: "player", id: playerId },
       subject: { kind: "npc", id: this.bot() },
-      payload: { dialogue: wf.id, node: stateId, text: state.prompt, options },
+      payload: { dialogue: wf.id, node: stateId, text: interpolate(state.prompt, evt, ctx), options },
     });
   }
 
   /** Publish the events a chosen option emits (player as actor, npc as subject). */
-  private async publishEmits(emits: TransitionDecision["emits"], playerId: string, evt: BusEvent | null, correlationId: string): Promise<void> {
+  private async publishEmits(emits: TransitionDecision["emits"], playerId: string, evt: BusEvent | null, correlationId: string, context: Record<string, unknown>): Promise<void> {
     for (const e of emits) {
       await this.deps.bus.publish({
         type: e.type,
         guildId: evt?.guildId ?? null,
         actor: { kind: "player", id: playerId },
         subject: { kind: "npc", id: this.bot() },
-        payload: e.payload ?? {},
+        payload: interpolate(e.payload ?? {}, evt, context),
         correlationId,
       });
     }
@@ -187,11 +189,11 @@ export class WorkflowRuntime {
     // the recovered timer keeps it alive. Non-singleton workflows spawn one
     // instance per firing (a per-build charge, a random appearance).
     const status = dec.final ? "final" : "active";
-    const context = jsonParam(this.deps.sql, wf.context);
+    const contextJson = jsonParam(this.deps.sql, wf.context);
     const inserted = wf.singleton
       ? await this.deps.sql`
           INSERT INTO workflow_instances (id, workflow_id, scope, scope_key, state, context, correlation_id, status)
-          SELECT ${id}, ${wf.id}, ${wf.scope}, ${scopeKey}, ${dec.nextState}, ${context}, ${correlationId}, ${status}
+          SELECT ${id}, ${wf.id}, ${wf.scope}, ${scopeKey}, ${dec.nextState}, ${contextJson}, ${correlationId}, ${status}
           WHERE NOT EXISTS (
             SELECT 1 FROM workflow_instances
             WHERE workflow_id = ${wf.id} AND scope_key = ${scopeKey} AND status = 'active'
@@ -199,11 +201,12 @@ export class WorkflowRuntime {
         `
       : await this.deps.sql`
           INSERT INTO workflow_instances (id, workflow_id, scope, scope_key, state, context, correlation_id, status)
-          VALUES (${id}, ${wf.id}, ${wf.scope}, ${scopeKey}, ${dec.nextState}, ${context}, ${correlationId}, ${status})
+          VALUES (${id}, ${wf.id}, ${wf.scope}, ${scopeKey}, ${dec.nextState}, ${contextJson}, ${correlationId}, ${status})
         `;
     if (inserted.count === 0) return;
-    await this.applyContext(id, wf, dec.nextState, evt, wf.context);
-    const errGoto = await this.runActions(dec.actions, evt, correlationId, wf, dec.nextState);
+    const context = await this.applyContext(id, wf, dec.nextState, evt, wf.context);
+    scope.context = context;
+    const errGoto = await this.runActions(dec.actions, evt, correlationId, wf, dec.nextState, context);
     if (errGoto !== null) {
       await this.forceTransition(id, wf, errGoto, evt, correlationId);
       return;
@@ -222,10 +225,12 @@ export class WorkflowRuntime {
         status = ${dec.final ? "final" : "active"}
       WHERE id = ${inst.id}
     `;
-    await this.applyContext(inst.id, wf, dec.nextState, evt, inst.context);
+    // Merge the target's `set:`, then use that context for emits/actions/render.
+    const context = await this.applyContext(inst.id, wf, dec.nextState, evt, inst.context);
+    scope.context = context;
     // A chosen option's emits fire on the transition, before entering the target.
-    await this.publishEmits(dec.emits, inst.scope_key, evt, correlationId);
-    const errGoto = await this.runActions(dec.actions, evt, correlationId, wf, dec.nextState);
+    await this.publishEmits(dec.emits, inst.scope_key, evt, correlationId, context);
+    const errGoto = await this.runActions(dec.actions, evt, correlationId, wf, dec.nextState, context);
     if (errGoto !== null) {
       await this.forceTransition(inst.id, wf, errGoto, evt, correlationId);
       return;
@@ -260,7 +265,9 @@ export class WorkflowRuntime {
       WHERE id = ${id}
     `;
     this.deps.logger.warn({ workflow: wf.id, stateId }, "workflow moved to on_error state");
-    const errGoto = await this.runActions(target.actions, evt, correlationId, wf, stateId);
+    // on_error hop: run the error state's actions (no context templating here — an
+    // error transition isn't a normal set:-bearing entry).
+    const errGoto = await this.runActions(target.actions, evt, correlationId, wf, stateId, {});
     if (errGoto !== null) {
       if (depth >= 1) {
         this.deps.logger.error({ workflow: wf.id, stateId }, "error state failed too; aborting instance");
@@ -357,11 +364,14 @@ export class WorkflowRuntime {
     correlationId: string,
     wf: Workflow,
     stateId: string,
+    context: Record<string, unknown>,
   ): Promise<string | null> {
     const ctx = this.deps.makeContext(correlationId);
     const onErr = parseOnError(wf.states[stateId]?.on_error);
     for (const action of actions) {
-      for (const [verb, args] of Object.entries(action)) {
+      for (const [verb, rawArgs] of Object.entries(action)) {
+        // Weave remembered context into the args ({{context.x}}) before dispatch.
+        const args = interpolate(rawArgs as Record<string, unknown>, evt, context);
         if (verb === "emit") {
           const spec = args as { type: string; payload?: Record<string, unknown> };
           await this.deps.bus.publish({
@@ -376,7 +386,7 @@ export class WorkflowRuntime {
           this.deps.logger.error({ verb }, "no capability exports this action");
           continue;
         }
-        const goto = await this.dispatchWithRetry(handler, args as Record<string, unknown>, evt, ctx, onErr, verb, wf, correlationId);
+        const goto = await this.dispatchWithRetry(handler, args, evt, ctx, onErr, verb, wf, correlationId);
         if (goto !== null) return goto;
       }
     }

@@ -315,6 +315,19 @@ states:
     final: true
 `, "timer.yaml");
 
+    const tmpl = parseContent(Workflow, `
+id: tmpl_wf
+scope: player
+trigger: { event: t.go }
+initial: start
+states:
+  start:
+    set: { name: event.payload.name, count: event.payload.count }
+    prompt: "Welcome, {{context.name}}!"
+    actions: [{ emit: { type: greeted, payload: { who: "{{context.name}}", times: "{{context.count}}" } } }]
+    final: true
+`, "tmpl.yaml");
+
     it("set: writes instance context, and a later guard branches on it", async () => {
       const rt = makeRuntime([quest], {});
       await rt.onEvent(playerEvt("quest.start", "p1", null, { door: "red" }));
@@ -354,6 +367,17 @@ states:
       expect(seen).toEqual({ actor: "pt", corr: "corrZ" });
       const [row] = await h.sql`SELECT state, status FROM workflow_instances WHERE workflow_id = 'timer_wf'`;
       expect(row).toMatchObject({ state: "expired", status: "final" });
+    });
+
+    it("templates {{context.x}} into the prompt and emit payloads (types preserved)", async () => {
+      const rt = makeRuntime([tmpl], {});
+      await rt.onEvent(playerEvt("t.go", "p", null, { name: "Bob", count: 3 }));
+
+      // start is the initial state, so its prompt renders as dialogue.opened.
+      const [opened] = await h.sql<{ payload: { text?: string } }[]>`SELECT payload FROM events WHERE type = 'dialogue.opened' ORDER BY id DESC LIMIT 1`;
+      expect(opened!.payload.text).toBe("Welcome, Bob!");
+      const [greeted] = await h.sql<{ payload: Record<string, unknown> }[]>`SELECT payload FROM events WHERE type = 'greeted' ORDER BY id DESC LIMIT 1`;
+      expect(greeted!.payload).toEqual({ who: "Bob", times: 3 }); // count stays a number
     });
   });
 

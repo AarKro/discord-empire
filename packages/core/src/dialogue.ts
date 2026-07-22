@@ -127,3 +127,26 @@ function digPath(obj: Record<string, unknown> | null | undefined, path: string):
   }
   return cur;
 }
+
+/**
+ * Substitute `{{expr}}` templates in a value against the event + instance context
+ * (§7), so prompts / labels / action args / emit payloads can weave in remembered
+ * data. Recurses into objects/arrays. A WHOLE-string template (`"{{expr}}"`) returns
+ * the resolved value with its type intact (so `gold: "{{context.reward}}"` stays a
+ * number); a mixed string interpolates each `{{expr}}` into text. Non-strings pass
+ * through untouched.
+ */
+export function interpolate<T>(value: T, evt: SourceEvent | null, context: Record<string, unknown>): T {
+  if (typeof value === "string") {
+    const whole = value.match(/^\{\{([^}]+)\}\}$/);
+    if (whole) return resolveSource(whole[1]!.trim(), evt, context) as T;
+    return value.replace(/\{\{([^}]+)\}\}/g, (_m, expr: string) => String(resolveSource(expr.trim(), evt, context) ?? "")) as T;
+  }
+  if (Array.isArray(value)) return value.map((v) => interpolate(v, evt, context)) as T;
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = interpolate(v, evt, context);
+    return out as T;
+  }
+  return value;
+}

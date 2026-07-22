@@ -4,7 +4,7 @@
  * workflow engine + runtime suites. Here we test the shared guard expression core.
  */
 import { describe, it, expect } from "vitest";
-import { evalGuard, resolveSource, type GuardScope } from "../src/dialogue.js";
+import { evalGuard, resolveSource, interpolate, type GuardScope } from "../src/dialogue.js";
 
 describe("evalGuard", () => {
   const scope: GuardScope = {
@@ -66,5 +66,25 @@ describe("resolveSource (§7 set: value expressions)", () => {
   it("returns null/undefined for absent sources", () => {
     expect(resolveSource("event.correlationId", { actor: { id: "x" } }, {})).toBe(null);
     expect(resolveSource("event.payload.nope", evt, {})).toBe(undefined);
+  });
+});
+
+describe("interpolate (§7 {{context.x}} templating)", () => {
+  it("substitutes into mixed strings and preserves type for whole-string templates", () => {
+    const ctx = { name: "Aldric", count: 3 };
+    expect(interpolate("Welcome, {{context.name}}!", null, ctx)).toBe("Welcome, Aldric!");
+    expect(interpolate("{{context.count}}", null, ctx)).toBe(3); // number, not "3"
+    expect(interpolate("{{context.name}}", null, ctx)).toBe("Aldric");
+  });
+
+  it("recurses into objects/arrays and leaves non-strings alone", () => {
+    const ctx = { who: "p1", gold: 50 };
+    expect(interpolate({ msg: "hi {{context.who}}", amount: "{{context.gold}}" }, null, ctx)).toEqual({ msg: "hi p1", amount: 50 });
+    expect(interpolate(["{{context.gold}}", 7], null, ctx)).toEqual([50, 7]);
+    expect(interpolate(42, null, ctx)).toBe(42);
+  });
+
+  it("can weave event fields too", () => {
+    expect(interpolate("from {{event.actor.id}}", { actor: { id: "p9" } }, {})).toBe("from p9");
   });
 });

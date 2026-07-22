@@ -32,7 +32,7 @@ export { bootstrapWorld, DEFAULT_BLUEPRINTS } from "./bootstrap.js";
 export type { BootstrapOptions, BlueprintSeed } from "./bootstrap.js";
 
 // Guard evaluation + player scope (unit-tested)
-export { evalGuard, resolveSource, loadGuardScope, DIALOGUE_OPTION_PREFIX } from "./dialogue.js";
+export { evalGuard, resolveSource, interpolate, loadGuardScope, DIALOGUE_OPTION_PREFIX } from "./dialogue.js";
 export type { GuardScope } from "./dialogue.js";
 
 // Workflow engine (§7): pure transition core + embedded runtime
