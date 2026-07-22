@@ -272,6 +272,85 @@ states:
       expect(inst!.state).toBe("offer"); // stayed put
     });
   });
+
+  describe("per-instance context + correlation routing (§7)", () => {
+    const quest = parseContent(Workflow, `
+id: ctx_quest
+scope: player
+trigger: { event: quest.start }
+initial: begin
+states:
+  begin:
+    set: { choice: event.payload.door }
+    on: { quest.enter: chamber }
+  chamber:
+    guards: [{ expr: "context.choice == red" }]
+    final: true
+`, "quest.yaml");
+
+    const corr = parseContent(Workflow, `
+id: corr_wf
+scope: player
+trigger: { event: c.start }
+initial: waiting
+states:
+  waiting: { on: { c.finish: done } }
+  done: { final: true }
+`, "corr.yaml");
+
+    const timerWf = parseContent(Workflow, `
+id: timer_wf
+scope: player
+trigger: { event: t.start }
+initial: waiting
+states:
+  waiting: { timer: { after: 50ms, goto: expired } }
+  expired:
+    actions: [{ spy_identity: {} }]
+    final: true
+`, "timer.yaml");
+
+    it("set: writes instance context, and a later guard branches on it", async () => {
+      const rt = makeRuntime([quest], {});
+      await rt.onEvent(playerEvt("quest.start", "p1", null, { door: "red" }));
+      let [row] = await h.sql<{ state: string; context: { choice?: string } }[]>`SELECT state, context FROM workflow_instances WHERE workflow_id = 'ctx_quest'`;
+      expect(row).toMatchObject({ state: "begin" });
+      expect(row!.context.choice).toBe("red");
+
+      await rt.onEvent(playerEvt("quest.enter", "p1"));
+      [row] = await h.sql`SELECT state, status FROM workflow_instances WHERE workflow_id = 'ctx_quest'`;
+      expect(row).toMatchObject({ state: "chamber", status: "final" });
+    });
+
+    it("a context guard blocks the transition when it does not hold", async () => {
+      const rt = makeRuntime([quest], {});
+      await rt.onEvent(playerEvt("quest.start", "p2", null, { door: "blue" }));
+      await rt.onEvent(playerEvt("quest.enter", "p2"));
+      const [row] = await h.sql`SELECT state FROM workflow_instances WHERE workflow_id = 'ctx_quest' AND scope_key = 'p2'`;
+      expect(row!.state).toBe("begin"); // context.choice == red failed → stayed put
+    });
+
+    it("correlation gate routes an event only to the instance that owns it", async () => {
+      const rt = makeRuntime([corr], {});
+      await rt.onEvent(playerEvt("c.start", "p", "A"));
+      await rt.onEvent(playerEvt("c.start", "p", "B")); // a second concurrent instance, same player
+      await rt.onEvent(playerEvt("c.finish", "p", "A")); // only A's instance advances
+
+      const rows = await h.sql<{ correlation_id: string; state: string }[]>`SELECT correlation_id, state FROM workflow_instances WHERE workflow_id = 'corr_wf' ORDER BY correlation_id`;
+      expect(rows).toEqual([{ correlation_id: "A", state: "done" }, { correlation_id: "B", state: "waiting" }]);
+    });
+
+    it("a timer transition hands its state's action the instance identity", async () => {
+      let seen: { actor?: string; corr?: string | null } = {};
+      const rt = makeRuntime([timerWf], { spy_identity: (_a, e) => { seen = { actor: e?.actor?.id, corr: e?.correlationId }; } });
+      await rt.onEvent(playerEvt("t.start", "pt", "corrZ"));
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(seen).toEqual({ actor: "pt", corr: "corrZ" });
+      const [row] = await h.sql`SELECT state, status FROM workflow_instances WHERE workflow_id = 'timer_wf'`;
+      expect(row).toMatchObject({ state: "expired", status: "final" });
+    });
+  });
 });
 
 /** Create only the tables this suite exercises, if migrations haven't run. */

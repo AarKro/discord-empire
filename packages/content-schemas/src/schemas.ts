@@ -100,6 +100,11 @@ export const WorkflowState = z.object({
   // DialogueOption shape so a haggle tree is authored as a workflow.
   prompt: z.string().optional(),
   options: z.array(DialogueOption).default([]),
+  // Per-instance context writes (§7): on entering this state, each key is set to
+  // the value its source expression resolves to (event.payload.x, event.actor.id,
+  // event.correlationId, context.y, or a 'literal'). Later `guards` can branch on
+  // context.* — the "remember data across states" a quest workflow needs.
+  set: z.record(z.string(), z.string()).default({}),
   final: z.boolean().default(false),
 });
 export type WorkflowState = z.infer<typeof WorkflowState>;

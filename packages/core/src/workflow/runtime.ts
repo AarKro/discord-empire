@@ -14,8 +14,19 @@ import type { Sql } from "@empire/db";
 import { jsonParam } from "@empire/db";
 import { ulid } from "ulid";
 import { availableOptions, decide, entry, parseOnError, scopeMatches, type Stimulus, type TransitionDecision } from "./engine.js";
-import { loadGuardScope, DIALOGUE_OPTION_PREFIX, EMPTY_SCOPE, type GuardScope } from "../dialogue.js";
+import { loadGuardScope, resolveSource, DIALOGUE_OPTION_PREFIX, EMPTY_SCOPE, type GuardScope } from "../dialogue.js";
 import { parseDuration } from "./duration.js";
+
+/** A persisted instance row's routing/context fields (as advance() needs them). */
+interface InstanceRow {
+  id: string;
+  workflow_id: string;
+  scope: "player" | "npc" | "world";
+  scope_key: string;
+  state: string;
+  context: Record<string, unknown>;
+  correlation_id: string | null;
+}
 
 export interface RuntimeDeps {
   sql: Sql;
@@ -56,10 +67,29 @@ export class WorkflowRuntime {
     return (this.botId ??= this.deps.makeContext("wf").bot);
   }
 
-  /** Player guard scope for a player-scoped, guard/option-bearing workflow; else empty. */
-  private async scopeFor(wf: Workflow, scopeKey: string): Promise<GuardScope> {
-    if (wf.scope === "player" && this.needsScope.has(wf.id)) return loadGuardScope(this.deps.sql, scopeKey);
-    return EMPTY_SCOPE;
+  /**
+   * Guard scope for evaluating a workflow's guards/options: the player's
+   * game-state (for player-scoped, state-bearing workflows) plus the instance's
+   * accumulated context, so guards can branch on `context.*`.
+   */
+  private async scopeFor(wf: Workflow, scopeKey: string, context: Record<string, unknown>): Promise<GuardScope> {
+    const base = wf.scope === "player" && this.needsScope.has(wf.id) ? await loadGuardScope(this.deps.sql, scopeKey) : EMPTY_SCOPE;
+    return { ...base, context };
+  }
+
+  /**
+   * Apply a state's `set:` on entry (§7 per-instance context): resolve each source
+   * against the current event + prior context and persist the merged context.
+   * `context.*` sources read the pre-set values. No-op when the state sets nothing.
+   */
+  private async applyContext(id: string, wf: Workflow, stateId: string, evt: BusEvent | null, prev: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const setSpec = wf.states[stateId]?.set ?? {};
+    const keys = Object.keys(setSpec);
+    if (keys.length === 0) return prev;
+    const next = { ...prev };
+    for (const key of keys) next[key] = resolveSource(setSpec[key]!, evt, prev);
+    await this.deps.sql`UPDATE workflow_instances SET context = ${jsonParam(this.deps.sql, next)}, updated_at = now() WHERE id = ${id}`;
+    return next;
   }
 
   /**
@@ -119,15 +149,17 @@ export class WorkflowRuntime {
     // 2) Advance existing instances whose current state listens for this event
     //    AND whose scope owns it (§7): a per-player instance only advances on
     //    events attributed to that player, per-npc on that npc as subject.
-    const instances = await this.deps.sql<
-      { id: string; workflow_id: string; scope: "player" | "npc" | "world"; scope_key: string; state: string; correlation_id: string | null }[]
-    >`
-      SELECT id, workflow_id, scope, scope_key, state, correlation_id FROM workflow_instances WHERE status = 'active'
+    const instances = await this.deps.sql<InstanceRow[]>`
+      SELECT id, workflow_id, scope, scope_key, state, context, correlation_id FROM workflow_instances WHERE status = 'active'
     `;
     for (const inst of instances) {
       const wf = this.byId.get(inst.workflow_id);
       if (!wf) continue;
       if (!scopeMatches(inst.scope, inst.scope_key, evt)) continue;
+      // Correlation gate (§7): when the event and the instance both carry a
+      // correlation id, only the instance that owns it advances — so concurrent
+      // same-scope instances (two builds, two quests) are told apart.
+      if (evt.correlationId && inst.correlation_id && evt.correlationId !== inst.correlation_id) continue;
       await this.advance(inst, wf, { kind: "event", eventType: evt.type, payload: evt.payload }, evt);
     }
   }
@@ -145,7 +177,7 @@ export class WorkflowRuntime {
       wf.scope === "npc" ? (evt.subject?.id ?? String(wf.context.npc ?? "npc")) :
       "world";
     const id = `wfi_${ulid()}`;
-    const scope = await this.scopeFor(wf, scopeKey);
+    const scope = await this.scopeFor(wf, scopeKey, wf.context);
     const dec = entry(wf, scope);
     if (dec.nextState === null) return; // guards blocked entry
     // Singleton workflows (wf.singleton) only spawn when no instance for this
@@ -170,6 +202,7 @@ export class WorkflowRuntime {
           VALUES (${id}, ${wf.id}, ${wf.scope}, ${scopeKey}, ${dec.nextState}, ${context}, ${correlationId}, ${status})
         `;
     if (inserted.count === 0) return;
+    await this.applyContext(id, wf, dec.nextState, evt, wf.context);
     const errGoto = await this.runActions(dec.actions, evt, correlationId, wf, dec.nextState);
     if (errGoto !== null) {
       await this.forceTransition(id, wf, errGoto, evt, correlationId);
@@ -179,13 +212,8 @@ export class WorkflowRuntime {
     await this.renderPrompt(wf, dec.nextState, scope, evt, scopeKey, true);
   }
 
-  private async advance(
-    inst: { id: string; workflow_id: string; scope: string; scope_key: string; state: string; correlation_id: string | null },
-    wf: Workflow,
-    stimulus: Stimulus,
-    evt: BusEvent | null,
-  ): Promise<void> {
-    const scope = await this.scopeFor(wf, inst.scope_key);
+  private async advance(inst: InstanceRow, wf: Workflow, stimulus: Stimulus, evt: BusEvent | null): Promise<void> {
+    const scope = await this.scopeFor(wf, inst.scope_key, inst.context);
     const dec = decide(wf, inst.state, stimulus, scope);
     if (dec.nextState === null) return;
     const correlationId = inst.correlation_id ?? `wf_${ulid()}`;
@@ -194,6 +222,7 @@ export class WorkflowRuntime {
         status = ${dec.final ? "final" : "active"}
       WHERE id = ${inst.id}
     `;
+    await this.applyContext(inst.id, wf, dec.nextState, evt, inst.context);
     // A chosen option's emits fire on the transition, before entering the target.
     await this.publishEmits(dec.emits, inst.scope_key, evt, correlationId);
     const errGoto = await this.runActions(dec.actions, evt, correlationId, wf, dec.nextState);
@@ -262,7 +291,10 @@ export class WorkflowRuntime {
       return;
     }
     if (dec.timerMs !== null && dec.nextState) {
-      const at = new Date(Date.now() + dec.timerMs);
+      // Bind the deadline as ISO text and let Postgres cast to timestamptz —
+      // postgres-js can't serialize a JS Date on the prepared-statement path
+      // (same quirk jsonParam sidesteps for jsonb).
+      const at = new Date(Date.now() + dec.timerMs).toISOString();
       await this.deps.sql`UPDATE workflow_instances SET timer_at = ${at} WHERE id = ${id}`;
       this.armTimer(id, wf.id, dec.nextState, dec.timerMs);
     }
@@ -288,11 +320,25 @@ export class WorkflowRuntime {
   private async onTimer(id: string, workflowId: string, state: string): Promise<void> {
     const wf = this.byId.get(workflowId);
     if (!wf) return;
-    const [inst] = await this.deps.sql<{ id: string; workflow_id: string; scope: string; scope_key: string; state: string; correlation_id: string | null }[]>`
-      SELECT id, workflow_id, scope, scope_key, state, correlation_id FROM workflow_instances WHERE id = ${id} AND status = 'active'
+    const [inst] = await this.deps.sql<InstanceRow[]>`
+      SELECT id, workflow_id, scope, scope_key, state, context, correlation_id FROM workflow_instances WHERE id = ${id} AND status = 'active'
     `;
     if (!inst || inst.state !== state) return;
-    await this.advance(inst, wf, { kind: "timer" }, null);
+    await this.advance(inst, wf, { kind: "timer" }, this.instanceEvent(inst));
+  }
+
+  /**
+   * A synthetic event carrying an instance's identity, passed to actions on a
+   * TIMER transition (which has no bus event) so a timeout/expiry state can still
+   * act as the player/npc it belongs to — reads its actor + correlation.
+   */
+  private instanceEvent(inst: InstanceRow): BusEvent {
+    return {
+      dbId: "0", eventId: `wf_timer_${inst.id}`, type: "workflow.timer", ts: "", guildId: null,
+      actor: inst.scope === "player" ? { kind: "player", id: inst.scope_key } : null,
+      subject: inst.scope === "npc" ? { kind: "npc", id: inst.scope_key } : null,
+      payload: {}, correlationId: inst.correlation_id,
+    };
   }
 
   /**

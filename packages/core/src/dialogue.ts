@@ -17,6 +17,8 @@ export interface GuardScope {
   reputation: Record<string, number>;
   flags: Record<string, boolean>;
   position?: { district: string | null };
+  /** Per-instance workflow context (values a state's `set:` accumulated). */
+  context?: Record<string, unknown>;
 }
 
 /** The zero scope — used by workflows that reference no player game-state. */
@@ -80,5 +82,48 @@ function resolvePath(path: string, scope: GuardScope): unknown {
   if (parts[0] === "reputation") return scope.reputation[parts[1] ?? ""] ?? 0;
   if (parts[0] === "flags") return scope.flags[parts[1] ?? ""] ?? false;
   if (parts[0] === "position") return scope.position?.district ?? null;
+  if (parts[0] === "context") return scope.context?.[parts.slice(1).join(".")];
   return undefined;
+}
+
+/** Minimal event shape a `set:` source can read from. */
+export interface SourceEvent {
+  payload?: Record<string, unknown> | null;
+  actor?: { id: string } | null;
+  subject?: { id: string } | null;
+  correlationId?: string | null;
+  guildId?: string | null;
+}
+
+/**
+ * Resolve a `set:` source expression to a value (§7 per-instance context). Mirrors
+ * the guard grammar — deliberately tiny:
+ *   event.payload.<path> | event.actor.id | event.subject.id
+ *   event.correlationId | event.guildId | context.<path> | 'literal' | <number>
+ */
+export function resolveSource(expr: string, evt: SourceEvent | null, context: Record<string, unknown>): unknown {
+  const e = expr.trim();
+  const quoted = e.match(/^'(.*)'$/) ?? e.match(/^"(.*)"$/);
+  if (quoted) return quoted[1];
+  if (e.startsWith("event.")) {
+    const path = e.slice("event.".length);
+    if (path === "correlationId") return evt?.correlationId ?? null;
+    if (path === "guildId") return evt?.guildId ?? null;
+    if (path === "actor.id") return evt?.actor?.id ?? null;
+    if (path === "subject.id") return evt?.subject?.id ?? null;
+    if (path.startsWith("payload.")) return digPath(evt?.payload ?? {}, path.slice("payload.".length));
+    return undefined;
+  }
+  if (e.startsWith("context.")) return digPath(context, e.slice("context.".length));
+  const n = Number(e);
+  return Number.isNaN(n) ? e : n; // bare literal: number if numeric, else the raw string
+}
+
+function digPath(obj: Record<string, unknown> | null | undefined, path: string): unknown {
+  let cur: unknown = obj ?? {};
+  for (const key of path.split(".")) {
+    if (cur == null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return cur;
 }
