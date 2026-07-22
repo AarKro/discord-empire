@@ -44,6 +44,12 @@ export interface ComponentInteraction {
   userId: string;
   guildId: string | null;
   channelId: string | null;
+  /**
+   * Send an ephemeral follow-up to this click (e.g. an in-fiction refusal). The
+   * click is already acked via deferUpdate, so this is a `followUp`, visible only
+   * to the clicker. Safe to skip when the click just proceeds.
+   */
+  reply: (content: string) => Promise<void>;
 }
 
 export type ComponentHandler = (interaction: ComponentInteraction) => Promise<void> | void;
@@ -160,6 +166,14 @@ export class Gateway {
             userId: interaction.user.id,
             guildId: interaction.guildId,
             channelId: interaction.channelId,
+            reply: (content: string) =>
+              this.queue
+                .enqueue(async () => {
+                  await interaction.followUp({ content, ephemeral: true });
+                }, 1)
+                .catch((err) => {
+                  this.log.warn({ err, customId: interaction.customId }, "failed to send ephemeral follow-up");
+                }),
           };
           for (const handler of this.componentHandlers) {
             try {

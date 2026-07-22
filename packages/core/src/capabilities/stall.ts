@@ -10,7 +10,8 @@
 import type { Shop } from "@empire/content-schemas";
 import type { Capability, CapabilityContext } from "../capability.js";
 import { stallEmbed, buttonRow } from "../ui-kit.js";
-import type { Sql } from "@empire/db";
+import { requiresPresence } from "./topology.js";
+import { ensurePlayer, type Sql } from "@empire/db";
 
 export const ENTER_STALL_BUTTON = "stall:enter";
 
@@ -63,9 +64,20 @@ export function stallCapability(shop: Shop): Capability {
     init(ctx: CapabilityContext): void {
       ctx.gateway.onComponent(async (interaction) => {
         if (interaction.customId !== ENTER_STALL_BUTTON) return;
+        const guildId = interaction.guildId;
+        if (!guildId) return;
+        // Auto-register the shopper (§2.1), then enforce presence (§2.3): you can
+        // only step up to the stall on the continent you actually stand on. A
+        // player who's travelled away (or is on the road) gets an in-fiction refusal.
+        await ensurePlayer(ctx.sql, interaction.userId, guildId);
+        const presence = await requiresPresence(ctx.sql, interaction.userId, `bazaar_${guildId}`);
+        if (!presence.present) {
+          await interaction.reply(`*${presence.reason ?? "you can't reach this stall from where you stand"}.*`);
+          return;
+        }
         await ctx.bus.publish({
           type: "stall.entered",
-          guildId: interaction.guildId,
+          guildId,
           actor: { kind: "player", id: interaction.userId },
           subject: { kind: "npc", id: ctx.bot },
           payload: { shop: shop.id },

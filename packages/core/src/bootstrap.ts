@@ -51,16 +51,18 @@ export interface BootstrapOptions {
 
 /**
  * Idempotently map a location id to its Discord channel (§8 guild+channel map).
- * Rerunnable: re-points an existing row at the current channel. Iteration 1 has
- * no travel, so seeded locations never gate on presence.
+ * Rerunnable: re-points an existing row at the current channel AND its presence
+ * flag (so a re-run flips the gate). Now that player travel exists (§9), the
+ * bazaar gates on presence — you shop only where you stand; voice stops + the
+ * land category don't (players never interact with them directly).
  */
 async function upsertLocation(
   sql: Sql,
-  loc: { id: string; guildId: string; channelId: string; kind: string },
+  loc: { id: string; guildId: string; channelId: string; kind: string; requiresPresence?: boolean },
 ): Promise<void> {
   await sql`
     INSERT INTO locations (id, guild_id, channel_id, kind, requires_presence)
-    VALUES (${loc.id}, ${loc.guildId}, ${loc.channelId}, ${loc.kind}, false)
+    VALUES (${loc.id}, ${loc.guildId}, ${loc.channelId}, ${loc.kind}, ${loc.requiresPresence ?? false})
     ON CONFLICT (id) DO UPDATE SET channel_id = EXCLUDED.channel_id, requires_presence = EXCLUDED.requires_presence
   `;
 }
@@ -110,8 +112,9 @@ export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
         seededVoice.push(`${stop.display}:${voiceChannel.id}${created ? " (created)" : " (found)"}`);
       }
 
-      // Iteration 1 has no travel yet, so the bazaar must not gate on position.
-      await upsertLocation(opts.sql, { id: `bazaar_${guildId}`, guildId, channelId: bazaar.id, kind: "bazaar" });
+      // The bazaar gates on presence (§9): you can only enter the stall on the
+      // continent you actually stand on. A re-run flips this on existing rows.
+      await upsertLocation(opts.sql, { id: `bazaar_${guildId}`, guildId, channelId: bazaar.id, kind: "bazaar", requiresPresence: true });
 
       // The "Land" category holds every player's plot channels (§2.4). The
       // builder bot creates per-plot text+voice channels under it at /build time,
