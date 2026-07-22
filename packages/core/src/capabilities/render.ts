@@ -16,9 +16,10 @@ import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
 import { notForMe } from "../events.js";
 import { locationChannel } from "../locations.js";
+import { readNpcState, upsertNpcStateEntry, deleteNpcStateEntry } from "../npc-state.js";
 import { buttonRow, stallEmbed } from "../ui-kit.js";
 import type { Sql } from "@empire/db";
-import { jsonParam, readBalance } from "@empire/db";
+import { readBalance } from "@empire/db";
 
 interface DialogueOption {
   id: string;
@@ -31,22 +32,12 @@ async function bazaarChannel(sql: Sql, guildId: string): Promise<string | null> 
 }
 
 async function loadStallMessageId(sql: Sql, npcId: string, guildId: string): Promise<string | null> {
-  const [npc] = await sql<{ state: { stall_messages?: Record<string, string> } }[]>`
-    SELECT state FROM npcs WHERE id = ${npcId}
-  `;
-  return npc?.state.stall_messages?.[guildId] ?? null;
+  const state = await readNpcState<{ stall_messages?: Record<string, string> }>(sql, npcId);
+  return state.stall_messages?.[guildId] ?? null;
 }
 
 async function saveStallMessageId(sql: Sql, npcId: string, guildId: string, messageId: string): Promise<void> {
-  await sql`
-    UPDATE npcs
-       SET state = jsonb_set(
-         jsonb_set(state, '{stall_messages}', COALESCE(state->'stall_messages', '{}'::jsonb)),
-         ARRAY['stall_messages', ${guildId}],
-         ${jsonParam(sql, messageId)}
-       )
-     WHERE id = ${npcId}
-  `;
+  await upsertNpcStateEntry(sql, npcId, "stall_messages", guildId, messageId);
 }
 
 // A player's open dialogue thread, persisted in npcs.state (mirroring
@@ -55,26 +46,16 @@ async function saveStallMessageId(sql: Sql, npcId: string, guildId: string, mess
 // Only OPEN conversations live here: the entry is removed when the tree closes.
 // Exported for the persistence round-trip integration test.
 export async function loadThreadId(sql: Sql, npcId: string, playerId: string): Promise<string | null> {
-  const [npc] = await sql<{ state: { dialogue_threads?: Record<string, string> } }[]>`
-    SELECT state FROM npcs WHERE id = ${npcId}
-  `;
-  return npc?.state.dialogue_threads?.[playerId] ?? null;
+  const state = await readNpcState<{ dialogue_threads?: Record<string, string> }>(sql, npcId);
+  return state.dialogue_threads?.[playerId] ?? null;
 }
 
 export async function saveThreadId(sql: Sql, npcId: string, playerId: string, threadId: string): Promise<void> {
-  await sql`
-    UPDATE npcs
-       SET state = jsonb_set(
-         jsonb_set(state, '{dialogue_threads}', COALESCE(state->'dialogue_threads', '{}'::jsonb)),
-         ARRAY['dialogue_threads', ${playerId}],
-         ${jsonParam(sql, threadId)}
-       )
-     WHERE id = ${npcId}
-  `;
+  await upsertNpcStateEntry(sql, npcId, "dialogue_threads", playerId, threadId);
 }
 
 export async function removeThreadId(sql: Sql, npcId: string, playerId: string): Promise<void> {
-  await sql`UPDATE npcs SET state = state #- ARRAY['dialogue_threads', ${playerId}]::text[] WHERE id = ${npcId}`;
+  await deleteNpcStateEntry(sql, npcId, "dialogue_threads", playerId);
 }
 
 export function renderCapability(): Capability {

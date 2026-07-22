@@ -15,6 +15,7 @@
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { Continents } from "@empire/content-schemas";
 import { voiceStopChannel } from "../locations.js";
+import { readNpcState } from "../npc-state.js";
 import { jsonParam } from "@empire/db";
 
 /** The voice channel a traveler lingers in on each continent (seeded by world:init). */
@@ -49,11 +50,8 @@ export function nextContinent(continents: Continents, current: string, avoid?: s
 }
 
 export function travelCapability(continents: Continents): Capability {
-  async function readState(ctx: CapabilityContext): Promise<TravelState> {
-    const [row] = await ctx.sql<{ state: TravelState }[]>`SELECT state FROM npcs WHERE id = ${ctx.bot}`;
-    return row?.state ?? {};
-  }
-
+  // Whole-object write: the traveler owns its entire npcs.state row (no stall/
+  // render on this bot), so a plain overwrite is safe and simplest.
   async function writeState(ctx: CapabilityContext, next: TravelState): Promise<void> {
     await ctx.sql`UPDATE npcs SET state = ${jsonParam(ctx.sql, next)} WHERE id = ${ctx.bot}`;
   }
@@ -98,7 +96,7 @@ export function travelCapability(continents: Continents): Capability {
      */
     async init(ctx: CapabilityContext): Promise<void> {
       await ctx.sql`INSERT INTO npcs (id, kind) VALUES (${ctx.bot}, 'wanderer') ON CONFLICT DO NOTHING`;
-      const state = await readState(ctx);
+      const state = await readNpcState<TravelState>(ctx.sql, ctx.bot);
       if (state.destination) return; // mid-transit — stay on the road
       if (state.guild) await appear(ctx, state.guild, WANDERER_STOP, state.previous ?? null, false); // silent presence restore
     },
@@ -107,7 +105,7 @@ export function travelCapability(continents: Continents): Capability {
       // Arrive at the next continent (or the starting one on the first ever hop):
       // join its voice stop, record position, announce with a rumour.
       "travel.enter": async (args, _evt, ctx: CapabilityContext) => {
-        const state = await readState(ctx);
+        const state = await readNpcState<TravelState>(ctx.sql, ctx.bot);
         const dest = state.destination ?? startContinent(continents);
         const stop = args.channel ? String(args.channel) : WANDERER_STOP;
         await appear(ctx, dest, stop, state.previous ?? null, true);
@@ -116,7 +114,7 @@ export function travelCapability(continents: Continents): Capability {
       // Depart the current continent: leave its voice (now "on the road"), pick
       // the next continent from the ring, remember it, and announce the exit.
       "travel.leave": async (_args, _evt, ctx: CapabilityContext) => {
-        const state = await readState(ctx);
+        const state = await readNpcState<TravelState>(ctx.sql, ctx.bot);
         const current = state.guild ?? startContinent(continents);
         const next = nextContinent(continents, current, state.previous);
         ctx.gateway.leaveVoice(current);

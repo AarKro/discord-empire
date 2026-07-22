@@ -16,3 +16,14 @@ import type { BusEvent } from "./bus.js";
 export function notForMe(evt: Pick<BusEvent, "subject">, botId: string): boolean {
   return evt.subject != null && evt.subject.id !== botId;
 }
+
+/**
+ * Read a single string field from an event's payload, with a fallback when it's
+ * absent (nullish). Replaces the repeated `String((evt?.payload as {...})?.x ?? d)`
+ * double-cast that action/handler code inlined to pull one value out of the
+ * untyped payload. Non-string values (a number id) are stringified.
+ */
+export function payloadString(evt: { payload?: Record<string, unknown> } | null | undefined, key: string, fallback = ""): string {
+  const value = evt?.payload?.[key];
+  return value == null ? fallback : String(value);
+}

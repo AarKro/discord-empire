@@ -28,6 +28,7 @@
  */
 import type { Capability, CapabilityContext } from "../capability.js";
 import { locationChannel } from "../locations.js";
+import { payloadString } from "../events.js";
 import { ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
 
 /**
@@ -154,7 +155,7 @@ export function landCapability(): Capability {
       "build.request": async (_args, evt, ctx: CapabilityContext) => {
         const player = evt?.actor?.id;
         if (!player) return;
-        const blueprintId = String((evt?.payload as { blueprint?: unknown } | undefined)?.blueprint ?? "");
+        const blueprintId = payloadString(evt, "blueprint");
         const correlationId = evt?.correlationId ?? null;
         const guildId = evt?.guildId ?? null;
 
@@ -239,7 +240,7 @@ export function landCapability(): Capability {
        * ask notify to ping the player exactly once.
        */
       "build.complete": async (_args, evt, ctx: CapabilityContext) => {
-        const queueId = String((evt?.payload as Record<string, unknown> | undefined)?.queue_id ?? "");
+        const queueId = payloadString(evt, "queue_id");
         if (!queueId) return;
         const [row] = await ctx.sql<{ owner_id: string; blueprint_id: string }[]>`
           UPDATE build_queue SET status = 'completed' WHERE id = ${queueId} AND status = 'building'
