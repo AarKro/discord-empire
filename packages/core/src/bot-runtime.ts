@@ -15,7 +15,7 @@
  * in core because it wires core's own pieces (gateway, bus, capabilities).
  */
 import { isAbsolute, join } from "node:path";
-import { loadContentFile, Manifest, Shop, Schedule, Workflow } from "@empire/content-schemas";
+import { loadContentFile, Manifest, Shop, Schedule, Workflow, Continents } from "@empire/content-schemas";
 import { openDb } from "@empire/db";
 import { rootLogger, type Logger } from "./logger.js";
 import { CapabilityRegistry, type Capability, type CapabilityContext } from "./capability.js";
@@ -33,6 +33,7 @@ import { landCapability } from "./capabilities/land.js";
 import { notifyCapability } from "./capabilities/notify.js";
 import { commandsCapability, type CommandDef } from "./capabilities/commands.js";
 import { renderCapability } from "./capabilities/render.js";
+import { travelCapability } from "./capabilities/travel.js";
 import { WorkflowRuntime } from "./workflow/runtime.js";
 
 /** Code-provided capability config that can't live in YAML, keyed by capability name. */
@@ -72,6 +73,11 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
   notify: () => notifyCapability(),
   commands: (deps) => commandsCapability(deps.configs.commands ?? []),
   render: () => renderCapability(),
+  travel: (deps) => {
+    const rel = deps.manifest.content?.continents;
+    if (!rel) throw new Error(`capability "travel" needs content.continents in manifest "${deps.manifest.id}"`);
+    return travelCapability(loadContentFile(Continents, join(deps.contentDir, rel)));
+  },
 };
 
 /**

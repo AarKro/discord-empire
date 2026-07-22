@@ -4,7 +4,7 @@ export type { Logger } from "./logger.js";
 export { EventBus, CHANNEL } from "./bus.js";
 export type { BusEvent, PublishInput, EventHandler } from "./bus.js";
 export { notForMe } from "./events.js";
-export { locationChannel } from "./locations.js";
+export { locationChannel, voiceStopChannel } from "./locations.js";
 export { Gateway, toApplicationCommandJson } from "./gateway.js";
 export type {
   GatewayOptions,
@@ -60,3 +60,4 @@ export type { CommandDef } from "./capabilities/commands.js";
 export { landCapability, scaledBuildMs, BUILD_PERMIT_ITEM } from "./capabilities/land.js";
 export { topologyCapability, requiresPresence } from "./capabilities/topology.js";
 export type { PresenceCheck } from "./capabilities/topology.js";
+export { travelCapability, startContinent, nextContinent } from "./capabilities/travel.js";

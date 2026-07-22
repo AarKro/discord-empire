@@ -15,7 +15,7 @@
  * `locations` rows world:init seeds (id = `<name>_<guildId>`, kind='voice').
  */
 import type { Capability, CapabilityContext } from "../capability.js";
-import { locationChannel } from "../locations.js";
+import { locationChannel, voiceStopChannel } from "../locations.js";
 import { jsonParam } from "@empire/db";
 
 /** One stop on an NPC's wander route: a logical voice-channel name in a guild. */
@@ -33,21 +33,13 @@ export function presenceVoiceCapability(route: WanderStop[] = []): Capability {
     stopsByGuild.set(stop.guildId, list);
   }
 
-  /** Resolve a logical stop name to its Discord voice channel id (world:init map). */
-  async function resolveChannel(ctx: CapabilityContext, guildId: string, channel: string): Promise<string | null> {
-    const [location] = await ctx.sql<{ channel_id: string | null }[]>`
-      SELECT channel_id FROM locations WHERE id = ${`${channel}_${guildId}`} AND kind = 'voice' LIMIT 1
-    `;
-    return location?.channel_id ?? null;
-  }
-
   /**
    * Move the NPC to a logical stop: connect voice, record the DB position, and
    * (when announcing) publish npc.arrived so the stall/voicelines react. Boot
    * uses announce=false because the bot process emits its own arrival ping.
    */
   async function moveTo(ctx: CapabilityContext, guildId: string, channel: string, announce: boolean): Promise<void> {
-    const channelId = await resolveChannel(ctx, guildId, channel);
+    const channelId = await voiceStopChannel(ctx.sql, guildId, channel);
     if (!channelId) {
       ctx.logger.warn({ guildId, channel }, "no voice channel mapped for stop — run world:init");
       return;

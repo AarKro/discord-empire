@@ -25,3 +25,20 @@ export async function locationChannel(
         SELECT channel_id FROM locations WHERE guild_id = ${guildId} AND kind = ${kind} LIMIT 1`;
   return rows[0]?.channel_id ?? null;
 }
+
+/**
+ * The Discord voice-channel id for a logical wander/travel stop in a guild, or
+ * null when unmapped (run world:init). world:init keys voice stops by
+ * `<stop>_<guildId>` (kind='voice'), so a schedule/workflow stop name like
+ * "market_square_vc" resolves to the real channel. Shared by presence.voice
+ * (within-guild wander) and travel (cross-guild hop).
+ */
+export async function voiceStopChannel(
+  sql: Sql,
+  guildId: string,
+  stop: string,
+): Promise<string | null> {
+  const rows = await sql<{ channel_id: string | null }[]>`
+    SELECT channel_id FROM locations WHERE id = ${`${stop}_${guildId}`} AND kind = 'voice' LIMIT 1`;
+  return rows[0]?.channel_id ?? null;
+}

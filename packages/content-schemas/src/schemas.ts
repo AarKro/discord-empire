@@ -30,6 +30,9 @@ export const Manifest = z.object({
       voicelines: z.string().optional(),
       schedule: z.string().optional(),
       workflows: z.array(z.string()).optional(),
+      // Continent ring (§9) — a travelling NPC's `travel` capability reads it to
+      // walk between continents by their authored neighbours.
+      continents: z.string().optional(),
     })
     .optional(),
 });
