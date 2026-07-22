@@ -58,8 +58,13 @@ export function travelCapability(continents: Continents): Capability {
     await ctx.sql`UPDATE npcs SET state = ${jsonParam(ctx.sql, next)} WHERE id = ${ctx.bot}`;
   }
 
-  /** Appear in a continent's voice stop, record position, and announce arrival. */
-  async function appear(ctx: CapabilityContext, guildId: string, stop: string, previous: string | null): Promise<void> {
+  /**
+   * Appear in a continent's voice stop and record position. `announce` emits the
+   * arrival rumour — true for a real hop (travel.enter), false when merely
+   * restoring presence after a reboot (init), so a restart doesn't broadcast a
+   * fresh arrival for travel that never happened (mirrors presence.voice's boot join).
+   */
+  async function appear(ctx: CapabilityContext, guildId: string, stop: string, previous: string | null, announce: boolean): Promise<void> {
     const channelId = await voiceStopChannel(ctx.sql, guildId, stop);
     if (!channelId) {
       ctx.logger.warn({ guildId, stop }, "no voice channel mapped for travel stop — run world:init");
@@ -68,14 +73,16 @@ export function travelCapability(continents: Continents): Capability {
     const joined = await ctx.gateway.joinVoice(guildId, channelId);
     if (!joined) return;
     await writeState(ctx, { guild: guildId, destination: null, previous });
-    const name = continents.continents[guildId]?.name ?? "a distant shore";
-    await ctx.bus.publish({
-      type: "world.rumor",
-      guildId,
-      subject: { kind: "npc", id: ctx.bot },
-      payload: { hint: `A hooded stranger has been glimpsed in ${name} — no one saw them cross the water.` },
-    });
-    ctx.logger.info({ guildId, stop }, "traveler arrived");
+    if (announce) {
+      const name = continents.continents[guildId]?.name ?? "a distant shore";
+      await ctx.bus.publish({
+        type: "world.rumor",
+        guildId,
+        subject: { kind: "npc", id: ctx.bot },
+        payload: { hint: `A hooded stranger has been glimpsed in ${name} — no one saw them cross the water.` },
+      });
+    }
+    ctx.logger.info({ guildId, stop, announce }, "traveler arrived");
   }
 
   return {
@@ -93,7 +100,7 @@ export function travelCapability(continents: Continents): Capability {
       await ctx.sql`INSERT INTO npcs (id, kind) VALUES (${ctx.bot}, 'wanderer') ON CONFLICT DO NOTHING`;
       const state = await readState(ctx);
       if (state.destination) return; // mid-transit — stay on the road
-      if (state.guild) await appear(ctx, state.guild, WANDERER_STOP, state.previous ?? null);
+      if (state.guild) await appear(ctx, state.guild, WANDERER_STOP, state.previous ?? null, false); // silent presence restore
     },
 
     actions: {
@@ -103,7 +110,7 @@ export function travelCapability(continents: Continents): Capability {
         const state = await readState(ctx);
         const dest = state.destination ?? startContinent(continents);
         const stop = args.channel ? String(args.channel) : WANDERER_STOP;
-        await appear(ctx, dest, stop, state.previous ?? null);
+        await appear(ctx, dest, stop, state.previous ?? null, true);
       },
 
       // Depart the current continent: leave its voice (now "on the road"), pick

@@ -144,6 +144,7 @@ describe("travel capability (§9)", () => {
     await travelCapability(TWO).init!(makeCtx(world));
     expect(world.inserted).toBe(true);
     expect(world.joins).toEqual([{ guildId: "g2", channelId: "vc2" }]);
+    expect(world.rumors).toHaveLength(0); // silent restore — no false "arrival" on reboot
   });
 
   it("init stays on the road when it rebooted mid-transit", async () => {
