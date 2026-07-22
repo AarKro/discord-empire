@@ -1,7 +1,8 @@
 /**
  * stall (framework spec §5.3) — public shop presence. A pinned embed in the
- * location text chat with an Enter-the-stall button, opened/closed with the
- * NPC's arrival/departure and refreshed on stock/price changes.
+ * location text chat with an Enter-the-stall button. The NPC's workflow opens and
+ * closes it (composing the stall.open/close verbs); it re-renders on a purchase so
+ * the stock reflects the sale.
  *
  * Stock/prices are content (validated Shop schema) + ledger-derived inventory;
  * this capability only renders and routes the Enter button into dialogue.
@@ -29,8 +30,9 @@ async function liveItems(sql: Sql, npcId: string, shop: Shop) {
 export function stallCapability(shop: Shop): Capability {
   return {
     name: "stall",
-    // Refresh on stock/price/trade changes; open/close on arrival/departure.
-    consumes: ["stall.", "trade.completed", "stock.restocked", "npc.arrived", "npc.departed"],
+    // Re-render on a purchase (stock changed). Opening/closing the stall is
+    // driven by the NPC's workflow (merchant_wander composes stall.open/close).
+    consumes: ["trade.completed"],
     actions: {
       "stall.open": async (_args, evt, ctx: CapabilityContext) => {
         const guildId = ctx.personas.homeGuild(evt?.guildId);
@@ -70,20 +72,10 @@ export function stallCapability(shop: Shop): Capability {
         });
       });
     },
+    /** Re-render the open stall after a purchase, so its stock reflects the sale. */
     async handle(evt, ctx) {
-      // Open/close with the NPC's own arrival/departure (§5.3).
-      if (evt.subject?.id === ctx.bot && evt.type === "npc.arrived") {
+      if (evt.type === "trade.completed") {
         await this.actions["stall.open"]!({}, evt, ctx);
-        return;
-      }
-      if (evt.subject?.id === ctx.bot && evt.type === "npc.departed") {
-        await this.actions["stall.close"]!({}, evt, ctx);
-        return;
-      }
-      // Re-render the stall on any stock-affecting event while it is open.
-      if (evt.type === "trade.completed" || evt.type === "stock.restocked") {
-        const handler = this.actions["stall.open"]!;
-        await handler({}, evt, ctx);
       }
     },
   };
