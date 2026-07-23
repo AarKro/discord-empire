@@ -35,6 +35,7 @@ import { commandsCapability, type CommandDef } from "./capabilities/commands.js"
 import { renderCapability } from "./capabilities/render.js";
 import { travelCapability } from "./capabilities/travel.js";
 import { wayfareCapability } from "./capabilities/wayfare.js";
+import { marketCapability } from "./capabilities/market.js";
 import { WorkflowRuntime } from "./workflow/runtime.js";
 
 /** Code-provided capability config that can't live in YAML, keyed by capability name. */
@@ -84,6 +85,7 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
     if (!rel) throw new Error(`capability "wayfare" needs content.continents in manifest "${deps.manifest.id}"`);
     return wayfareCapability(loadContentFile(Continents, join(deps.contentDir, rel)));
   },
+  market: () => marketCapability(),
 };
 
 /**

@@ -50,6 +50,11 @@ export interface ComponentInteraction {
    * to the clicker. Safe to skip when the click just proceeds.
    */
   reply: (content: string) => Promise<void>;
+  /**
+   * Edit the message this component is attached to (e.g. mark an offer settled +
+   * drop its buttons). Pass `components: []` to remove the buttons.
+   */
+  update: (content: MessageCreateOptions) => Promise<void>;
 }
 
 export type ComponentHandler = (interaction: ComponentInteraction) => Promise<void> | void;
@@ -173,6 +178,14 @@ export class Gateway {
                 }, 1)
                 .catch((err) => {
                   this.log.warn({ err, customId: interaction.customId }, "failed to send ephemeral follow-up");
+                }),
+            update: (content: MessageCreateOptions) =>
+              this.queue
+                .enqueue(async () => {
+                  await interaction.editReply(content as Parameters<typeof interaction.editReply>[0]);
+                }, 1)
+                .catch((err) => {
+                  this.log.warn({ err, customId: interaction.customId }, "failed to edit component message");
                 }),
           };
           for (const handler of this.componentHandlers) {

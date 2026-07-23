@@ -55,6 +55,7 @@ function enterClick(world: World): ComponentInteraction {
     guildId: "g1",
     channelId: "c1",
     reply: async (content: string) => { world.replies.push(content); },
+    update: async () => {},
   };
 }
 

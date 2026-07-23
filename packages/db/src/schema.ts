@@ -250,6 +250,10 @@ export const offers = pgTable("offers", {
   side: text("side").notNull().default("sell"), // buy | sell
   status: text("status").notNull().default("open"), // open | filled | expired | cancelled
   expiresAt: timestamp("expires_at", { withTimezone: true }),
+  // §5.11 player market: the recipient of a `direct` offer, and the continent
+  // (guild) a `order` stall listing renders on / the trade settles in.
+  takerId: text("taker_id"),
+  guildId: text("guild_id"),
 });
 
 // Persisted workflow instances (§7): survive restarts.
