@@ -10,6 +10,7 @@
 import {
   ChannelType,
   Client,
+  ComponentType,
   GatewayIntentBits,
   REST,
   Routes,
@@ -20,6 +21,7 @@ import {
   type MessagePayload,
   type Guild,
   type TextChannel,
+  type ModalBuilder,
 } from "discord.js";
 import { joinVoiceChannel, type VoiceConnection } from "@discordjs/voice";
 import type { PersonaResolver } from "./persona.js";
@@ -58,6 +60,34 @@ export interface ComponentInteraction {
 }
 
 export type ComponentHandler = (interaction: ComponentInteraction) => Promise<void> | void;
+
+/**
+ * A submitted modal reduced to plain data — field values keyed by their
+ * TextInput customId. Unlike a button, a modal submit is NOT auto-acked (there's
+ * no spinner), so `reply` defers ephemerally on first use, mirroring slash cmds.
+ */
+export interface ModalSubmitInteraction {
+  customId: string;
+  fields: Record<string, string>;
+  userId: string;
+  guildId: string | null;
+  channelId: string | null;
+  reply: (content: string) => Promise<void>;
+}
+
+export type ModalSubmitHandler = (interaction: ModalSubmitInteraction) => Promise<void> | void;
+
+/**
+ * A button that opens a modal rather than proceeding. discord.js requires
+ * showModal() on a not-yet-acknowledged interaction, so the gateway checks these
+ * BEFORE its auto-deferUpdate: a matching button shows the built modal and skips
+ * the normal component handlers. `build` runs inside the gateway, so the raw
+ * discord.js interaction never leaks to capabilities (invariant #4).
+ */
+export interface ModalRequest {
+  matches: (customId: string) => boolean;
+  build: (customId: string, userId: string) => ModalBuilder;
+}
 
 /**
  * A slash-command (ChatInput) interaction reduced to plain data. All option
@@ -143,6 +173,8 @@ export class Gateway {
   private readonly componentHandlers: ComponentHandler[] = [];
   private readonly commandHandlers: CommandHandler[] = [];
   private readonly autocompleteHandlers: AutocompleteHandler[] = [];
+  private readonly modalRequests: ModalRequest[] = [];
+  private readonly modalSubmitHandlers: ModalSubmitHandler[] = [];
   /** guildId → the bot's single voice connection there (one place at a time, §5.1). */
   private readonly voiceConnections = new Map<string, VoiceConnection>();
 
@@ -164,6 +196,17 @@ export class Gateway {
       // shows a spinner; the visible response arrives via bus-driven renders.
       if (interaction.isButton() || interaction.isStringSelectMenu()) {
         void (async () => {
+          // A button may open a modal — which must happen on the un-acked
+          // interaction — so intercept BEFORE deferUpdate and skip the handlers.
+          if (interaction.isButton()) {
+            const req = this.modalRequests.find((r) => r.matches(interaction.customId));
+            if (req) {
+              await interaction
+                .showModal(req.build(interaction.customId, interaction.user.id))
+                .catch((err) => this.log.warn({ err, customId: interaction.customId }, "failed to show modal"));
+              return;
+            }
+          }
           await interaction.deferUpdate().catch(() => {});
           const reduced: ComponentInteraction = {
             customId: interaction.customId,
@@ -257,6 +300,42 @@ export class Gateway {
           }
           await interaction.respond(choices.slice(0, 25)).catch(() => {});
         })();
+        return;
+      }
+
+      // Modal submits: reduce field values to plain data and fan out. Not
+      // auto-acked, so `reply` defers ephemerally on first use.
+      if (interaction.isModalSubmit()) {
+        void (async () => {
+          const fields: Record<string, string> = {};
+          interaction.fields.fields.forEach((comp) => {
+            if (comp.type === ComponentType.TextInput) fields[comp.customId] = comp.value;
+          });
+          const reduced: ModalSubmitInteraction = {
+            customId: interaction.customId,
+            fields,
+            userId: interaction.user.id,
+            guildId: interaction.guildId,
+            channelId: interaction.channelId,
+            reply: (content: string) =>
+              this.queue
+                .enqueue(async () => {
+                  if (!interaction.deferred && !interaction.replied)
+                    await interaction.deferReply({ ephemeral: true });
+                  await interaction.editReply({ content });
+                }, 1)
+                .catch((err) => {
+                  this.log.warn({ err, customId: interaction.customId }, "failed to reply to modal submit");
+                }),
+          };
+          for (const handler of this.modalSubmitHandlers) {
+            try {
+              await handler(reduced);
+            } catch (err) {
+              this.log.error({ err, customId: reduced.customId }, "modal submit handler failed");
+            }
+          }
+        })();
       }
     });
   }
@@ -274,6 +353,16 @@ export class Gateway {
   /** Register a handler for autocomplete interactions (plain data → choices). */
   onAutocomplete(handler: AutocompleteHandler): void {
     this.autocompleteHandlers.push(handler);
+  }
+
+  /** Register a button→modal opener, checked before the auto-deferUpdate. */
+  onModalRequest(request: ModalRequest): void {
+    this.modalRequests.push(request);
+  }
+
+  /** Register a handler for submitted modals (plain data + reply cb). */
+  onModalSubmit(handler: ModalSubmitHandler): void {
+    this.modalSubmitHandlers.push(handler);
   }
 
   /**
