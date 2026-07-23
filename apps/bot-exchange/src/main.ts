@@ -10,12 +10,14 @@
  */
 import { runBot, rootLogger, type CommandDef } from "@empire/core";
 
-/** Suggest items the caller actually holds (what they can sell / list). */
+/** Suggest items the caller actually holds (what they can sell / list). The
+ * hidden auction_bid hold-token is excluded so it can't be traded or listed. */
 const itemAutocomplete: CommandDef["autocomplete"] = async (ctx, typed, userId) => {
   const like = `%${typed.toLowerCase()}%`;
   const rows = await ctx.sql<{ item_id: string; qty: number }[]>`
     SELECT item_id, qty FROM inventories
-    WHERE owner_kind = 'player' AND owner_id = ${userId} AND qty > 0 AND lower(item_id) LIKE ${like}
+    WHERE owner_kind = 'player' AND owner_id = ${userId} AND qty > 0
+      AND item_id <> 'auction_bid' AND lower(item_id) LIKE ${like}
     ORDER BY item_id ASC LIMIT 25
   `;
   return rows.map((r) => ({ name: `${r.item_id} (${r.qty})`, value: r.item_id }));
@@ -51,6 +53,18 @@ const commands: CommandDef[] = [
     description: "Pull your listing of an item from the Marketplace",
     route: "stall.unlist.requested",
     options: [{ name: "item", description: "The item to unlist", autocomplete: true, required: true }],
+    autocomplete: itemAutocomplete,
+  },
+  {
+    name: "auction",
+    description: "Open a timed auction for an item on the Marketplace",
+    route: "auction.list.requested",
+    options: [
+      { name: "item", description: "The item to auction", autocomplete: true, required: true },
+      { name: "qty", description: "How many", required: true },
+      { name: "starting_price", description: "Reserve / opening bid (total gold)", required: true },
+      { name: "duration", description: "Minutes until it closes", required: true },
+    ],
     autocomplete: itemAutocomplete,
   },
 ];

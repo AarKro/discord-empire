@@ -13,3 +13,4 @@ personas:
 capabilities:
   - commands
   - market
+  - auction
