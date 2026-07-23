@@ -3,7 +3,7 @@
  * Reads the same env/content as the merchant bot; safe to rerun any time.
  */
 import { join } from "node:path";
-import { loadContentFile, Manifest, Shop, Continents } from "@empire/content-schemas";
+import { loadContentFile, Manifest, Shop, Continents, Districts } from "@empire/content-schemas";
 import { bootstrapWorld, rootLogger } from "@empire/core";
 import { openDb } from "@empire/db";
 
@@ -15,6 +15,7 @@ async function main(): Promise<void> {
 
   const manifest = loadContentFile(Manifest, join(CONTENT_DIR, "manifests/merchant.yaml"));
   const continents = loadContentFile(Continents, join(CONTENT_DIR, "continents.yaml"));
+  const districts = loadContentFile(Districts, join(CONTENT_DIR, "districts.yaml"));
   const shop = loadContentFile(Shop, join(CONTENT_DIR, manifest.content?.shop ?? "shops/aldric.yaml"));
   // Seed the builder's cost-sink NPC under its real manifest id (the builder bot
   // trades as its manifest.id), so the two can never drift out of sync.
@@ -29,6 +30,7 @@ async function main(): Promise<void> {
       token,
       sql,
       continents,
+      districts,
       npcId: manifest.id,
       shop,
       // Iteration 1 seeds the Builder's cost-sink NPC + build permit stock and

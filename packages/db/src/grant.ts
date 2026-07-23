@@ -30,9 +30,15 @@ export async function ensurePlayer(
   return sql.begin(async (tx) => {
     // ON CONFLICT DO NOTHING + RETURNING: rows come back only on first insert,
     // which makes the grant exactly-once even under concurrent double clicks.
+    // A fresh player stands in their home continent's bazaar district (§2.3) — the
+    // public starting square — so they can immediately shop. Null-safe: before
+    // districts are seeded this resolves to NULL (continent-only, as before).
     const inserted = await tx`
-      INSERT INTO players (discord_user_id, home_guild_id, position_guild_id)
-      VALUES (${playerId}, ${homeGuildId}, ${homeGuildId})
+      INSERT INTO players (discord_user_id, home_guild_id, position_guild_id, position_district_id)
+      VALUES (
+        ${playerId}, ${homeGuildId}, ${homeGuildId},
+        (SELECT district_id FROM locations WHERE guild_id = ${homeGuildId} AND kind = 'bazaar' LIMIT 1)
+      )
       ON CONFLICT (discord_user_id) DO NOTHING
       RETURNING discord_user_id
     `;

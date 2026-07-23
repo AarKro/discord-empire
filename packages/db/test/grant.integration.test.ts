@@ -24,7 +24,7 @@ suite("ensurePlayer starting grant", () => {
   });
 
   beforeEach(async () => {
-    await h.sql`TRUNCATE players, balances, ledger RESTART IDENTITY CASCADE`;
+    await h.sql`TRUNCATE players, balances, ledger, locations RESTART IDENTITY CASCADE`;
   });
 
   it("creates the player once with a ledger-backed grant", async () => {
@@ -41,6 +41,22 @@ suite("ensurePlayer starting grant", () => {
     expect(bal!.amount).toBe(150);
     expect(grants.length).toBe(1);
     expect(grants[0]!.currency_delta).toBe(150);
+  });
+
+  it("places a fresh player in the home continent's bazaar district (§2.3)", async () => {
+    await h.sql`INSERT INTO locations (id, guild_id, channel_id, district_id, kind) VALUES ('bazaar_g1', 'g1', 'c1', 'market_district_g1', 'bazaar')`;
+    await ensurePlayer(h.sql, "u_start", "g1", 150);
+    const [p] = await h.sql<{ position_guild_id: string | null; position_district_id: string | null }[]>`
+      SELECT position_guild_id, position_district_id FROM players WHERE discord_user_id = 'u_start'
+    `;
+    expect(p!.position_guild_id).toBe("g1");
+    expect(p!.position_district_id).toBe("market_district_g1"); // the public starting square
+  });
+
+  it("leaves position_district null when districts aren't seeded yet", async () => {
+    await ensurePlayer(h.sql, "u_nodist", "g1", 150);
+    const [p] = await h.sql<{ position_district_id: string | null }[]>`SELECT position_district_id FROM players WHERE discord_user_id = 'u_nodist'`;
+    expect(p!.position_district_id).toBeNull();
   });
 
   it("grants exactly once under a concurrent double click", async () => {
@@ -130,6 +146,11 @@ async function ensureSchema(handle: DbHandle) {
     amount bigint NOT NULL DEFAULT 0,
     PRIMARY KEY (owner_kind, owner_id, currency)
   )`;
+  await sql`CREATE TABLE IF NOT EXISTS locations (
+    id text PRIMARY KEY, guild_id text NOT NULL, channel_id text, district_id text,
+    kind text NOT NULL, requires_presence boolean NOT NULL DEFAULT true
+  )`;
+  await sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS district_id text`; // stale test DBs predating districts (§2.2)
   await sql`CREATE TABLE IF NOT EXISTS ledger (
     id bigserial PRIMARY KEY,
     ts timestamptz NOT NULL DEFAULT now(),

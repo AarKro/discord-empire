@@ -661,7 +661,8 @@ async function ensureSchema(handle: DbHandle) {
     id text PRIMARY KEY, kind text NOT NULL, state jsonb NOT NULL DEFAULT '{}'
   )`;
   await sql`CREATE TABLE IF NOT EXISTS locations (
-    id text PRIMARY KEY, guild_id text NOT NULL, channel_id text, kind text NOT NULL,
+    id text PRIMARY KEY, guild_id text NOT NULL, channel_id text, district_id text, kind text NOT NULL,
     requires_presence boolean NOT NULL DEFAULT false
   )`;
+  await sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS district_id text`; // stale test DBs predating districts (§2.2)
 }

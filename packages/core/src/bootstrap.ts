@@ -10,9 +10,9 @@
  * Lives in core because it talks to discord.js (the "only core" invariant);
  * bots invoke it through a thin runner (`pnpm world:init`).
  */
-import { ChannelType, Client, GatewayIntentBits } from "discord.js";
-import type { Continents, Shop } from "@empire/content-schemas";
-import type { Sql } from "@empire/db";
+import { ChannelType, Client, GatewayIntentBits, type Guild, type GuildBasedChannel } from "discord.js";
+import type { Continents, Districts, Shop } from "@empire/content-schemas";
+import { jsonParam, type Sql } from "@empire/db";
 import type { Logger } from "./logger.js";
 import { rootLogger } from "./logger.js";
 import { BUILD_PERMIT_ITEM } from "./capabilities/land.js";
@@ -39,6 +39,8 @@ export interface BootstrapOptions {
   token: string;
   sql: Sql;
   continents: Continents;
+  /** Within-continent districts (§2.2) to seed as categories + view-roles. */
+  districts: Districts;
   /** The NPC whose stall/stock is being seeded (iteration 1: "merchant"). */
   npcId: string;
   shop: Shop;
@@ -58,13 +60,63 @@ export interface BootstrapOptions {
  */
 async function upsertLocation(
   sql: Sql,
-  loc: { id: string; guildId: string; channelId: string; kind: string; requiresPresence?: boolean },
+  loc: { id: string; guildId: string; channelId: string; kind: string; requiresPresence?: boolean; districtId?: string | null },
 ): Promise<void> {
   await sql`
-    INSERT INTO locations (id, guild_id, channel_id, kind, requires_presence)
-    VALUES (${loc.id}, ${loc.guildId}, ${loc.channelId}, ${loc.kind}, ${loc.requiresPresence ?? false})
-    ON CONFLICT (id) DO UPDATE SET channel_id = EXCLUDED.channel_id, requires_presence = EXCLUDED.requires_presence
+    INSERT INTO locations (id, guild_id, channel_id, kind, requires_presence, district_id)
+    VALUES (${loc.id}, ${loc.guildId}, ${loc.channelId}, ${loc.kind}, ${loc.requiresPresence ?? false}, ${loc.districtId ?? null})
+    ON CONFLICT (id) DO UPDATE SET channel_id = EXCLUDED.channel_id, requires_presence = EXCLUDED.requires_presence, district_id = EXCLUDED.district_id
   `;
+}
+
+/**
+ * Seed a continent's districts (§2.2): each becomes a Discord category with a
+ * view-role; non-starting districts are hidden behind that role (deny @everyone
+ * ViewChannel, allow the role) so they stay invisible until discovered, while the
+ * bazaar (starting) district is left public. Returns the bazaar district's DB id
+ * (`<id>_<guildId>`) and moves the given channels under its category. Best-effort
+ * on Discord ops — a missing Manage Roles/Channels logs and leaves the DB row.
+ */
+async function seedDistricts(
+  sql: Sql,
+  guild: Guild,
+  guildId: string,
+  defs: Districts["districts"][string],
+  marketChannels: GuildBasedChannel[],
+  log: Logger,
+): Promise<string | null> {
+  let bazaarDistrictId: string | null = null;
+  const channels = await guild.channels.fetch();
+  for (const def of defs) {
+    const dbId = `${def.id}_${guildId}`;
+    let category = channels.find((c) => c?.type === ChannelType.GuildCategory && c.name === def.name) ?? null;
+    if (!category) category = await guild.channels.create({ name: def.name, type: ChannelType.GuildCategory });
+
+    const roleName = `${def.name} Access`;
+    const role = guild.roles.cache.find((r) => r.name === roleName) ?? (await guild.roles.create({ name: roleName, reason: "district view-role (§2.2)" }).catch(() => null));
+
+    // Hide non-starting districts behind their view-role; the bazaar stays public.
+    if (!def.holds_bazaar && role && category.type === ChannelType.GuildCategory) {
+      await category.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }).catch((err) => log.warn({ err, district: dbId }, "hide district failed (need Manage Channels)"));
+      await category.permissionOverwrites.edit(role.id, { ViewChannel: true }).catch(() => {});
+    }
+
+    const neighbors = def.neighbors.map((n) => `${n}_${guildId}`);
+    await sql`
+      INSERT INTO districts (id, guild_id, name, category_id, view_role_id, neighbors)
+      VALUES (${dbId}, ${guildId}, ${def.name}, ${category.id}, ${role?.id ?? null}, ${jsonParam(sql, neighbors)})
+      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category_id = EXCLUDED.category_id, view_role_id = EXCLUDED.view_role_id, neighbors = EXCLUDED.neighbors
+    `;
+
+    if (def.holds_bazaar) {
+      bazaarDistrictId = dbId;
+      for (const channel of marketChannels) {
+        if (!("setParent" in channel)) continue; // threads can't be reparented; the market channels aren't threads
+        await channel.setParent(category.id, { lockPermissions: true }).catch((err: unknown) => log.warn({ err, channel: channel.id }, "move channel to market district failed"));
+      }
+    }
+  }
+  return bazaarDistrictId;
 }
 
 export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
@@ -101,6 +153,9 @@ export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
         { name: "market_square_vc", display: "Market Square" },
       ];
       const seededVoice: string[] = [];
+      // Collect the public market channels (bazaar text + NPC voice stops) so the
+      // district seeder can move them under the Market District category.
+      const marketChannels: GuildBasedChannel[] = [bazaar];
       for (const stop of voiceStops) {
         let voiceChannel = channels.find((channel) => channel?.type === ChannelType.GuildVoice && channel.name === stop.display) ?? null;
         let created = false;
@@ -109,12 +164,17 @@ export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
           created = true;
         }
         await upsertLocation(opts.sql, { id: `${stop.name}_${guildId}`, guildId, channelId: voiceChannel.id, kind: "voice" });
+        marketChannels.push(voiceChannel);
         seededVoice.push(`${stop.display}:${voiceChannel.id}${created ? " (created)" : " (found)"}`);
       }
 
-      // The bazaar gates on presence (§9): you can only enter the stall on the
-      // continent you actually stand on. A re-run flips this on existing rows.
-      await upsertLocation(opts.sql, { id: `bazaar_${guildId}`, guildId, channelId: bazaar.id, kind: "bazaar", requiresPresence: true });
+      // Seed the continent's districts (§2.2): categories + view-roles, hiding the
+      // non-starting ones and moving the market channels under the bazaar district.
+      const bazaarDistrictId = await seedDistricts(opts.sql, guild, guildId, opts.districts.districts[guildId] ?? [], marketChannels, log);
+
+      // The bazaar gates on presence (§9, §2.3): you shop only in the district you
+      // stand in. A re-run flips the flag + district on existing rows.
+      await upsertLocation(opts.sql, { id: `bazaar_${guildId}`, guildId, channelId: bazaar.id, kind: "bazaar", requiresPresence: true, districtId: bazaarDistrictId });
 
       // The "Land" category holds every player's plot channels (§2.4). The
       // builder bot creates per-plot text+voice channels under it at /build time,
@@ -133,8 +193,9 @@ export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
           bazaar: `${bazaar.id}${createdText ? " (created)" : " (found)"}`,
           voice: seededVoice.join(", "),
           land: `${landCategory.id}${createdCategory ? " (created)" : " (found)"}`,
+          districts: (opts.districts.districts[guildId] ?? []).map((d) => d.id).join(", "),
         },
-        "bazaar mapped",
+        "bazaar + districts mapped",
       );
     }
 
