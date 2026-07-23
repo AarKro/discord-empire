@@ -1,8 +1,9 @@
 /**
- * `pnpm world:init` / `pnpm start`'s world step — one-shot dev-world bootstrap
- * (see packages/core/src/bootstrap.ts). Decoupled from any bot app: it just
- * needs a Discord token with Manage Channels/Roles, and reuses the merchant's
- * token (MERCHANT_TOKEN) since that bot already has those perms.
+ * `pnpm world:init` / `pnpm start`'s world step — one-shot dev-world bootstrap.
+ * Lives beside bootstrapWorld (the logic it wraps); compiled to dist/world-init.js
+ * and run with `node`. Decoupled from any bot app: it just needs a Discord token
+ * with Manage Channels/Roles, and reuses the merchant's token (MERCHANT_TOKEN)
+ * since that bot already has those perms.
  *
  * Idempotent — safe to rerun (reuses channels, never restocks). By default it
  * SKIPS when the world is already seeded (so `pnpm start` stays fast); pass
@@ -10,15 +11,16 @@
  */
 import { join } from "node:path";
 import { loadContentFile, Manifest, Shop, Continents, Districts } from "@empire/content-schemas";
-import { bootstrapWorld, rootLogger } from "@empire/core";
-import { openDb } from "@empire/db";
+import { openDb, type Sql } from "@empire/db";
+import { bootstrapWorld } from "./bootstrap.js";
+import { rootLogger } from "./logger.js";
 
 const CONTENT_DIR = process.env.CONTENT_DIR ?? "content";
 const force = process.argv.includes("--force");
 
 /** Has the world ever been bootstrapped? bootstrap seeds a `locations` row per
  * guild, so any row means yes. A missing table (pre-migrate) counts as no. */
-async function alreadySeeded(sql: ReturnType<typeof openDb>["sql"]): Promise<boolean> {
+async function alreadySeeded(sql: Sql): Promise<boolean> {
   try {
     const rows = await sql`SELECT 1 FROM locations LIMIT 1`;
     return rows.length > 0;

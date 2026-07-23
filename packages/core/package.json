@@ -10,6 +10,7 @@
     }
   },
   "scripts": {
+    "world:init": "node dist/world-init.js --force",
     "typecheck": "tsc -b",
     "test": "vitest run"
   },

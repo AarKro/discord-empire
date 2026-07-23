@@ -9,5 +9,5 @@ set -e
 "$(dirname "$0")/compose.sh" up -d --wait postgres
 pnpm db:migrate
 pnpm build
-pnpm exec tsx scripts/world-init.ts   # first run seeds the world; later runs skip
+node packages/core/dist/world-init.js   # first run seeds the world; later runs skip
 exec pnpm --parallel --filter './apps/*' start
