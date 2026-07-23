@@ -1,0 +1,15 @@
+# The exchange — player-to-player market bot (framework spec §5.11). Its own
+# bot/token; present in every continent guild to register the market commands and
+# own that continent's Marketplace board. A market-clerk face, no voice presence.
+id: exchange
+token_env: EXCHANGE_TOKEN
+personas:
+  "${GUILD_CONTINENT_ONE}":
+    nickname: "The Exchange"
+    locale_flavor: highlands
+  "${GUILD_CONTINENT_TWO}":
+    nickname: "The Exchange"
+    locale_flavor: harbor
+capabilities:
+  - commands
+  - market

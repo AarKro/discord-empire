@@ -8,6 +8,7 @@
     { "path": "apps/bot-merchant" },
     { "path": "apps/bot-builder" },
     { "path": "apps/bot-secret-merchant" },
-    { "path": "apps/bot-herald" }
+    { "path": "apps/bot-herald" },
+    { "path": "apps/bot-exchange" }
   ]
 }

@@ -42,6 +42,9 @@ describe("shipped content validates against schemas", () => {
     const herald = loadContentFile(Manifest, join(CONTENT, "manifests/herald.yaml"));
     expect(herald.capabilities).toEqual(expect.arrayContaining(["commands", "wayfare", "topology"]));
     expect(herald.content?.continents).toBe("continents.yaml");
+    // §5.11 player market: the exchange bot hosts /trade, /stall via commands + market.
+    const exchange = loadContentFile(Manifest, join(CONTENT, "manifests/exchange.yaml"));
+    expect(exchange.capabilities).toEqual(expect.arrayContaining(["commands", "market"]));
   });
 
   it("shop, schedule", () => {

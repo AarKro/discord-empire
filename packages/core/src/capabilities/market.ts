@@ -79,7 +79,8 @@ export function marketCapability(): Capability {
   async function createDirectOffer(evt: BusEvent, ctx: CapabilityContext): Promise<void> {
     const proposer = evt.actor?.id;
     if (!proposer) return;
-    const recipient = payloadString(evt, "player");
+    // The /trade player option is a string; accept a raw id or a <@id> mention.
+    const recipient = payloadString(evt, "player").replace(/[<@!>]/g, "");
     const side = payloadString(evt, "side") === "buy" ? "buy" : "sell";
     const item = payloadString(evt, "item");
     const qty = Math.max(1, Number(payloadString(evt, "qty", "1")) || 1);

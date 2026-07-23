@@ -148,6 +148,12 @@ export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
         createdText = true;
       }
 
+      // The public Marketplace board (§5.11) — where player stall listings render.
+      // Not presence-gated (the market is global); the exchange bot posts here.
+      let marketplace = channels.find((channel) => channel?.type === ChannelType.GuildText && channel.name === "marketplace") ?? null;
+      if (!marketplace) marketplace = await guild.channels.create({ name: "marketplace", type: ChannelType.GuildText });
+      await upsertLocation(opts.sql, { id: `market_${guildId}`, guildId, channelId: marketplace.id, kind: "market" });
+
       // The NPC's wander stops are voice channels (§5.1). Iteration 1 seeds two —
       // the Bazaar and the Market Square — keyed in `locations` by their logical
       // stop name (`<name>_<guildId>`, kind='voice') so presence.voice resolves
@@ -157,9 +163,9 @@ export async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
         { name: "market_square_vc", display: "Market Square" },
       ];
       const seededVoice: string[] = [];
-      // Collect the public market channels (bazaar text + NPC voice stops) so the
-      // district seeder can move them under the Market District category.
-      const marketChannels: GuildBasedChannel[] = [bazaar];
+      // Collect the public market channels (bazaar text + Marketplace board + NPC
+      // voice stops) so the district seeder can move them under the Market District.
+      const marketChannels: GuildBasedChannel[] = [bazaar, marketplace];
       for (const stop of voiceStops) {
         let voiceChannel = channels.find((channel) => channel?.type === ChannelType.GuildVoice && channel.name === stop.display) ?? null;
         let created = false;
