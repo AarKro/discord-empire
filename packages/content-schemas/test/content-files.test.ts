@@ -14,6 +14,7 @@ import {
   Workflow,
   Schedule,
   Continents,
+  Districts,
   Instances,
 } from "../src/index.js";
 
@@ -79,5 +80,13 @@ describe("shipped content validates against schemas", () => {
     const c = loadContentFile(Continents, join(CONTENT, "continents.yaml"));
     expect(Object.keys(c.continents).length).toBe(2);
     expect(loadContentFile(Instances, join(CONTENT, "instances.yaml")).dungeon_pool.length).toBeGreaterThanOrEqual(0);
+  });
+
+  it("districts (§2.2): each continent has exactly one bazaar district", () => {
+    const d = loadContentFile(Districts, join(CONTENT, "districts.yaml"));
+    for (const districts of Object.values(d.districts)) {
+      expect(districts.filter((district) => district.holds_bazaar).length).toBe(1);
+      expect(districts.length).toBeGreaterThanOrEqual(2);
+    }
   });
 });

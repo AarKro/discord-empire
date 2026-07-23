@@ -446,6 +446,24 @@ export class Gateway {
     }, 2);
   }
 
+  /**
+   * Grant a member a role (§2.2 discovery: the permanent view-role grant when a
+   * player first enters a district). Best-effort + dev-server-exercised like
+   * createPlotChannels — needs Manage Roles and the role below the bot's highest
+   * role; skips with a log otherwise rather than failing the arrival.
+   */
+  grantRole(guildId: string, userId: string, roleId: string): Promise<void> {
+    return this.queue.enqueue(async () => {
+      const guild = await this.fetchGuild(guildId);
+      if (!guild) return;
+      const member = await guild.members.fetch(userId).catch(() => null);
+      if (!member) return;
+      await member.roles.add(roleId).catch((err) => {
+        this.log.warn({ err, guildId, userId, roleId }, "failed to grant role (need Manage Roles / role hierarchy)");
+      });
+    }, 1);
+  }
+
   archiveThread(threadId: string): Promise<void> {
     return this.queue.enqueue(async () => {
       const channel = await this.client.channels.fetch(threadId).catch(() => null);

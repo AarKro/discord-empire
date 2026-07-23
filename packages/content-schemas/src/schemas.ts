@@ -150,6 +150,26 @@ export const Continents = z.object({
 });
 export type Continents = z.infer<typeof Continents>;
 
+// --- districts.yaml (§2.2) — within-continent geography ----------------------
+// Each continent (guild) holds a ring of districts (Discord categories). Logical
+// ids resolve to `<id>_<guildId>` rows at world:init (like locations); `neighbors`
+// name sibling logical ids. Exactly one district per continent should hold the
+// bazaar — it's the public starting district (the others are hidden until found).
+export const Districts = z.object({
+  districts: z.record(
+    z.string(), // guild_id
+    z.array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        neighbors: z.array(z.string()).default([]),
+        holds_bazaar: z.boolean().default(false),
+      }),
+    ),
+  ),
+});
+export type Districts = z.infer<typeof Districts>;
+
 // --- instances.yaml (§9) — dungeon pool, stubbed for iteration 1 -------------
 export const Instances = z.object({
   dungeon_pool: z.array(z.string()).default([]),

@@ -1,0 +1,13 @@
+# Districts (§2.2) — the within-continent map. Each continent is a small ring of
+# districts (Discord categories). The `holds_bazaar` district is the public
+# starting square (always visible); the others start hidden and are revealed
+# RTS-style when a player first walks into them (a permanent view-role grant).
+# Logical ids become `<id>_<guildId>` rows at world:init; neighbors name siblings.
+districts:
+  "${GUILD_CONTINENT_ONE}":
+    - { id: market_district, name: "Market District", holds_bazaar: true, neighbors: [farmlands] }
+    - { id: farmlands, name: "The Farmlands", neighbors: [market_district, harbourside] }
+    - { id: harbourside, name: "Harbourside", neighbors: [farmlands] }
+  "${GUILD_CONTINENT_TWO}":
+    - { id: market_district, name: "Market District", holds_bazaar: true, neighbors: [tavern_row] }
+    - { id: tavern_row, name: "Tavern Row", neighbors: [market_district] }
