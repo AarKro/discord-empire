@@ -22,10 +22,13 @@ interface World {
   offer: OfferRow | null;
   land: Record<string, string | null>;
   marketChannel: string | null;
+  position: string | null;
+  inventoryQty: number;
   posts: { channelId: string; content: string }[];
   replies: string[];
   iReplies: string[];
   iUpdates: string[];
+  boardRenders: number;
 }
 
 function withCount(rows: unknown[], count: number): unknown[] {
@@ -38,6 +41,7 @@ function makeCtx(world: World): { ctx: CapabilityContext; onComponent: () => (i:
     const q = strings.join("?");
     if (q.includes("FROM contacts")) return Promise.resolve(world.contacts ? [{ "?column?": 1 }] : []);
     if (q.includes("INSERT INTO offers")) return Promise.resolve([]);
+    if (q.includes("kind = 'order'") && q.includes("SELECT * FROM offers")) return Promise.resolve([]); // board query: no listings
     if (q.includes("SELECT * FROM offers")) return Promise.resolve(world.offer ? [world.offer] : []);
     if (q.includes("UPDATE offers SET status")) {
       const target = /SET status = '(\w+)'/.exec(q)?.[1];
@@ -45,6 +49,9 @@ function makeCtx(world: World): { ctx: CapabilityContext; onComponent: () => (i:
       return Promise.resolve(withCount([], 1));
     }
     if (q.includes("FROM land_plots")) return Promise.resolve([{ text_channel_id: world.land[String(vals[0])] ?? null }]);
+    if (q.includes("position_guild_id FROM players")) return Promise.resolve([{ position_guild_id: world.position }]);
+    if (q.includes("qty FROM inventories")) return Promise.resolve([{ qty: world.inventoryQty }]);
+    if (q.includes("state FROM npcs")) return Promise.resolve([{ state: {} }]);
     if (q.includes("FROM locations")) return Promise.resolve(world.marketChannel ? [{ channel_id: world.marketChannel }] : []);
     return Promise.resolve([]);
   };
@@ -59,6 +66,7 @@ function makeCtx(world: World): { ctx: CapabilityContext; onComponent: () => (i:
     } as unknown as CapabilityContext["bus"],
     gateway: {
       sendToChannel: async (channelId: string, content: { content?: string }) => { world.posts.push({ channelId, content: content.content ?? "" }); return "m"; },
+      upsertPinnedMessage: async () => { world.boardRenders += 1; return "board_msg"; },
       onComponent: (h: (i: ComponentInteraction) => Promise<void>) => { handler = h; },
     } as unknown as CapabilityContext["gateway"],
     personas: {} as unknown as CapabilityContext["personas"],
@@ -82,7 +90,7 @@ function click(customId: string, userId: string, world: World): ComponentInterac
 }
 
 function freshWorld(over: Partial<World> = {}): World {
-  return { contacts: true, offer: null, land: {}, marketChannel: null, posts: [], replies: [], iReplies: [], iUpdates: [], ...over };
+  return { contacts: true, offer: null, land: {}, marketChannel: null, position: "g1", inventoryQty: 0, posts: [], replies: [], iReplies: [], iUpdates: [], boardRenders: 0, ...over };
 }
 
 describe("market — direct offers (§5.11)", () => {
@@ -136,5 +144,36 @@ describe("market — direct offers (§5.11)", () => {
     await onComponent()(click("mkt:accept:off1", "p2", world));
     expect(world.offer!.status).toBe("expired");
     expect(world.iUpdates[0]).toContain("expired");
+  });
+});
+
+describe("market — stall listings (§5.11)", () => {
+  it("lists an item the seller holds and re-renders the board", async () => {
+    const world = freshWorld({ inventoryQty: 5, marketChannel: "market_g1" });
+    await marketCapability().handle!(
+      { dbId: "0", eventId: "e", type: "stall.list.requested", ts: "", guildId: "g1", actor: { kind: "player", id: "p1" }, subject: { kind: "npc", id: "exchange" }, payload: { item: "iron", qty: "3", price: "40" }, correlationId: "c" },
+      makeCtx(world).ctx,
+    );
+    expect(world.replies[0]).toContain("Listed");
+    expect(world.boardRenders).toBe(1);
+  });
+
+  it("refuses to list more than the seller holds", async () => {
+    const world = freshWorld({ inventoryQty: 1, marketChannel: "market_g1" });
+    await marketCapability().handle!(
+      { dbId: "0", eventId: "e", type: "stall.list.requested", ts: "", guildId: "g1", actor: { kind: "player", id: "p1" }, subject: { kind: "npc", id: "exchange" }, payload: { item: "iron", qty: "3", price: "40" }, correlationId: "c" },
+      makeCtx(world).ctx,
+    );
+    expect(world.replies[0]).toContain("don't have");
+    expect(world.boardRenders).toBe(0);
+  });
+
+  it("refuses buying from your own stall", async () => {
+    const world = freshWorld({ offer: { id: "ord1", kind: "order", maker_id: "p1", taker_id: null, item_id: "iron", qty: 3, price: 40, side: "sell", status: "open", guild_id: "g1", expires_at: null } });
+    const { ctx, onComponent } = makeCtx(world);
+    marketCapability().init!(ctx);
+    await onComponent()(click("mkt:buy:ord1", "p1", world));
+    expect(world.iReplies[0]).toContain("your own stall");
+    expect(world.offer!.status).toBe("open");
   });
 });

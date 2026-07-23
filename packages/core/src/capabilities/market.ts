@@ -15,9 +15,10 @@ import { executeTrade, type Party, type Sql } from "@empire/db";
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
 import type { ComponentInteraction } from "../gateway.js";
-import { buttonRow } from "../ui-kit.js";
+import { buttonRow, stallEmbed } from "../ui-kit.js";
 import { notForMe, payloadString } from "../events.js";
 import { locationChannel } from "../locations.js";
+import { readNpcState, upsertNpcStateEntry } from "../npc-state.js";
 import { ulid } from "ulid";
 
 /** How long a direct offer stands before it's stale (quote-style expiry, §5.11). */
@@ -175,24 +176,139 @@ export function marketCapability(): Capability {
     }
   }
 
+  /** A player's current continent (where a stall lists / renders). */
+  async function currentGuild(sql: Sql, playerId: string, fallback: string | null): Promise<string | null> {
+    const [row] = await sql<{ position_guild_id: string | null }[]>`SELECT position_guild_id FROM players WHERE discord_user_id = ${playerId}`;
+    return row?.position_guild_id ?? fallback;
+  }
+
+  /**
+   * Re-render a continent's Marketplace board: ONE embed of that guild's open
+   * stall listings with a Buy button each (Discord's 25-button cap). The board's
+   * message id is tracked in the exchange bot's npcs.state.market_boards[guild].
+   */
+  async function renderBoard(ctx: CapabilityContext, guildId: string): Promise<void> {
+    const channelId = await locationChannel(ctx.sql, guildId, "market");
+    if (!channelId) {
+      ctx.logger.warn({ guildId }, "no Marketplace channel — run world:init");
+      return;
+    }
+    const offers = await ctx.sql<OfferRow[]>`
+      SELECT * FROM offers WHERE kind = 'order' AND status = 'open' AND guild_id = ${guildId} ORDER BY id LIMIT 25
+    `;
+    const embed = stallEmbed("Marketplace", offers.map((o) => ({ name: `${o.qty}× ${o.item_id}`, price: o.price, stock: o.qty })));
+    // Up to 5 rows × 5 Buy buttons.
+    const rows: unknown[] = [];
+    for (let i = 0; i < offers.length; i += 5) {
+      rows.push(buttonRow(offers.slice(i, i + 5).map((o) => ({ id: `mkt:buy:${o.id}`, label: `Buy ${o.item_id} (${o.price}g)` }))).toJSON());
+    }
+    const state = await readNpcState<{ market_boards?: Record<string, string> }>(ctx.sql, ctx.bot);
+    const messageId = await ctx.gateway.upsertPinnedMessage(channelId, state.market_boards?.[guildId] ?? null, { embeds: [embed.toJSON()], components: rows as never[] });
+    if (messageId) await upsertNpcStateEntry(ctx.sql, ctx.bot, "market_boards", guildId, messageId);
+  }
+
+  /** /stall <item> <qty> <price> — list an item for sale on the current continent's board. */
+  async function listStall(evt: BusEvent, ctx: CapabilityContext): Promise<void> {
+    const seller = evt.actor?.id;
+    if (!seller) return;
+    const item = payloadString(evt, "item");
+    const qty = Math.max(1, Number(payloadString(evt, "qty", "1")) || 1);
+    const price = Number(payloadString(evt, "price", "0")) || 0;
+    if (!item || price <= 0) {
+      await reply(ctx, evt, seller, "Name a real ware and a fair price, friend.");
+      return;
+    }
+    const [held] = await ctx.sql<{ qty: number }[]>`SELECT qty FROM inventories WHERE owner_kind = 'player' AND owner_id = ${seller} AND item_id = ${item}`;
+    if ((held?.qty ?? 0) < qty) {
+      await reply(ctx, evt, seller, `You don't have ${qty}× ${item} to sell.`);
+      return;
+    }
+    const guildId = await currentGuild(ctx.sql, seller, evt.guildId ?? null);
+    if (!guildId) {
+      await reply(ctx, evt, seller, "You must be somewhere to open a stall.");
+      return;
+    }
+    await ctx.sql`
+      INSERT INTO offers (id, kind, maker_kind, maker_id, item_id, qty, price, side, status, guild_id)
+      VALUES (${`off_${ulid()}`}, 'order', 'player', ${seller}, ${item}, ${qty}, ${price}, 'sell', 'open', ${guildId})
+    `;
+    await renderBoard(ctx, guildId);
+    await reply(ctx, evt, seller, `Listed **${qty}× ${item}** for **${price} gold** on the Marketplace.`);
+  }
+
+  /** /stall cancel <item> — pull your listing(s) of an item. */
+  async function unlistStall(evt: BusEvent, ctx: CapabilityContext): Promise<void> {
+    const seller = evt.actor?.id;
+    if (!seller) return;
+    const item = payloadString(evt, "item");
+    const pulled = await ctx.sql`UPDATE offers SET status = 'cancelled' WHERE kind = 'order' AND status = 'open' AND maker_id = ${seller} AND item_id = ${item}`;
+    const guildId = await currentGuild(ctx.sql, seller, evt.guildId ?? null);
+    if (guildId) await renderBoard(ctx, guildId);
+    await reply(ctx, evt, seller, pulled.count > 0 ? `Pulled your ${item} from the stall.` : `You have no ${item} listed.`);
+  }
+
+  /** Buy click on a stall listing → atomic executeTrade + board refresh + receipts. */
+  async function buyStall(interaction: ComponentInteraction, offerId: string, ctx: CapabilityContext): Promise<void> {
+    const buyer = interaction.userId;
+    const [offer] = await ctx.sql<OfferRow[]>`SELECT * FROM offers WHERE id = ${offerId}`;
+    if (!offer || offer.kind !== "order" || offer.status !== "open") {
+      await interaction.reply("That listing is gone.");
+      return;
+    }
+    if (offer.maker_id === buyer) {
+      await interaction.reply("You can't buy from your own stall.");
+      return;
+    }
+    const claimed = await ctx.sql`UPDATE offers SET status = 'filled' WHERE id = ${offerId} AND status = 'open'`;
+    if (claimed.count === 0) {
+      await interaction.reply("Someone just bought that.");
+      return;
+    }
+    const result = await executeTrade(ctx.sql, {
+      eventId: `evt_${ulid()}`,
+      buyer: { kind: "player", id: buyer },
+      seller: { kind: "player", id: offer.maker_id },
+      itemId: offer.item_id,
+      qty: offer.qty,
+      price: offer.price,
+      guildId: offer.guild_id,
+      reason: "market_stall",
+    });
+    if (!result.ok) {
+      await ctx.sql`UPDATE offers SET status = 'open' WHERE id = ${offerId} AND status = 'filled'`;
+      await interaction.reply(`Couldn't complete: ${result.message ?? result.reason}.`);
+      return;
+    }
+    await interaction.reply(`Bought **${offer.qty}× ${offer.item_id}** for **${offer.price} gold**.`);
+    const sellerLand = await landChannelFor(ctx.sql, offer.maker_id);
+    if (sellerLand) await ctx.gateway.sendToChannel(sellerLand, { content: `Someone bought **${offer.qty}× ${offer.item_id}** from your stall for **${offer.price} gold**.` });
+    if (offer.guild_id) await renderBoard(ctx, offer.guild_id);
+  }
+
   return {
     name: "market",
-    consumes: ["offer.direct.requested"],
+    consumes: ["offer.direct.requested", "stall.list.requested", "stall.unlist.requested"],
     actions: {},
 
     async handle(evt: BusEvent, ctx: CapabilityContext): Promise<void> {
-      if (evt.type !== "offer.direct.requested" || notForMe(evt, ctx.bot)) return;
-      await createDirectOffer(evt, ctx);
+      if (notForMe(evt, ctx.bot)) return;
+      if (evt.type === "offer.direct.requested") await createDirectOffer(evt, ctx);
+      else if (evt.type === "stall.list.requested") await listStall(evt, ctx);
+      else if (evt.type === "stall.unlist.requested") await unlistStall(evt, ctx);
     },
 
-    init(ctx: CapabilityContext): void {
+    async init(ctx: CapabilityContext): Promise<void> {
+      // Register the button router synchronously (before any await) so a click is
+      // never dropped mid-boot.
       ctx.gateway.onComponent(async (interaction) => {
         const match = CUSTOM_ID.exec(interaction.customId);
         if (!match) return;
         const [, action, offerId] = match;
-        if (action === "buy") return; // stall buys land in commit 2
-        await resolveDirectOffer(interaction, action!, offerId!, ctx);
+        if (action === "buy") await buyStall(interaction, offerId!, ctx);
+        else await resolveDirectOffer(interaction, action!, offerId!, ctx);
       });
+      // The board's per-continent message id lives in this bot's npcs.state.
+      await ctx.sql`INSERT INTO npcs (id, kind) VALUES (${ctx.bot}, 'exchange') ON CONFLICT DO NOTHING`;
     },
   };
 }

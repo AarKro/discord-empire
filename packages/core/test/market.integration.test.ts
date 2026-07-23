@@ -22,7 +22,7 @@ function setup(): (i: ComponentInteraction) => Promise<void> {
   const ctx = {
     bot: "exchange", sql: h.sql,
     bus: { publish: async () => undefined } as unknown as CapabilityContext["bus"],
-    gateway: { sendToChannel: async () => "m", onComponent: (fn: (i: ComponentInteraction) => Promise<void>) => { handler = fn; } } as unknown as CapabilityContext["gateway"],
+    gateway: { sendToChannel: async () => "m", upsertPinnedMessage: async () => null, onComponent: (fn: (i: ComponentInteraction) => Promise<void>) => { handler = fn; } } as unknown as CapabilityContext["gateway"],
     personas: {} as unknown as CapabilityContext["personas"],
     logger: rootLogger, config: {},
   } as CapabilityContext;
@@ -30,9 +30,10 @@ function setup(): (i: ComponentInteraction) => Promise<void> {
   return handler;
 }
 
-function accept(offerId: string, userId: string): ComponentInteraction {
-  return { customId: `mkt:accept:${offerId}`, values: [], userId, guildId: "g1", channelId: "c", reply: async () => {}, update: async () => {} };
+function clickBtn(customId: string, userId: string): ComponentInteraction {
+  return { customId, values: [], userId, guildId: "g1", channelId: "c", reply: async () => {}, update: async () => {} };
 }
+const accept = (offerId: string, userId: string) => clickBtn(`mkt:accept:${offerId}`, userId);
 
 const bal = (owner: string) => h.sql<{ amount: number }[]>`SELECT amount FROM balances WHERE owner_kind='player' AND owner_id=${owner} AND currency='gold'`;
 const inv = (owner: string) => h.sql<{ qty: number }[]>`SELECT qty FROM inventories WHERE owner_kind='player' AND owner_id=${owner} AND item_id='iron'`;
@@ -50,7 +51,7 @@ async function seedOffer(side: "sell" | "buy") {
 suite("market — accepting a direct offer settles atomically (§5.11)", () => {
   beforeAll(async () => { h = openDb(url!, { max: 4 }); await ensureSchema(h); });
   afterAll(async () => { await h.close(); });
-  beforeEach(async () => { await h.sql`TRUNCATE offers, contacts, inventories, balances, ledger, events, land_plots RESTART IDENTITY CASCADE`; });
+  beforeEach(async () => { await h.sql`TRUNCATE offers, contacts, inventories, balances, ledger, events, land_plots, npcs, locations RESTART IDENTITY CASCADE`; });
 
   it("sell offer: the recipient accepts, pays gold, receives the goods", async () => {
     await seedOffer("sell");
@@ -80,6 +81,21 @@ suite("market — accepting a direct offer settles atomically (§5.11)", () => {
     await setup()(accept("nope", "p2"));
     expect((await h.sql`SELECT id FROM ledger`).length).toBe(0);
   });
+
+  it("stall listing: a buyer clicks Buy → atomic swap + offer filled", async () => {
+    await h.sql`INSERT INTO inventories (owner_kind, owner_id, item_id, qty) VALUES ('player', 'p1', 'iron', 3)`;
+    await h.sql`INSERT INTO balances (owner_kind, owner_id, currency, amount) VALUES ('player', 'p2', 'gold', 100)`;
+    await h.sql`INSERT INTO offers (id, kind, maker_kind, maker_id, item_id, qty, price, side, status, guild_id)
+      VALUES ('ord1', 'order', 'player', 'p1', 'iron', 3, 40, 'sell', 'open', 'g1')`;
+
+    await setup()(clickBtn("mkt:buy:ord1", "p2"));
+
+    const [offer] = await h.sql<{ status: string }[]>`SELECT status FROM offers WHERE id='ord1'`;
+    expect(offer!.status).toBe("filled");
+    expect((await inv("p2"))[0]!.qty).toBe(3); // buyer got the iron
+    expect((await bal("p2"))[0]!.amount).toBe(60); // paid 40
+    expect((await bal("p1"))[0]!.amount).toBe(40); // seller was paid
+  });
 });
 
 async function ensureSchema(handle: DbHandle) {
@@ -92,4 +108,6 @@ async function ensureSchema(handle: DbHandle) {
   await sql`CREATE TABLE IF NOT EXISTS offers (id text PRIMARY KEY, kind text NOT NULL, maker_kind text NOT NULL, maker_id text NOT NULL, taker_id text, item_id text NOT NULL, qty integer NOT NULL, price bigint NOT NULL, side text NOT NULL DEFAULT 'sell', status text NOT NULL DEFAULT 'open', guild_id text, expires_at timestamptz)`;
   await sql`CREATE TABLE IF NOT EXISTS contacts (player_a text NOT NULL, player_b text NOT NULL, met_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (player_a, player_b))`;
   await sql`CREATE TABLE IF NOT EXISTS land_plots (id text PRIMARY KEY, owner_id text NOT NULL, guild_id text NOT NULL, district_id text, voice_channel_id text, text_channel_id text, pruned boolean NOT NULL DEFAULT false)`;
+  await sql`CREATE TABLE IF NOT EXISTS npcs (id text PRIMARY KEY, kind text NOT NULL, state jsonb NOT NULL DEFAULT '{}')`;
+  await sql`CREATE TABLE IF NOT EXISTS locations (id text PRIMARY KEY, guild_id text NOT NULL, channel_id text, district_id text, kind text NOT NULL, requires_presence boolean NOT NULL DEFAULT false)`;
 }
