@@ -238,6 +238,28 @@ export const discoveries = pgTable(
   (t) => ({ pk: primaryKey({ columns: [t.playerId, t.districtId] }) }),
 );
 
+// Per-continent (guild) membership roles (§9 gatekeeper): the "Citizen" role
+// granted at a player's home continent and the "Observer" role granted at each
+// continent they've discovered. Role ids are seeded by world-init.
+export const continentRoles = pgTable("continent_roles", {
+  guildId: text("guild_id").primaryKey(),
+  citizenRoleId: text("citizen_role_id"),
+  observerRoleId: text("observer_role_id"),
+});
+
+// Permanent continent discovery grants (§2.3, §9 gatekeeper): the continents a
+// player watches as an Observer. Accumulative like `discoveries` — never shrinks.
+// The player's home continent is `players.home_guild_id` (Citizen), not a row here.
+export const continentDiscoveries = pgTable(
+  "continent_discoveries",
+  {
+    playerId: text("player_id").notNull(),
+    guildId: text("guild_id").notNull(),
+    discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.playerId, t.guildId] }) }),
+);
+
 // Offers / orders / auctions — quotes with expiry (§5.5, §5.11).
 export const offers = pgTable("offers", {
   id: text("id").primaryKey(),

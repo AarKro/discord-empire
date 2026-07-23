@@ -77,6 +77,13 @@ export interface ModalSubmitInteraction {
 
 export type ModalSubmitHandler = (interaction: ModalSubmitInteraction) => Promise<void> | void;
 
+/** A member joining a guild, reduced to plain data (§9 gatekeeper: reconcile roles at the door). */
+export interface MemberJoin {
+  guildId: string;
+  userId: string;
+}
+export type MemberJoinHandler = (join: MemberJoin) => Promise<void> | void;
+
 /**
  * A button that opens a modal rather than proceeding. discord.js requires
  * showModal() on a not-yet-acknowledged interaction, so the gateway checks these
@@ -185,6 +192,7 @@ export class Gateway {
   private readonly autocompleteHandlers: AutocompleteHandler[] = [];
   private readonly modalRequests: ModalRequest[] = [];
   private readonly modalSubmitHandlers: ModalSubmitHandler[] = [];
+  private readonly memberJoinHandlers: MemberJoinHandler[] = [];
   /** guildId → the bot's single voice connection there (one place at a time, §5.1). */
   private readonly voiceConnections = new Map<string, VoiceConnection>();
 
@@ -193,6 +201,7 @@ export class Gateway {
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers, // gatekeeper: guildMemberAdd (PRIVILEGED — enable in the dev portal)
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.GuildMessageTyping, // presence.watch: typingStart
@@ -349,6 +358,21 @@ export class Gateway {
         })();
       }
     });
+
+    // Members joining a guild (§9 gatekeeper): reduce to plain data and fan out.
+    // Requires the privileged GuildMembers intent (enabled above + in the dev portal).
+    this.client.on("guildMemberAdd", (member) => {
+      void (async () => {
+        const join: MemberJoin = { guildId: member.guild.id, userId: member.id };
+        for (const handler of this.memberJoinHandlers) {
+          try {
+            await handler(join);
+          } catch (err) {
+            this.log.error({ err, ...join }, "member-join handler failed");
+          }
+        }
+      })();
+    });
   }
 
   /** Register a handler for button/select interactions (plain data only). */
@@ -374,6 +398,11 @@ export class Gateway {
   /** Register a handler for submitted modals (plain data + reply cb). */
   onModalSubmit(handler: ModalSubmitHandler): void {
     this.modalSubmitHandlers.push(handler);
+  }
+
+  /** Register a handler for members joining a guild (§9 gatekeeper). */
+  onMemberJoin(handler: MemberJoinHandler): void {
+    this.memberJoinHandlers.push(handler);
   }
 
   /**
