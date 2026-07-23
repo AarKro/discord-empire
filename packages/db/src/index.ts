@@ -3,6 +3,8 @@ export { openDb, jsonParam } from "./client.js";
 export type { Db, Sql, DbHandle } from "./client.js";
 export { executeTrade } from "./trade.js";
 export type { TradeRequest, TradeResult, Party } from "./trade.js";
+export { settleAuction } from "./auction.js";
+export type { SettleAuctionRequest, SettleAuctionResult } from "./auction.js";
 export { ensurePlayer, DEFAULT_STARTING_GOLD, grantReward } from "./grant.js";
 export type { EnsurePlayerResult, GrantSpec } from "./grant.js";
 export { readBalance } from "./balances.js";

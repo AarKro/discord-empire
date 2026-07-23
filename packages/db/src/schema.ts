@@ -252,9 +252,29 @@ export const offers = pgTable("offers", {
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   // §5.11 player market: the recipient of a `direct` offer, and the continent
   // (guild) a `order` stall listing renders on / the trade settles in.
+  // For an `auction`: `price` is the current high bid (initialized to the
+  // starting price / reserve), `taker_id` is the current high bidder (NULL until
+  // the first qualifying bid), and `expires_at` is the close time.
   takerId: text("taker_id"),
   guildId: text("guild_id"),
 });
+
+// Auction bids (§5.11): one row per bid placed. The bidder's gold is escrowed
+// on insert (held under the auction Party `auction:<offer_id>`) and refunded on
+// outbid; `won` marks the winning bid at close. The current high bid lives on
+// the parent `offers` row — this table is the auditable bid history.
+export const bids = pgTable(
+  "bids",
+  {
+    id: text("id").primaryKey(), // bid_<ulid>
+    offerId: text("offer_id").notNull(), // the auction (offers.id)
+    bidderId: text("bidder_id").notNull(),
+    amount: bigint("amount", { mode: "number" }).notNull(), // gold escrowed
+    status: text("status").notNull().default("held"), // held | refunded | won
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ byOfferStatus: index("bids_offer_status_idx").on(t.offerId, t.status) }),
+);
 
 // Persisted workflow instances (§7): survive restarts.
 export const workflowInstances = pgTable(
