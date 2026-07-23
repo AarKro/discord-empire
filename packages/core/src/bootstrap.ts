@@ -87,13 +87,17 @@ async function seedDistricts(
 ): Promise<string | null> {
   let bazaarDistrictId: string | null = null;
   const channels = await guild.channels.fetch();
+  // Fetch roles explicitly (like channels) so the find-or-create below is truly
+  // idempotent — a cold roles cache would otherwise recreate every view-role on
+  // each world:init re-run and leak duplicates.
+  const roles = await guild.roles.fetch();
   for (const def of defs) {
     const dbId = `${def.id}_${guildId}`;
     let category = channels.find((c) => c?.type === ChannelType.GuildCategory && c.name === def.name) ?? null;
     if (!category) category = await guild.channels.create({ name: def.name, type: ChannelType.GuildCategory });
 
     const roleName = `${def.name} Access`;
-    const role = guild.roles.cache.find((r) => r.name === roleName) ?? (await guild.roles.create({ name: roleName, reason: "district view-role (§2.2)" }).catch(() => null));
+    const role = roles.find((r) => r.name === roleName) ?? (await guild.roles.create({ name: roleName, reason: "district view-role (§2.2)" }).catch(() => null));
 
     // Hide non-starting districts behind their view-role; the bazaar stays public.
     if (!def.holds_bazaar && role && category.type === ChannelType.GuildCategory) {
