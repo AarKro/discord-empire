@@ -90,6 +90,16 @@ export interface ModalRequest {
 }
 
 /**
+ * A plain-data slash-command reply: bare text, or a richer payload carrying an
+ * embed (kept as `unknown[]` so no discord.js type leaks to capabilities —
+ * invariant #4). A direct command's `resolve` may return either shape.
+ */
+export interface CommandReply {
+  content?: string;
+  embeds?: unknown[];
+}
+
+/**
  * A slash-command (ChatInput) interaction reduced to plain data. All option
  * values are strings in iteration 1 (§5.10). The discord.js Interaction never
  * leaves the gateway: capabilities only get `reply`, which edits the deferred
@@ -102,7 +112,7 @@ export interface CommandInteraction {
   guildId: string | null;
   channelId: string | null;
   /** Edit the deferred ephemeral reply. Safe to call once; later calls no-op. */
-  reply: (content: string) => Promise<void>;
+  reply: (response: string | CommandReply) => Promise<void>;
 }
 
 export type CommandHandler = (interaction: CommandInteraction) => Promise<void> | void;
@@ -258,10 +268,11 @@ export class Gateway {
             userId: interaction.user.id,
             guildId: interaction.guildId,
             channelId: interaction.channelId,
-            reply: (content: string) =>
+            reply: (response: string | CommandReply) =>
               this.queue
                 .enqueue(async () => {
-                  await interaction.editReply({ content });
+                  const payload = typeof response === "string" ? { content: response } : response;
+                  await interaction.editReply(payload as never);
                 }, 1)
                 .catch((err) => {
                   this.log.warn({ err, command: interaction.commandName }, "failed to edit deferred reply");

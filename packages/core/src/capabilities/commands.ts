@@ -21,7 +21,7 @@ import { ulid } from "ulid";
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
 import { notForMe, payloadString } from "../events.js";
-import type { CommandInteraction } from "../gateway.js";
+import type { CommandInteraction, CommandReply } from "../gateway.js";
 
 /** How long we wait for a result event before an in-fiction fallback reply. */
 const REPLY_TIMEOUT_MS = 10_000;
@@ -45,12 +45,13 @@ export interface CommandDef {
   autocomplete?: (ctx: CapabilityContext, typed: string, userId: string) => Promise<{ name: string; value: string }[]>;
   /**
    * DIRECT-answer resolver: when present, the command is answered immediately
-   * from this function's return string instead of the bus round-trip.
+   * from this function's return value instead of the bus round-trip. Return a
+   * string for a plain reply, or a `CommandReply` to answer with an embed.
    */
   resolve?: (
     ctx: CapabilityContext,
     input: { options: Record<string, string>; userId: string; guildId: string | null },
-  ) => Promise<string>;
+  ) => Promise<string | CommandReply>;
 }
 
 interface Pending {
@@ -80,8 +81,8 @@ export function commandsCapability(defs: CommandDef[]): Capability {
     // throwing resolver must reply here or the ephemeral interaction hangs.
     if (def.resolve) {
       try {
-        const content = await def.resolve(ctx, { options: interaction.options, userId: interaction.userId, guildId: interaction.guildId });
-        await interaction.reply(content);
+        const result = await def.resolve(ctx, { options: interaction.options, userId: interaction.userId, guildId: interaction.guildId });
+        await interaction.reply(result);
       } catch (err) {
         ctx.logger.error({ err, command: interaction.commandName }, "direct command resolve failed");
         await interaction.reply("…the ledger is smudged just now. Try again in a moment.");

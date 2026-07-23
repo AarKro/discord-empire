@@ -8,7 +8,12 @@
  * does the work. Item autocomplete is live SQL over the caller's inventory, so
  * it's code, not YAML.
  */
-import { runBot, rootLogger, type CommandDef } from "@empire/core";
+import { join } from "node:path";
+import { runBot, rootLogger, buildMarketOverviewEmbed, type CommandDef } from "@empire/core";
+import { loadContentFile, Continents } from "@empire/content-schemas";
+
+/** Continent metadata (names, ring) for the cross-continent /market browse. */
+const continents = loadContentFile(Continents, join(process.env.CONTENT_DIR ?? "content", "continents.yaml"));
 
 /** Suggest items the caller actually holds (what they can sell / list). The
  * hidden auction_bid hold-token is excluded so it can't be traded or listed. */
@@ -66,6 +71,14 @@ const commands: CommandDef[] = [
       { name: "duration", description: "Minutes until it closes", required: true },
     ],
     autocomplete: itemAutocomplete,
+  },
+  {
+    name: "market",
+    description: "Browse the markets and your open positions",
+    route: "",
+    resolve: async (ctx, { userId }) => ({
+      embeds: [(await buildMarketOverviewEmbed(ctx.sql, continents, userId)).toJSON()],
+    }),
   },
 ];
 

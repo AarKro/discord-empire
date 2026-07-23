@@ -87,6 +87,40 @@ export function auctionEmbed(title: string, items: AuctionEmbedItem[]): EmbedBui
   return embed;
 }
 
+/** Discord's hard limit on a single embed field's value. */
+const FIELD_VALUE_LIMIT = 1024;
+
+/** Join pre-formatted lines into one embed-field value, trimmed to Discord's cap. */
+function fieldValue(lines: string[]): string {
+  if (lines.length === 0) return "_— none —_";
+  const joined = lines.join("\n");
+  return joined.length <= FIELD_VALUE_LIMIT ? joined : joined.slice(0, FIELD_VALUE_LIMIT - 1) + "…";
+}
+
+export interface MarketOverview {
+  /** Pre-formatted lines for the caller's own open positions. */
+  positions: string[];
+  /** Others' open listings, grouped into one field per continent. */
+  browse: { continent: string; lines: string[] }[];
+}
+
+/**
+ * The ephemeral `/market` overview (§5.11): a "Your positions" field plus one
+ * field per continent for browsing everyone else's open stalls & auctions. All
+ * line formatting is done by the caller; this only lays out the embed.
+ */
+export function marketOverviewEmbed(o: MarketOverview): EmbedBuilder {
+  const embed = new EmbedBuilder().setTitle("Marketplace");
+  embed.addFields({ name: "Your positions", value: fieldValue(o.positions) });
+  for (const group of o.browse) {
+    embed.addFields({ name: `Browse · ${group.continent}`, value: fieldValue(group.lines) });
+  }
+  if (o.browse.length === 0) {
+    embed.addFields({ name: "Browse", value: "_No open listings anywhere just now._" });
+  }
+  return embed;
+}
+
 export function modal(id: string, title: string, fields: { id: string; label: string }[]): ModalBuilder {
   const builder = new ModalBuilder().setCustomId(id).setTitle(title);
   for (const field of fields) {

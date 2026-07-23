@@ -21,7 +21,7 @@ export type {
   CommandRegistration,
 } from "./gateway.js";
 export { PersonaResolver } from "./persona.js";
-export { ui, buttonRow, selectMenu, stallEmbed, modal } from "./ui-kit.js";
+export { ui, buttonRow, selectMenu, stallEmbed, marketOverviewEmbed, modal } from "./ui-kit.js";
 export {
   CapabilityRegistry,
 } from "./capability.js";
@@ -62,5 +62,5 @@ export { topologyCapability, requiresPresence } from "./capabilities/topology.js
 export type { PresenceCheck } from "./capabilities/topology.js";
 export { travelCapability, startContinent, nextContinent } from "./capabilities/travel.js";
 export { wayfareCapability } from "./capabilities/wayfare.js";
-export { marketCapability } from "./capabilities/market.js";
+export { marketCapability, buildMarketOverviewEmbed } from "./capabilities/market.js";
 export { auctionCapability } from "./capabilities/auction.js";

@@ -6,7 +6,8 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { openDb, type DbHandle } from "@empire/db";
-import { marketCapability } from "../src/capabilities/market.js";
+import { marketCapability, buildMarketOverviewEmbed } from "../src/capabilities/market.js";
+import type { Continents } from "@empire/content-schemas";
 import type { ComponentInteraction } from "../src/gateway.js";
 import type { CapabilityContext } from "../src/capability.js";
 import { rootLogger } from "../src/logger.js";
@@ -95,6 +96,46 @@ suite("market — accepting a direct offer settles atomically (§5.11)", () => {
     expect((await inv("p2"))[0]!.qty).toBe(3); // buyer got the iron
     expect((await bal("p2"))[0]!.amount).toBe(60); // paid 40
     expect((await bal("p1"))[0]!.amount).toBe(40); // seller was paid
+  });
+
+  it("/market overview: own positions + cross-continent browse, own listings excluded from browse", async () => {
+    const continents = {
+      continents: {
+        g1: { name: "Continent One", order: 1, neighbors: ["g2"], resource_bias: "highlands", locale_flavor: "highlands" },
+        g2: { name: "Continent Two", order: 2, neighbors: ["g1"], resource_bias: "harbor", locale_flavor: "harbor" },
+      },
+    } as unknown as Continents;
+
+    // p1's own open positions: a stall + an auction they listed (g1)…
+    await h.sql`INSERT INTO offers (id, kind, maker_kind, maker_id, item_id, qty, price, side, status, guild_id)
+      VALUES ('s1', 'order', 'player', 'p1', 'iron', 3, 40, 'sell', 'open', 'g1')`;
+    await h.sql`INSERT INTO offers (id, kind, maker_kind, maker_id, item_id, qty, price, side, status, guild_id, expires_at)
+      VALUES ('a1', 'auction', 'player', 'p1', 'ruby', 1, 50, 'sell', 'open', 'g1', now() + interval '20 minutes')`;
+    // …and an auction in g2 where p1 is the current high bidder (someone else's lot).
+    await h.sql`INSERT INTO offers (id, kind, maker_kind, maker_id, taker_id, item_id, qty, price, side, status, guild_id, expires_at)
+      VALUES ('a2', 'auction', 'player', 'p2', 'p1', 'silk', 2, 40, 'sell', 'open', 'g2', now() + interval '5 minutes')`;
+    // Others' listings across both continents.
+    await h.sql`INSERT INTO offers (id, kind, maker_kind, maker_id, item_id, qty, price, side, status, guild_id)
+      VALUES ('s2', 'order', 'player', 'p2', 'wheat', 20, 3, 'sell', 'open', 'g1')`;
+    await h.sql`INSERT INTO offers (id, kind, maker_kind, maker_id, item_id, qty, price, side, status, guild_id, expires_at)
+      VALUES ('a3', 'auction', 'player', 'p3', 'map', 1, 15, 'sell', 'open', 'g2', now() + interval '22 minutes')`;
+
+    const json = (await buildMarketOverviewEmbed(h.sql, continents, "p1")).toJSON();
+    const fields = json.fields ?? [];
+    const value = (name: string) => fields.find((f) => f.name === name)?.value ?? "";
+
+    const positions = value("Your positions");
+    expect(positions).toContain("iron"); // own stall
+    expect(positions).toContain("ruby"); // own auction
+    expect(positions).toContain("silk"); // the escrowed high bid
+    expect(positions).toContain("escrowed");
+
+    const one = value("Browse · Continent One");
+    expect(one).toContain("wheat"); // another player's stall
+    expect(one).not.toContain("iron"); // own stall excluded from browse
+    expect(one).not.toContain("ruby"); // own auction excluded from browse
+
+    expect(value("Browse · Continent Two")).toContain("map"); // p3's auction
   });
 });
 
