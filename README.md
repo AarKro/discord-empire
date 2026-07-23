@@ -82,12 +82,31 @@ content loader expands at boot.
 ```bash
 cp .env.example .env          # fill in bot tokens + dev guild IDs
 pnpm install
+pnpm start                    # ← the one command; see below
+```
 
-# Bring up Postgres and run the (forward-only) migration.
-docker compose -f infra/docker-compose.yml up -d postgres
-pnpm --filter @empire/db exec drizzle-kit migrate
+**`pnpm start` is the single dev command.** It brings up Postgres, applies any
+pending migrations, builds, **seeds the dev world on first run**, then starts all
+services in parallel (`.env` loaded, `CONTENT_DIR` → the repo's `content/`). Every
+step is conditional, so reruns skip work already done: migrations no-op when none
+are pending, `tsc -b` is incremental, and world-init self-skips once the world is
+seeded. Ctrl-C stops the services; `pnpm stop` stops Postgres.
 
-# Quality gates.
+Two steps stay explicit — run them when you need them:
+
+```bash
+pnpm world:init               # force a re-seed after adding world content (new channels/districts/boards)
+pnpm db:generate              # author a migration after editing packages/db/src/schema.ts
+```
+
+World bootstrap is idempotent (reruns reuse existing channels and never restock
+sold items): it creates a `#bazaar` text channel + `Bazaar` voice channel per
+continent guild and seeds the `locations`/`npcs`/inventory rows the render path
+reads. It reuses `MERCHANT_TOKEN` (that bot has Manage Channels/Roles).
+
+Quality gates:
+
+```bash
 pnpm lint
 pnpm typecheck
 pnpm test                     # unit tests (integration skipped unless TEST_DATABASE_URL is set)
@@ -101,23 +120,6 @@ against a **dedicated `empire_test` database** (created automatically on first
 `docker compose up`; see `infra/postgres-init/`). They read `TEST_DATABASE_URL`
 and skip when it is unset; they never touch `DATABASE_URL`, so running tests
 cannot wipe your dev world.
-
-One-time per environment, bootstrap the dev world (idempotent — reruns reuse
-existing channels and never restock sold items): creates a `#bazaar` text
-channel + `Bazaar` voice channel in each continent guild and seeds the
-`locations`/`npcs`/inventory rows the render path reads.
-
-```bash
-pnpm world:init
-```
-
-Run everything with one command (brings up Postgres, migrates, builds, then
-starts all four services in parallel with `.env` loaded and `CONTENT_DIR`
-pointed at the repo's `content/`):
-
-```bash
-pnpm start                    # ctrl-c stops the services; `pnpm stop` stops Postgres
-```
 
 Players auto-register on their first stall interaction with `STARTING_GOLD`
 (default 150) granted through a `starting_grant` ledger row.
