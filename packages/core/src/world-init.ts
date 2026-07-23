@@ -73,13 +73,22 @@ async function upsertLocation(
   `;
 }
 
+/** Continent membership role names (§9 gatekeeper): full member vs. watcher. */
+const CITIZEN_ROLE = "Citizen";
+const OBSERVER_ROLE = "Observer";
+
 /**
- * Seed a continent's districts (§2.2): each becomes a Discord category with a
- * view-role; non-starting districts are hidden behind that role (deny @everyone
- * ViewChannel, allow the role) so they stay invisible until discovered, while the
- * bazaar (starting) district is left public. Returns the bazaar district's DB id
- * (`<id>_<guildId>`) and moves the given channels under its category. Best-effort
- * on Discord ops — a missing Manage Roles/Channels logs and leaves the DB row.
+ * Seed a continent's districts (§2.2) and its membership roles (§9). Each district
+ * becomes a Discord category with a view-role; non-starting districts are hidden
+ * behind that role (deny @everyone ViewChannel, allow the role) so they stay
+ * invisible until discovered. The bazaar (starting) district — the continent's
+ * public face — is gated behind the continent's Citizen + Observer roles so an
+ * undiscovered continent is invisible (§2.3). Managed (bot) roles are always
+ * allowed ViewChannel so the deny-@everyone never blinds the bots. Also find-or-
+ * creates the Citizen/Observer roles and records their ids in `continent_roles`.
+ * Returns the bazaar district's DB id (`<id>_<guildId>`) and moves the given
+ * channels under its category. Best-effort on Discord ops — a missing Manage
+ * Roles/Channels logs and leaves the DB row.
  */
 async function seedDistricts(
   sql: Sql,
@@ -95,6 +104,21 @@ async function seedDistricts(
   // idempotent — a cold roles cache would otherwise recreate every view-role on
   // each world:init re-run and leak duplicates.
   const roles = await guild.roles.fetch();
+
+  // Continent membership roles (§9 gatekeeper): find-or-create Citizen + Observer
+  // (idempotent, like the district view-roles) and record their ids so the
+  // gatekeeper capability can grant them.
+  const citizen = roles.find((r) => r.name === CITIZEN_ROLE) ?? (await guild.roles.create({ name: CITIZEN_ROLE, reason: "continent Citizen role (§9)" }).catch(() => null));
+  const observer = roles.find((r) => r.name === OBSERVER_ROLE) ?? (await guild.roles.create({ name: OBSERVER_ROLE, reason: "continent Observer role (§9)" }).catch(() => null));
+  await sql`
+    INSERT INTO continent_roles (guild_id, citizen_role_id, observer_role_id)
+    VALUES (${guildId}, ${citizen?.id ?? null}, ${observer?.id ?? null})
+    ON CONFLICT (guild_id) DO UPDATE SET citizen_role_id = EXCLUDED.citizen_role_id, observer_role_id = EXCLUDED.observer_role_id
+  `;
+  // Bots are guild members too, so any deny-@everyone ViewChannel below would also
+  // blind them — allow every managed (bot/integration) role to keep them posting.
+  const botRoleIds = roles.filter((r) => r.managed).map((r) => r.id);
+
   for (const def of defs) {
     const dbId = `${def.id}_${guildId}`;
     let category = channels.find((c) => c?.type === ChannelType.GuildCategory && c.name === def.name) ?? null;
@@ -103,10 +127,14 @@ async function seedDistricts(
     const roleName = `${def.name} Access`;
     const role = roles.find((r) => r.name === roleName) ?? (await guild.roles.create({ name: roleName, reason: "district view-role (§2.2)" }).catch(() => null));
 
-    // Hide non-starting districts behind their view-role; the bazaar stays public.
-    if (!def.holds_bazaar && role && category.type === ChannelType.GuildCategory) {
-      await category.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }).catch((err) => log.warn({ err, district: dbId }, "hide district failed (need Manage Channels)"));
-      await category.permissionOverwrites.edit(role.id, { ViewChannel: true }).catch(() => {});
+    if (category.type === ChannelType.GuildCategory) {
+      // The bazaar (public face) is gated behind Citizen + Observer; other districts
+      // behind their own view-role. Either way @everyone is denied and bots allowed.
+      const allowIds = (def.holds_bazaar ? [citizen?.id, observer?.id] : [role?.id]).concat(botRoleIds).filter((x): x is string => Boolean(x));
+      await category.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }).catch((err) => log.warn({ err, district: dbId }, "gate district failed (need Manage Channels)"));
+      for (const rid of allowIds) {
+        await category.permissionOverwrites.edit(rid, { ViewChannel: true }).catch(() => {});
+      }
     }
 
     const neighbors = def.neighbors.map((n) => `${n}_${guildId}`);
