@@ -31,10 +31,6 @@ export type { Capability, CapabilityContext, ActionHandler } from "./capability.
 export { runBot, buildCapabilities } from "./bot-runtime.js";
 export type { RunBotOptions, CapabilityConfigs } from "./bot-runtime.js";
 
-// Dev-world bootstrap (world:init)
-export { bootstrapWorld, DEFAULT_BLUEPRINTS } from "./bootstrap.js";
-export type { BootstrapOptions, BlueprintSeed } from "./bootstrap.js";
-
 // Guard evaluation + player scope (unit-tested)
 export { evalGuard, resolveSource, interpolate, loadGuardScope, DIALOGUE_OPTION_PREFIX } from "./dialogue.js";
 export type { GuardScope } from "./dialogue.js";
