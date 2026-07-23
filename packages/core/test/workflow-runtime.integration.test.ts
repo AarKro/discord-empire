@@ -199,6 +199,25 @@ suite("embedded workflow runtime (§7)", () => {
       const [{ n }] = await h.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM workflow_instances WHERE workflow_id = 'player_build'`;
       expect(n).toBe(2);
     });
+
+    it("routes concurrent SAME-player builds by correlation (the §7 correlation gate)", async () => {
+      // One player, two builds in flight — distinguished only by correlation id.
+      await runtime.onEvent(playerEvt("build.requested", "p1", "c1", { blueprint: "farm" }));
+      await runtime.onEvent(playerEvt("build.requested", "p1", "c2", { blueprint: "forge" }));
+      const [{ n }] = await h.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM workflow_instances WHERE scope_key = 'p1' AND state = 'charging'`;
+      expect(n).toBe(2); // both charging
+
+      // Only c1's charge settles: the correlation gate advances that instance alone.
+      await runtime.onEvent(playerEvt("trade.completed", "p1", "c1"));
+      const [i1] = await h.sql`SELECT state FROM workflow_instances WHERE correlation_id = 'c1'`;
+      const [i2] = await h.sql`SELECT state FROM workflow_instances WHERE correlation_id = 'c2'`;
+      expect(i1).toMatchObject({ state: "building" });
+      expect(i2).toMatchObject({ state: "charging" }); // untouched — not its correlation
+
+      await runtime.onEvent(playerEvt("trade.completed", "p1", "c2"));
+      const [i2b] = await h.sql`SELECT state FROM workflow_instances WHERE correlation_id = 'c2'`;
+      expect(i2b).toMatchObject({ state: "building" });
+    });
   });
 
   describe("dialogue-as-workflow (prompt/options → render + emit)", () => {

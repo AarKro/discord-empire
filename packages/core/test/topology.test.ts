@@ -6,7 +6,8 @@
  * arrive's transaction) and the gateway are faked.
  */
 import { describe, it, expect } from "vitest";
-import { topologyCapability } from "../src/capabilities/topology.js";
+import { topologyCapability, requiresPresence } from "../src/capabilities/topology.js";
+import type { Sql } from "@empire/db";
 import type { BusEvent } from "../src/bus.js";
 import type { CapabilityContext } from "../src/capability.js";
 
@@ -67,6 +68,54 @@ function freshWorld(): World {
     replies: [], discovered: [], grants: [], discoveries: [],
   };
 }
+
+// A fake sql serving one locations row + one players row, for requiresPresence.
+type LocRow = { guild_id: string; district_id: string | null; requires_presence: boolean } | null;
+type PlayerRow = { position_guild_id: string | null; position_district_id: string | null } | null;
+function presenceSql(location: LocRow, player: PlayerRow): Sql {
+  const fn = (strings: TemplateStringsArray): Promise<unknown[]> => {
+    const q = strings.join("?");
+    if (q.includes("FROM locations")) return Promise.resolve(location ? [location] : []);
+    if (q.includes("FROM players")) return Promise.resolve(player ? [player] : []);
+    return Promise.resolve([]);
+  };
+  return fn as unknown as Sql;
+}
+
+describe("requiresPresence — the hard presence gate (§2.3)", () => {
+  const bazaar = (district: string | null): LocRow => ({ guild_id: "g1", district_id: district, requires_presence: true });
+
+  it("is present when the player stands in the location's guild AND district", async () => {
+    const r = await requiresPresence(presenceSql(bazaar("market_g1"), { position_guild_id: "g1", position_district_id: "market_g1" }), "p1", "bazaar_g1");
+    expect(r.present).toBe(true);
+  });
+
+  it("refuses when the player is on the right continent but the WRONG district (the §2.2 gate)", async () => {
+    const r = await requiresPresence(presenceSql(bazaar("market_g1"), { position_guild_id: "g1", position_district_id: "farmlands_g1" }), "p1", "bazaar_g1");
+    expect(r.present).toBe(false);
+    expect(r.reason).toContain("walk from where you stand");
+  });
+
+  it("ignores district when the location has none (continent-level gate)", async () => {
+    const r = await requiresPresence(presenceSql(bazaar(null), { position_guild_id: "g1", position_district_id: "anywhere" }), "p1", "bazaar_g1");
+    expect(r.present).toBe(true);
+  });
+
+  it("refuses a player on another continent entirely", async () => {
+    const r = await requiresPresence(presenceSql(bazaar("market_g1"), { position_guild_id: "g2", position_district_id: "market_g2" }), "p1", "bazaar_g1");
+    expect(r.present).toBe(false);
+  });
+
+  it("is always present at a location that doesn't gate", async () => {
+    const r = await requiresPresence(presenceSql({ guild_id: "g1", district_id: "market_g1", requires_presence: false }, { position_guild_id: "g2", position_district_id: null }), "p1", "bazaar_g1");
+    expect(r.present).toBe(true);
+  });
+
+  it("refuses in-fiction for a missing place / unplaced player", async () => {
+    expect((await requiresPresence(presenceSql(null, null), "p1", "nowhere")).reason).toContain("no such place");
+    expect((await requiresPresence(presenceSql(bazaar("market_g1"), null), "p1", "bazaar_g1")).reason).toContain("nowhere yet");
+  });
+});
 
 describe("topology — intra-continent travel (§2.3)", () => {
   it("district.depart clears the district and confirms for a valid neighbour", async () => {
