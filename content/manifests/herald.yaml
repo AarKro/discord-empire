@@ -15,8 +15,10 @@ capabilities:
   - commands
   - wayfare
   - topology
+  - gatekeeper
 content:
   continents: continents.yaml
   workflows:
     - workflows/player_travel.yaml
     - workflows/player_move.yaml
+    - workflows/gatekeeper_sweep.yaml

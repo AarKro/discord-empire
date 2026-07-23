@@ -18,6 +18,7 @@ states:
   arriving:
     actions:
       - { wayfare.arrive: { destination: "{{context.destination}}" } }
+      - { gatekeeper.discover: { continent: "{{context.destination}}" } }
     final: true
   rejected:
     final: true

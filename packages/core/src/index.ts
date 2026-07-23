@@ -62,5 +62,6 @@ export { topologyCapability, requiresPresence } from "./capabilities/topology.js
 export type { PresenceCheck } from "./capabilities/topology.js";
 export { travelCapability, startContinent, nextContinent } from "./capabilities/travel.js";
 export { wayfareCapability } from "./capabilities/wayfare.js";
+export { gatekeeperCapability, observerContinents, discoveredByArriving } from "./capabilities/gatekeeper.js";
 export { marketCapability, buildMarketOverviewEmbed } from "./capabilities/market.js";
 export { auctionCapability } from "./capabilities/auction.js";

@@ -1,0 +1,14 @@
+# Gatekeeper periodic sweep (§9). Starts once when the Herald boots (bot.ready) —
+# back-granting continent roles to every existing player after a world:init that
+# gated the bazaar — then self-loops every 15m to heal any drift. A world-scoped
+# singleton so a reboot's replayed bot.ready can't spawn a duplicate sweeper.
+id: gatekeeper_sweep
+trigger: { event: bot.ready }
+scope: world
+singleton: true
+initial: sweeping
+states:
+  sweeping:
+    actions:
+      - { "gatekeeper.sweep": {} }
+    timer: { after: 15m, goto: sweeping }

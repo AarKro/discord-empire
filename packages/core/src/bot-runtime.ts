@@ -35,6 +35,7 @@ import { commandsCapability, type CommandDef } from "./capabilities/commands.js"
 import { renderCapability } from "./capabilities/render.js";
 import { travelCapability } from "./capabilities/travel.js";
 import { wayfareCapability } from "./capabilities/wayfare.js";
+import { gatekeeperCapability } from "./capabilities/gatekeeper.js";
 import { marketCapability } from "./capabilities/market.js";
 import { auctionCapability } from "./capabilities/auction.js";
 import { WorkflowRuntime } from "./workflow/runtime.js";
@@ -85,6 +86,11 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
     const rel = deps.manifest.content?.continents;
     if (!rel) throw new Error(`capability "wayfare" needs content.continents in manifest "${deps.manifest.id}"`);
     return wayfareCapability(loadContentFile(Continents, join(deps.contentDir, rel)));
+  },
+  gatekeeper: (deps) => {
+    const rel = deps.manifest.content?.continents;
+    if (!rel) throw new Error(`capability "gatekeeper" needs content.continents in manifest "${deps.manifest.id}"`);
+    return gatekeeperCapability(loadContentFile(Continents, join(deps.contentDir, rel)));
   },
   market: () => marketCapability(),
   auction: () => auctionCapability(),
