@@ -1,0 +1,22 @@
+# Intra-continent player movement (§2.3). A /move command emits district.move.requested;
+# this player-scoped workflow carries the target district across a short walk. `departing`
+# validates the ring hop + clears the district (walking); after the timer `arriving` records
+# position + discovery + co-presence and grants the district's view-role. A bad hop makes
+# district.depart throw → on_error → `rejected` (a bare final state); the reason was already sent.
+id: player_move
+scope: player
+trigger: { event: district.move.requested }
+initial: departing
+states:
+  departing:
+    set: { district: event.payload.district }
+    actions:
+      - { district.depart: { district: "{{context.district}}" } }
+    on_error: rejected
+    timer: { after: 1m, goto: arriving }
+  arriving:
+    actions:
+      - { district.arrive: { district: "{{context.district}}" } }
+    final: true
+  rejected:
+    final: true

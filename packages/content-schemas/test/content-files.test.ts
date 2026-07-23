@@ -37,9 +37,10 @@ describe("shipped content validates against schemas", () => {
     const secretMerchant = loadContentFile(Manifest, join(CONTENT, "manifests/secret_merchant.yaml"));
     expect(secretMerchant.capabilities).toContain("travel");
     expect(secretMerchant.content?.continents).toBe("continents.yaml");
-    // §9 player travel: the herald hosts /travel via commands + wayfare.
+    // §9/§2.3 player travel: the herald hosts /travel + /move via commands +
+    // wayfare (continents) + topology (districts).
     const herald = loadContentFile(Manifest, join(CONTENT, "manifests/herald.yaml"));
-    expect(herald.capabilities).toEqual(expect.arrayContaining(["commands", "wayfare"]));
+    expect(herald.capabilities).toEqual(expect.arrayContaining(["commands", "wayfare", "topology"]));
     expect(herald.content?.continents).toBe("continents.yaml");
   });
 
@@ -74,6 +75,11 @@ describe("shipped content validates against schemas", () => {
     expect(playerTravel.scope).toBe("player");
     expect(playerTravel.trigger?.event).toBe("travel.requested");
     expect(playerTravel.states.departing!.set).toMatchObject({ destination: "event.payload.continent" });
+    // Player district walk (§2.3): player-scoped, district.move.requested.
+    const playerMove = loadContentFile(Workflow, join(CONTENT, "workflows/player_move.yaml"));
+    expect(playerMove.scope).toBe("player");
+    expect(playerMove.trigger?.event).toBe("district.move.requested");
+    expect(playerMove.states.departing!.set).toMatchObject({ district: "event.payload.district" });
   });
 
   it("continents (two dev guilds) and instances", () => {

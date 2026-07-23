@@ -14,7 +14,9 @@ personas:
 capabilities:
   - commands
   - wayfare
+  - topology
 content:
   continents: continents.yaml
   workflows:
     - workflows/player_travel.yaml
+    - workflows/player_move.yaml

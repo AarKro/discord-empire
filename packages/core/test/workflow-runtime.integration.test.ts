@@ -15,11 +15,12 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { openDb, ensurePlayer, type DbHandle } from "@empire/db";
+import { openDb, ensurePlayer, jsonParam, type DbHandle } from "@empire/db";
 import { parseContent, loadContentFile, Workflow } from "@empire/content-schemas";
 import { WorkflowRuntime } from "../src/workflow/runtime.js";
 import { travelCapability } from "../src/capabilities/travel.js";
 import { wayfareCapability } from "../src/capabilities/wayfare.js";
+import { topologyCapability } from "../src/capabilities/topology.js";
 import { EventBus, type BusEvent } from "../src/bus.js";
 import { CapabilityRegistry, type Capability, type CapabilityContext, type ActionHandler } from "../src/capability.js";
 import { rootLogger } from "../src/logger.js";
@@ -97,7 +98,7 @@ suite("embedded workflow runtime (§7)", () => {
   });
 
   beforeEach(async () => {
-    await h.sql`TRUNCATE workflow_instances, events, balances, players, reputation, npcs, locations RESTART IDENTITY CASCADE`;
+    await h.sql`TRUNCATE workflow_instances, events, balances, players, reputation, npcs, locations, districts, discoveries, contacts RESTART IDENTITY CASCADE`;
   });
 
   describe("singleton npc loop (test_wander)", () => {
@@ -610,6 +611,76 @@ states:
       expect(inst).toMatchObject({ state: "rejected", status: "final" });
     });
   });
+
+  // §2.3 intra-continent travel: drive the REAL topology capability against
+  // Postgres. A fast-timer twin of player_move that terminates after one walk.
+  describe("player walks between districts (§2.3)", () => {
+    const moveWf = parseContent(Workflow, `
+id: player_move_test
+scope: player
+trigger: { event: district.move.requested }
+initial: departing
+states:
+  departing:
+    set: { district: event.payload.district }
+    actions: [ { district.depart: { district: "{{context.district}}" } } ]
+    on_error: rejected
+    timer: { after: 40ms, goto: arriving }
+  arriving:
+    actions: [ { district.arrive: { district: "{{context.district}}" } } ]
+    final: true
+  rejected:
+    final: true
+`, "player_move_test.yaml");
+
+    let grants: { guildId: string; roleId: string }[];
+    let rt: WorkflowRuntime;
+
+    beforeEach(async () => {
+      grants = [];
+      await h.sql`INSERT INTO players (discord_user_id, home_guild_id, position_guild_id, position_district_id) VALUES ('p1', 'g1', 'g1', 'market_g1')`;
+      await h.sql`INSERT INTO districts (id, guild_id, name, neighbors) VALUES
+        ('market_g1', 'g1', 'Market District', ${jsonParam(h.sql, ["farmlands_g1"])}),
+        ('farmlands_g1', 'g1', 'The Farmlands', ${jsonParam(h.sql, ["market_g1"])})`;
+      await h.sql`UPDATE districts SET view_role_id = 'role_farm' WHERE id = 'farmlands_g1'`;
+      const registry = new CapabilityRegistry();
+      registry.register(topologyCapability());
+      const bus = new EventBus(h.sql, "test-move", rootLogger);
+      const gateway = { grantRole: async (guildId: string, _userId: string, roleId: string) => { grants.push({ guildId, roleId }); } } as unknown as CapabilityContext["gateway"];
+      const makeContext = (correlationId: string): CapabilityContext => ({
+        bot: "herald", sql: h.sql, bus, gateway,
+        personas: {} as unknown as CapabilityContext["personas"],
+        logger: rootLogger.child({ correlation_id: correlationId }), config: {},
+      });
+      rt = new WorkflowRuntime([moveWf], { sql: h.sql, bus, registry, logger: rootLogger, makeContext });
+    });
+
+    it("walks Market → Farmlands: clears district, then arrives + discovers + grants the view-role", async () => {
+      await rt.onEvent(playerEvt("district.move.requested", "p1", "cmd_1", { district: "farmlands_g1" }));
+      const [mid] = await h.sql<{ position_district_id: string | null }[]>`SELECT position_district_id FROM players WHERE discord_user_id = 'p1'`;
+      expect(mid!.position_district_id).toBeNull(); // walking
+      const [reply] = await h.sql<{ payload: { message?: string } }[]>`SELECT payload FROM events WHERE type = 'command.reply' ORDER BY id DESC LIMIT 1`;
+      expect(reply!.payload.message).toContain("Farmlands");
+
+      await new Promise((r) => setTimeout(r, 200));
+
+      const [end] = await h.sql<{ position_guild_id: string | null; position_district_id: string | null }[]>`SELECT position_guild_id, position_district_id FROM players WHERE discord_user_id = 'p1'`;
+      expect(end).toMatchObject({ position_guild_id: "g1", position_district_id: "farmlands_g1" });
+      const disc = await h.sql<{ district_id: string }[]>`SELECT district_id FROM discoveries WHERE player_id = 'p1'`;
+      expect(disc.map((d) => d.district_id)).toContain("farmlands_g1");
+      expect(grants).toEqual([{ guildId: "g1", roleId: "role_farm" }]);
+    });
+
+    it("rejects a non-neighbour quarter: reply, district unchanged, workflow rejected", async () => {
+      await rt.onEvent(playerEvt("district.move.requested", "p1", "cmd_2", { district: "harbourside_g1" }));
+      const [reply] = await h.sql<{ payload: { message?: string } }[]>`SELECT payload FROM events WHERE type = 'command.reply' ORDER BY id DESC LIMIT 1`;
+      expect(reply!.payload.message).toContain("no path");
+      const [p] = await h.sql<{ position_district_id: string | null }[]>`SELECT position_district_id FROM players WHERE discord_user_id = 'p1'`;
+      expect(p!.position_district_id).toBe("market_g1"); // unchanged
+      const [inst] = await h.sql`SELECT state, status FROM workflow_instances WHERE workflow_id = 'player_move_test'`;
+      expect(inst).toMatchObject({ state: "rejected", status: "final" });
+    });
+  });
 });
 
 /** Create only the tables this suite exercises, if migrations haven't run. */
@@ -665,4 +736,17 @@ async function ensureSchema(handle: DbHandle) {
     requires_presence boolean NOT NULL DEFAULT false
   )`;
   await sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS district_id text`; // stale test DBs predating districts (§2.2)
+  // District travel (§2.3): the ring + accumulative discovery + co-presence.
+  await sql`CREATE TABLE IF NOT EXISTS districts (
+    id text PRIMARY KEY, guild_id text NOT NULL, name text NOT NULL,
+    category_id text, view_role_id text, neighbors jsonb NOT NULL DEFAULT '[]'
+  )`;
+  await sql`CREATE TABLE IF NOT EXISTS discoveries (
+    player_id text NOT NULL, district_id text NOT NULL,
+    discovered_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (player_id, district_id)
+  )`;
+  await sql`CREATE TABLE IF NOT EXISTS contacts (
+    player_a text NOT NULL, player_b text NOT NULL,
+    met_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (player_a, player_b)
+  )`;
 }

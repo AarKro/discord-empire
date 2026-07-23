@@ -40,6 +40,27 @@ const commands: CommandDef[] = [
         .slice(0, 25);
     },
   },
+  {
+    name: "move",
+    description: "Walk to an adjacent district on this continent",
+    route: "district.move.requested",
+    options: [{ name: "district", description: "Where to walk", autocomplete: true, required: true }],
+    autocomplete: async (ctx, typed, userId) => {
+      // Offer the districts adjacent to where the player stands (the district ring
+      // is seeded in the DB by world:init); district.depart re-validates the hop.
+      const [pos] = await ctx.sql<{ position_district_id: string | null }[]>`
+        SELECT position_district_id FROM players WHERE discord_user_id = ${userId}
+      `;
+      const current = pos?.position_district_id;
+      if (!current) return [];
+      const [here] = await ctx.sql<{ neighbors: string[] }[]>`SELECT neighbors FROM districts WHERE id = ${current}`;
+      const neighbors = here?.neighbors ?? [];
+      if (neighbors.length === 0) return [];
+      const rows = await ctx.sql<{ id: string; name: string }[]>`SELECT id, name FROM districts WHERE id = ANY(${neighbors})`;
+      const like = typed.toLowerCase();
+      return rows.filter((r) => r.name.toLowerCase().includes(like)).map((r) => ({ name: r.name, value: r.id })).slice(0, 25);
+    },
+  },
 ];
 
 runBot({ manifest: "manifests/herald.yaml", configs: { commands } }).catch((err) => {
