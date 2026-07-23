@@ -36,6 +36,7 @@ import { renderCapability } from "./capabilities/render.js";
 import { travelCapability } from "./capabilities/travel.js";
 import { wayfareCapability } from "./capabilities/wayfare.js";
 import { marketCapability } from "./capabilities/market.js";
+import { auctionCapability } from "./capabilities/auction.js";
 import { WorkflowRuntime } from "./workflow/runtime.js";
 
 /** Code-provided capability config that can't live in YAML, keyed by capability name. */
@@ -86,6 +87,7 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
     return wayfareCapability(loadContentFile(Continents, join(deps.contentDir, rel)));
   },
   market: () => marketCapability(),
+  auction: () => auctionCapability(),
 };
 
 /**

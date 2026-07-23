@@ -67,3 +67,4 @@ export type { PresenceCheck } from "./capabilities/topology.js";
 export { travelCapability, startContinent, nextContinent } from "./capabilities/travel.js";
 export { wayfareCapability } from "./capabilities/wayfare.js";
 export { marketCapability } from "./capabilities/market.js";
+export { auctionCapability } from "./capabilities/auction.js";

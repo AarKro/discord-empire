@@ -64,6 +64,29 @@ export function stallEmbed(title: string, items: StallEmbedItem[]): EmbedBuilder
   return embed;
 }
 
+export interface AuctionEmbedItem {
+  name: string;
+  /** Current high bid, or the starting price when there's no bid yet. */
+  bid: number;
+  /** Whether a qualifying bid has been placed (vs. still at the reserve). */
+  hasBid: boolean;
+}
+
+/** The Auction House pinned embed (§5.11): live lots with their current bid. */
+export function auctionEmbed(title: string, items: AuctionEmbedItem[]): EmbedBuilder {
+  const embed = new EmbedBuilder().setTitle(title);
+  if (items.length === 0) {
+    embed.setDescription("_No auctions are running._");
+  } else {
+    embed.setDescription(
+      items
+        .map((item) => `**${item.name}** — ${item.hasBid ? `current bid ${item.bid}` : `starting at ${item.bid}`} gold`)
+        .join("\n"),
+    );
+  }
+  return embed;
+}
+
 export function modal(id: string, title: string, fields: { id: string; label: string }[]): ModalBuilder {
   const builder = new ModalBuilder().setCustomId(id).setTitle(title);
   for (const field of fields) {
@@ -76,4 +99,4 @@ export function modal(id: string, title: string, fields: { id: string; label: st
   return builder;
 }
 
-export const ui = { buttonRow, selectMenu, stallEmbed, modal };
+export const ui = { buttonRow, selectMenu, stallEmbed, auctionEmbed, modal };
