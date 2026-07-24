@@ -1,11 +1,24 @@
 /**
  * Tick service (framework spec §3, §5-adjacent) — the idle-game heartbeat.
  * Emits scheduled events only: tick.minute / tick.hour, build.completed,
- * stock.restocked, and auction closings. Contains ZERO Discord code — it just
+ * research.completed, and auction closings. Contains ZERO Discord code — it just
  * publishes onto the bus, which the bots (and their embedded workflows) react to.
+ *
+ * Re-delivery is deliberate: a due row keeps firing until the owning capability
+ * flips it, which is how a build completes when its bot was down at the moment
+ * the timer elapsed. To keep that from becoming an unbounded event-log leak when
+ * nothing ever consumes the event (a lost or failed workflow instance), each
+ * outstanding row is re-fired on an exponential backoff (see core's Backoff) and
+ * warned about once it has clearly stopped making progress.
  */
-import { EventBus, rootLogger } from "@empire/core";
-import { openDb } from "@empire/db";
+import { Backoff, EventBus, rootLogger, type Logger } from "@empire/core";
+import { openDb, type Sql } from "@empire/db";
+
+/** Attempts after which an outstanding row is almost certainly stuck, not slow. */
+const STUCK_AFTER_ATTEMPTS = 5;
+
+/** How long a settled (final/failed) workflow instance is kept before pruning. */
+const INSTANCE_RETENTION_DAYS = Number(process.env.WORKFLOW_RETENTION_DAYS ?? 7);
 
 async function main(): Promise<void> {
   const log = rootLogger.child({ service: "tick-service" });
@@ -19,6 +32,11 @@ async function main(): Promise<void> {
   // but it does not need to react to anything.
   await bus.subscribe(() => {});
 
+  // One backoff per due-work stream, keyed by the row that hasn't settled yet.
+  const buildBackoff = new Backoff();
+  const researchBackoff = new Backoff();
+  const auctionBackoff = new Backoff();
+
   let minutes = 0;
 
   async function emitMinute(): Promise<void> {
@@ -26,10 +44,31 @@ async function main(): Promise<void> {
     await bus.publish({ type: "tick.minute", payload: { minute: minutes } });
     if (minutes % 60 === 0) {
       await bus.publish({ type: "tick.hour", payload: { hour: minutes / 60 } });
+      await pruneSettledWorkflows(sql, log);
     }
     await fireDueBuilds();
     await fireDueResearch();
     await fireDueAuctions();
+  }
+
+  /**
+   * Decide which of `keys` may fire this pass, and forget the ones that settled.
+   * Rows past STUCK_AFTER_ATTEMPTS are surfaced so a wedged build/research shows
+   * up in the logs rather than silently trickling events forever.
+   */
+  function filterDue(backoff: Backoff, keys: string[], stream: string): Set<string> {
+    const now = Date.now();
+    backoff.retain(keys); // anything that settled stops being tracked
+    const firing = new Set<string>();
+    for (const key of keys) {
+      if (!backoff.due(key, now)) continue;
+      firing.add(key);
+      const attempts = backoff.attempts(key);
+      if (attempts >= STUCK_AFTER_ATTEMPTS) {
+        log.warn({ stream, key, attempts }, "due row is not settling; re-firing on backoff");
+      }
+    }
+    return firing;
   }
 
   /** build.completed for any build whose timer has elapsed (§2.4, §10 Builder). */
@@ -38,7 +77,9 @@ async function main(): Promise<void> {
       SELECT id, owner_id, blueprint_id, correlation_id FROM build_queue
       WHERE status = 'building' AND completes_at <= now()
     `;
+    const firing = filterDue(buildBackoff, due.map((b) => b.id), "build");
     for (const b of due) {
+      if (!firing.has(b.id)) continue;
       await bus.publish({
         type: "build.completed",
         actor: { kind: "player", id: b.owner_id },
@@ -56,7 +97,10 @@ async function main(): Promise<void> {
       SELECT owner_id, research_id, correlation_id FROM research
       WHERE status = 'in_progress' AND completes_at IS NOT NULL AND completes_at <= now()
     `;
+    const key = (r: { owner_id: string; research_id: string }): string => `${r.owner_id}:${r.research_id}`;
+    const firing = filterDue(researchBackoff, due.map(key), "research");
     for (const r of due) {
+      if (!firing.has(key(r))) continue;
       await bus.publish({
         type: "research.completed",
         actor: { kind: "player", id: r.owner_id },
@@ -73,7 +117,9 @@ async function main(): Promise<void> {
     const due = await sql<{ id: string }[]>`
       SELECT id FROM offers WHERE kind = 'auction' AND status = 'open' AND expires_at <= now()
     `;
+    const firing = filterDue(auctionBackoff, due.map((a) => a.id), "auction");
     for (const a of due) {
+      if (!firing.has(a.id)) continue;
       await bus.publish({ type: "auction.closed", payload: { offer_id: a.id } });
     }
   }
@@ -81,7 +127,26 @@ async function main(): Promise<void> {
   const intervalMs = Number(process.env.TICK_INTERVAL_MS ?? 60_000);
   const timer = setInterval(() => void emitMinute(), intervalMs);
   timer.unref?.();
-  log.info({ intervalMs }, "tick service ready");
+  log.info({ intervalMs, retentionDays: INSTANCE_RETENTION_DAYS }, "tick service ready");
+}
+
+/**
+ * Drop workflow instances that reached a terminal state a while ago (§7). Active
+ * instances are the working set the runtime scans on every event; settled ones
+ * are history, and the append-only event log remains the durable record of what
+ * actually happened.
+ */
+async function pruneSettledWorkflows(sql: Sql, log: Logger): Promise<void> {
+  try {
+    const pruned = await sql`
+      DELETE FROM workflow_instances
+      WHERE status IN ('final', 'failed')
+        AND updated_at < now() - ${`${INSTANCE_RETENTION_DAYS} days`}::interval
+    `;
+    if (pruned.count > 0) log.info({ pruned: pruned.count }, "pruned settled workflow instances");
+  } catch (err) {
+    log.warn({ err }, "workflow instance prune failed");
+  }
 }
 
 main().catch((err) => {
