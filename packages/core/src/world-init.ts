@@ -185,6 +185,193 @@ async function seedDistricts(
   return bazaarDistrictId;
 }
 
+/**
+ * Phase 1 — every continent's Discord SURFACE, and the `locations` rows that map
+ * it. For each guild: the bazaar + Marketplace + town-crier text channels, the
+ * NPC voice stops, the districts (categories + view-roles + membership roles),
+ * and the Land category player plots are created under.
+ *
+ * Idempotent throughout: channels and roles are found-or-created, and every
+ * mapping is an upsert, so a re-run re-points existing rows rather than
+ * duplicating anything.
+ */
+async function seedGuildSurfaces(client: Client, opts: BootstrapOptions, log: Logger): Promise<void> {
+  for (const guildId of Object.keys(opts.continents.continents)) {
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) {
+      log.warn({ guildId }, "bot is not a member of this guild — invite it first; skipping");
+      continue;
+    }
+    const channels = await guild.channels.fetch();
+
+    let bazaar = channels.find((channel) => channel?.type === ChannelType.GuildText && channel.name === "bazaar") ?? null;
+    let createdText = false;
+    if (!bazaar) {
+      bazaar = await guild.channels.create({ name: "bazaar", type: ChannelType.GuildText });
+      createdText = true;
+    }
+
+    // The public Marketplace board (§5.11) — where player stall listings render.
+    // Not presence-gated (the market is global); the exchange bot posts here.
+    let marketplace = channels.find((channel) => channel?.type === ChannelType.GuildText && channel.name === "marketplace") ?? null;
+    if (!marketplace) marketplace = await guild.channels.create({ name: "marketplace", type: ChannelType.GuildText });
+    await upsertLocation(opts.sql, { id: `market_${guildId}`, guildId, channelId: marketplace.id, kind: "market" });
+
+    // The town-crier (§9) — where the Herald mirrors realm-wide world.* notices
+    // (auction results, leaderboard sweeps). Not presence-gated: it's world news,
+    // visible to everyone on the continent, so it stays at guild root rather than
+    // under a presence-gated district.
+    let crier = channels.find((channel) => channel?.type === ChannelType.GuildText && channel.name === "town-crier") ?? null;
+    if (!crier) crier = await guild.channels.create({ name: "town-crier", type: ChannelType.GuildText });
+    await upsertLocation(opts.sql, { id: `crier_${guildId}`, guildId, channelId: crier.id, kind: "crier", requiresPresence: false });
+
+    // The NPC's wander stops are voice channels (§5.1). Iteration 1 seeds two —
+    // the Bazaar and the Market Square — keyed in `locations` by their logical
+    // stop name (`<name>_<guildId>`, kind='voice') so presence.voice resolves
+    // schedule stops like "bazaar_vc"/"market_square_vc" to real channels.
+    const voiceStops: { name: string; display: string }[] = [
+      { name: "bazaar_vc", display: "Bazaar" },
+      { name: "market_square_vc", display: "Market Square" },
+    ];
+    const seededVoice: string[] = [];
+    // Collect the public market channels (bazaar text + Marketplace board + NPC
+    // voice stops) so the district seeder can move them under the Market District.
+    const marketChannels: GuildBasedChannel[] = [bazaar, marketplace];
+    for (const stop of voiceStops) {
+      let voiceChannel = channels.find((channel) => channel?.type === ChannelType.GuildVoice && channel.name === stop.display) ?? null;
+      let created = false;
+      if (!voiceChannel) {
+        voiceChannel = await guild.channels.create({ name: stop.display, type: ChannelType.GuildVoice });
+        created = true;
+      }
+      await upsertLocation(opts.sql, { id: `${stop.name}_${guildId}`, guildId, channelId: voiceChannel.id, kind: "voice" });
+      marketChannels.push(voiceChannel);
+      seededVoice.push(`${stop.display}:${voiceChannel.id}${created ? " (created)" : " (found)"}`);
+    }
+
+    // Seed the continent's districts (§2.2): categories + view-roles, hiding the
+    // non-starting ones and moving the market channels under the bazaar district.
+    const bazaarDistrictId = await seedDistricts(opts.sql, guild, guildId, opts.districts.districts[guildId] ?? [], marketChannels, log);
+
+    // The bazaar gates on presence (§9, §2.3): you shop only in the district you
+    // stand in. A re-run flips the flag + district on existing rows.
+    await upsertLocation(opts.sql, { id: `bazaar_${guildId}`, guildId, channelId: bazaar.id, kind: "bazaar", requiresPresence: true, districtId: bazaarDistrictId });
+
+    // The "Land" category holds every player's plot channels (§2.4). The
+    // builder bot creates per-plot text+voice channels under it at /build time,
+    // so world:init just ensures the category exists and maps it in locations.
+    let landCategory = channels.find((channel) => channel?.type === ChannelType.GuildCategory && channel.name === "Land") ?? null;
+    let createdCategory = false;
+    if (!landCategory) {
+      landCategory = await guild.channels.create({ name: "Land", type: ChannelType.GuildCategory });
+      createdCategory = true;
+    }
+    await upsertLocation(opts.sql, { id: `land_${guildId}`, guildId, channelId: landCategory.id, kind: "land" });
+
+    log.info(
+      {
+        guild: guild.name,
+        bazaar: `${bazaar.id}${createdText ? " (created)" : " (found)"}`,
+        crier: crier.id,
+        voice: seededVoice.join(", "),
+        land: `${landCategory.id}${createdCategory ? " (created)" : " (found)"}`,
+        districts: (opts.districts.districts[guildId] ?? []).map((d) => d.id).join(", "),
+      },
+      "bazaar + districts mapped",
+    );
+  }
+}
+
+/**
+ * Phase 2 — the world's CONTENT catalogs, which are guild-independent: the
+ * merchant NPC and its stock, the buildable and research catalogs, and the two
+ * permit-sink NPCs whose "sales" model build and research costs as trades.
+ *
+ * ON CONFLICT DO NOTHING throughout, so a re-run never restocks a shop or
+ * overwrites hand-tuned catalog rows.
+ */
+async function seedCatalogs(opts: BootstrapOptions, log: Logger): Promise<void> {
+  await opts.sql`
+    INSERT INTO npcs (id, kind) VALUES (${opts.npcId}, 'merchant')
+    ON CONFLICT (id) DO NOTHING
+  `;
+
+  let seeded = 0;
+  for (const item of opts.shop.items) {
+    const rows = await opts.sql`
+      INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
+      VALUES ('npc', ${opts.npcId}, ${item.item_id}, ${item.stock})
+      ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
+      RETURNING item_id
+    `;
+    seeded += rows.length;
+  }
+  log.info({ npc: opts.npcId, seeded, items: opts.shop.items.length }, "npc + stock seeded (existing rows untouched)");
+
+  // Seed the buildable catalog idempotently (§5.12, §10 Builder). Rerunnable:
+  // ON CONFLICT DO NOTHING leaves any hand-tuned rows alone.
+  const blueprints = opts.blueprints ?? DEFAULT_BLUEPRINTS;
+  let blueprintsSeeded = 0;
+  for (const blueprint of blueprints) {
+    const rows = await opts.sql`
+      INSERT INTO blueprint_catalog (id, name, cost_gold, base_ms)
+      VALUES (${blueprint.id}, ${blueprint.name}, ${blueprint.costGold}, ${blueprint.baseMs})
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id
+    `;
+    blueprintsSeeded += rows.length;
+  }
+  log.info({ seeded: blueprintsSeeded, total: blueprints.length }, "blueprint catalog seeded (existing rows untouched)");
+
+  // Seed the research tree idempotently (§4 Architect, §5). Rerunnable:
+  // ON CONFLICT DO NOTHING leaves any hand-tuned rows alone.
+  const research = opts.research ?? DEFAULT_RESEARCH;
+  let researchSeeded = 0;
+  for (const node of research) {
+    const rows = await opts.sql`
+      INSERT INTO research_catalog (id, name, cost_gold, base_ms, prereqs, grants_blueprints)
+      VALUES (${node.id}, ${node.name}, ${node.costGold}, ${node.baseMs},
+              ${jsonParam(opts.sql, node.prereqs)}, ${jsonParam(opts.sql, node.grantsBlueprints)})
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id
+    `;
+    researchSeeded += rows.length;
+  }
+  log.info({ seeded: researchSeeded, total: research.length }, "research catalog seeded (existing rows untouched)");
+
+  // The builder NPC "sells" build permits (the cost sink for /build). Seed the
+  // NPC row and a large permit stock so the atomic trade always has stock; the
+  // ledger write still goes through `trade`.
+  if (opts.builderId) {
+    await opts.sql`
+      INSERT INTO npcs (id, kind) VALUES (${opts.builderId}, 'builder')
+      ON CONFLICT (id) DO NOTHING
+    `;
+    await opts.sql`
+      INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
+      VALUES ('npc', ${opts.builderId}, ${BUILD_PERMIT_ITEM}, 1000000)
+      ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
+    `;
+    log.info({ builder: opts.builderId }, "builder npc + permit stock seeded");
+  }
+
+  // The Architect NPC "sells" research permits (the cost sink for /research),
+  // mirroring the builder permit-sink so the atomic trade always has stock; the
+  // ledger write still goes through `trade`.
+  if (opts.architectId) {
+    await opts.sql`
+      INSERT INTO npcs (id, kind) VALUES (${opts.architectId}, 'architect')
+      ON CONFLICT (id) DO NOTHING
+    `;
+    await opts.sql`
+      INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
+      VALUES ('npc', ${opts.architectId}, ${RESEARCH_PERMIT_ITEM}, 1000000)
+      ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
+    `;
+    log.info({ architect: opts.architectId }, "architect npc + permit stock seeded");
+  }
+}
+
 async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
   const log = (opts.logger ?? rootLogger).child({ component: "bootstrap" });
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -195,170 +382,8 @@ async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
   });
 
   try {
-    for (const guildId of Object.keys(opts.continents.continents)) {
-      const guild = await client.guilds.fetch(guildId).catch(() => null);
-      if (!guild) {
-        log.warn({ guildId }, "bot is not a member of this guild — invite it first; skipping");
-        continue;
-      }
-      const channels = await guild.channels.fetch();
-
-      let bazaar = channels.find((channel) => channel?.type === ChannelType.GuildText && channel.name === "bazaar") ?? null;
-      let createdText = false;
-      if (!bazaar) {
-        bazaar = await guild.channels.create({ name: "bazaar", type: ChannelType.GuildText });
-        createdText = true;
-      }
-
-      // The public Marketplace board (§5.11) — where player stall listings render.
-      // Not presence-gated (the market is global); the exchange bot posts here.
-      let marketplace = channels.find((channel) => channel?.type === ChannelType.GuildText && channel.name === "marketplace") ?? null;
-      if (!marketplace) marketplace = await guild.channels.create({ name: "marketplace", type: ChannelType.GuildText });
-      await upsertLocation(opts.sql, { id: `market_${guildId}`, guildId, channelId: marketplace.id, kind: "market" });
-
-      // The town-crier (§9) — where the Herald mirrors realm-wide world.* notices
-      // (auction results, leaderboard sweeps). Not presence-gated: it's world news,
-      // visible to everyone on the continent, so it stays at guild root rather than
-      // under a presence-gated district.
-      let crier = channels.find((channel) => channel?.type === ChannelType.GuildText && channel.name === "town-crier") ?? null;
-      if (!crier) crier = await guild.channels.create({ name: "town-crier", type: ChannelType.GuildText });
-      await upsertLocation(opts.sql, { id: `crier_${guildId}`, guildId, channelId: crier.id, kind: "crier", requiresPresence: false });
-
-      // The NPC's wander stops are voice channels (§5.1). Iteration 1 seeds two —
-      // the Bazaar and the Market Square — keyed in `locations` by their logical
-      // stop name (`<name>_<guildId>`, kind='voice') so presence.voice resolves
-      // schedule stops like "bazaar_vc"/"market_square_vc" to real channels.
-      const voiceStops: { name: string; display: string }[] = [
-        { name: "bazaar_vc", display: "Bazaar" },
-        { name: "market_square_vc", display: "Market Square" },
-      ];
-      const seededVoice: string[] = [];
-      // Collect the public market channels (bazaar text + Marketplace board + NPC
-      // voice stops) so the district seeder can move them under the Market District.
-      const marketChannels: GuildBasedChannel[] = [bazaar, marketplace];
-      for (const stop of voiceStops) {
-        let voiceChannel = channels.find((channel) => channel?.type === ChannelType.GuildVoice && channel.name === stop.display) ?? null;
-        let created = false;
-        if (!voiceChannel) {
-          voiceChannel = await guild.channels.create({ name: stop.display, type: ChannelType.GuildVoice });
-          created = true;
-        }
-        await upsertLocation(opts.sql, { id: `${stop.name}_${guildId}`, guildId, channelId: voiceChannel.id, kind: "voice" });
-        marketChannels.push(voiceChannel);
-        seededVoice.push(`${stop.display}:${voiceChannel.id}${created ? " (created)" : " (found)"}`);
-      }
-
-      // Seed the continent's districts (§2.2): categories + view-roles, hiding the
-      // non-starting ones and moving the market channels under the bazaar district.
-      const bazaarDistrictId = await seedDistricts(opts.sql, guild, guildId, opts.districts.districts[guildId] ?? [], marketChannels, log);
-
-      // The bazaar gates on presence (§9, §2.3): you shop only in the district you
-      // stand in. A re-run flips the flag + district on existing rows.
-      await upsertLocation(opts.sql, { id: `bazaar_${guildId}`, guildId, channelId: bazaar.id, kind: "bazaar", requiresPresence: true, districtId: bazaarDistrictId });
-
-      // The "Land" category holds every player's plot channels (§2.4). The
-      // builder bot creates per-plot text+voice channels under it at /build time,
-      // so world:init just ensures the category exists and maps it in locations.
-      let landCategory = channels.find((channel) => channel?.type === ChannelType.GuildCategory && channel.name === "Land") ?? null;
-      let createdCategory = false;
-      if (!landCategory) {
-        landCategory = await guild.channels.create({ name: "Land", type: ChannelType.GuildCategory });
-        createdCategory = true;
-      }
-      await upsertLocation(opts.sql, { id: `land_${guildId}`, guildId, channelId: landCategory.id, kind: "land" });
-
-      log.info(
-        {
-          guild: guild.name,
-          bazaar: `${bazaar.id}${createdText ? " (created)" : " (found)"}`,
-          crier: crier.id,
-          voice: seededVoice.join(", "),
-          land: `${landCategory.id}${createdCategory ? " (created)" : " (found)"}`,
-          districts: (opts.districts.districts[guildId] ?? []).map((d) => d.id).join(", "),
-        },
-        "bazaar + districts mapped",
-      );
-    }
-
-    await opts.sql`
-      INSERT INTO npcs (id, kind) VALUES (${opts.npcId}, 'merchant')
-      ON CONFLICT (id) DO NOTHING
-    `;
-
-    let seeded = 0;
-    for (const item of opts.shop.items) {
-      const rows = await opts.sql`
-        INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
-        VALUES ('npc', ${opts.npcId}, ${item.item_id}, ${item.stock})
-        ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
-        RETURNING item_id
-      `;
-      seeded += rows.length;
-    }
-    log.info({ npc: opts.npcId, seeded, items: opts.shop.items.length }, "npc + stock seeded (existing rows untouched)");
-
-    // Seed the buildable catalog idempotently (§5.12, §10 Builder). Rerunnable:
-    // ON CONFLICT DO NOTHING leaves any hand-tuned rows alone.
-    const blueprints = opts.blueprints ?? DEFAULT_BLUEPRINTS;
-    let blueprintsSeeded = 0;
-    for (const blueprint of blueprints) {
-      const rows = await opts.sql`
-        INSERT INTO blueprint_catalog (id, name, cost_gold, base_ms)
-        VALUES (${blueprint.id}, ${blueprint.name}, ${blueprint.costGold}, ${blueprint.baseMs})
-        ON CONFLICT (id) DO NOTHING
-        RETURNING id
-      `;
-      blueprintsSeeded += rows.length;
-    }
-    log.info({ seeded: blueprintsSeeded, total: blueprints.length }, "blueprint catalog seeded (existing rows untouched)");
-
-    // Seed the research tree idempotently (§4 Architect, §5). Rerunnable:
-    // ON CONFLICT DO NOTHING leaves any hand-tuned rows alone.
-    const research = opts.research ?? DEFAULT_RESEARCH;
-    let researchSeeded = 0;
-    for (const node of research) {
-      const rows = await opts.sql`
-        INSERT INTO research_catalog (id, name, cost_gold, base_ms, prereqs, grants_blueprints)
-        VALUES (${node.id}, ${node.name}, ${node.costGold}, ${node.baseMs},
-                ${jsonParam(opts.sql, node.prereqs)}, ${jsonParam(opts.sql, node.grantsBlueprints)})
-        ON CONFLICT (id) DO NOTHING
-        RETURNING id
-      `;
-      researchSeeded += rows.length;
-    }
-    log.info({ seeded: researchSeeded, total: research.length }, "research catalog seeded (existing rows untouched)");
-
-    // The builder NPC "sells" build permits (the cost sink for /build). Seed the
-    // NPC row and a large permit stock so the atomic trade always has stock; the
-    // ledger write still goes through `trade`.
-    if (opts.builderId) {
-      await opts.sql`
-        INSERT INTO npcs (id, kind) VALUES (${opts.builderId}, 'builder')
-        ON CONFLICT (id) DO NOTHING
-      `;
-      await opts.sql`
-        INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
-        VALUES ('npc', ${opts.builderId}, ${BUILD_PERMIT_ITEM}, 1000000)
-        ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
-      `;
-      log.info({ builder: opts.builderId }, "builder npc + permit stock seeded");
-    }
-
-    // The Architect NPC "sells" research permits (the cost sink for /research),
-    // mirroring the builder permit-sink so the atomic trade always has stock; the
-    // ledger write still goes through `trade`.
-    if (opts.architectId) {
-      await opts.sql`
-        INSERT INTO npcs (id, kind) VALUES (${opts.architectId}, 'architect')
-        ON CONFLICT (id) DO NOTHING
-      `;
-      await opts.sql`
-        INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
-        VALUES ('npc', ${opts.architectId}, ${RESEARCH_PERMIT_ITEM}, 1000000)
-        ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
-      `;
-      log.info({ architect: opts.architectId }, "architect npc + permit stock seeded");
-    }
+    await seedGuildSurfaces(client, opts, log);
+    await seedCatalogs(opts, log);
   } finally {
     await client.destroy();
   }

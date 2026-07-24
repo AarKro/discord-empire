@@ -49,28 +49,53 @@ export interface CapabilityConfigs {
   "ambient.chatter"?: ChatterConfig;
 }
 
+/** The manifest `content` keys that name a single loadable file. */
+type ContentKey = "shop" | "schedule" | "continents";
+
+/**
+ * Loads + validates one content file. Typed off `loadContentFile` itself so the
+ * schema still drives the return type, without @empire/core taking a direct
+ * dependency on zod just to name it.
+ */
+type ContentLoader = <S extends Parameters<typeof loadContentFile>[0]>(
+  schema: S,
+  rel: string,
+) => ReturnType<typeof loadContentFile<S>>;
+
 interface FactoryDeps {
   manifest: Manifest;
-  contentDir: string;
   configs: CapabilityConfigs;
+  /** Load a manifest-declared content file, memoized for this bot. */
+  load: ContentLoader;
 }
 
-/** Resolve a manifest content path against the content dir; throw if the cap needs it. */
-function content(deps: FactoryDeps, key: "shop" | "schedule", capName: string): string {
+/**
+ * Load a content file the capability CANNOT work without; a manifest that names
+ * the capability but not its content is a config bug, so it fails at boot.
+ */
+function required<S extends Parameters<typeof loadContentFile>[0]>(
+  deps: FactoryDeps,
+  schema: S,
+  key: ContentKey,
+  capName: string,
+): ReturnType<typeof loadContentFile<S>> {
   const rel = deps.manifest.content?.[key];
   if (!rel) throw new Error(`capability "${capName}" needs content.${key} in manifest "${deps.manifest.id}"`);
-  return join(deps.contentDir, rel);
+  return deps.load(schema, rel);
 }
 
 /** Manifest capability name → factory. The registry of what a bot can be made of. */
 const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
-  trade: (deps) => tradeCapability(deps.manifest.content?.shop ? loadContentFile(Shop, join(deps.contentDir, deps.manifest.content.shop)) : undefined),
+  trade: (deps) => {
+    const shop = deps.manifest.content?.shop;
+    return tradeCapability(shop ? deps.load(Shop, shop) : undefined);
+  },
   topology: () => topologyCapability(),
-  stall: (deps) => stallCapability(loadContentFile(Shop, content(deps, "shop", "stall"))),
+  stall: (deps) => stallCapability(required(deps, Shop, "shop", "stall")),
   dialogue: () => dialogueCapability(),
   "presence.voice": (deps) => {
     const rel = deps.manifest.content?.schedule;
-    const stops = rel ? loadContentFile(Schedule, join(deps.contentDir, rel)).stops : [];
+    const stops = rel ? deps.load(Schedule, rel).stops : [];
     return presenceVoiceCapability(stops.map((stop) => ({ guildId: stop.guild_id, channel: stop.channel })));
   },
   voicelines: (deps) => voicelinesCapability(deps.configs.voicelines ?? { triggers: {} }),
@@ -80,35 +105,42 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
   notify: () => notifyCapability(),
   commands: (deps) => commandsCapability(deps.configs.commands ?? []),
   render: () => renderCapability(),
-  travel: (deps) => {
-    const rel = deps.manifest.content?.continents;
-    if (!rel) throw new Error(`capability "travel" needs content.continents in manifest "${deps.manifest.id}"`);
-    return travelCapability(loadContentFile(Continents, join(deps.contentDir, rel)));
-  },
-  wayfare: (deps) => {
-    const rel = deps.manifest.content?.continents;
-    if (!rel) throw new Error(`capability "wayfare" needs content.continents in manifest "${deps.manifest.id}"`);
-    return wayfareCapability(loadContentFile(Continents, join(deps.contentDir, rel)));
-  },
-  gatekeeper: (deps) => {
-    const rel = deps.manifest.content?.continents;
-    if (!rel) throw new Error(`capability "gatekeeper" needs content.continents in manifest "${deps.manifest.id}"`);
-    return gatekeeperCapability(loadContentFile(Continents, join(deps.contentDir, rel)));
-  },
+  travel: (deps) => travelCapability(required(deps, Continents, "continents", "travel")),
+  wayfare: (deps) => wayfareCapability(required(deps, Continents, "continents", "wayfare")),
+  gatekeeper: (deps) => gatekeeperCapability(required(deps, Continents, "continents", "gatekeeper")),
   market: () => marketCapability(),
   auction: () => auctionCapability(),
   "world.mirror": () => worldMirrorCapability(),
 };
 
 /**
+ * Read + validate a content file at most once per bot, keyed by resolved path.
+ *
+ * Several capabilities are configured from the SAME file — the herald's wayfare
+ * and gatekeeper both take the continent ring, the merchant's trade and stall
+ * both take the shop — and each load is a read plus env substitution plus a full
+ * Zod parse. Loading once also means those capabilities share one object rather
+ * than holding private copies of identical data.
+ */
+function memoizedLoader(contentDir: string): ContentLoader {
+  const cache = new Map<string, unknown>();
+  return (schema, rel) => {
+    const path = join(contentDir, rel);
+    if (!cache.has(path)) cache.set(path, loadContentFile(schema, path));
+    return cache.get(path) as never;
+  };
+}
+
+/**
  * Build the capabilities a manifest declares, in declared order (registration
  * order is dispatch order — keep render last so it draws the latest state).
  */
 export function buildCapabilities(manifest: Manifest, configs: CapabilityConfigs, contentDir: string): Capability[] {
+  const load = memoizedLoader(contentDir);
   return manifest.capabilities.map((name) => {
     const factory = FACTORIES[name];
     if (!factory) throw new Error(`unknown capability "${name}" in manifest "${manifest.id}"`);
-    return factory({ manifest, contentDir, configs });
+    return factory({ manifest, configs, load });
   });
 }
 
