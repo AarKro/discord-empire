@@ -75,6 +75,7 @@ describe("engine transitions", () => {
       gold: 100,
       reputation: {},
       flags: {},
+      research: {},
     });
     expect(dec.nextState).toBe("opened");
   });
@@ -84,6 +85,7 @@ describe("engine transitions", () => {
       gold: 10,
       reputation: {},
       flags: {},
+      research: {},
     });
     expect(dec.nextState).toBe(null);
   });
@@ -94,8 +96,8 @@ describe("engine transitions", () => {
   });
 
   it("guardsPass evaluates all guards", () => {
-    expect(guardsPass(guarded.states.opened!, { gold: 60, reputation: {}, flags: {} })).toBe(true);
-    expect(guardsPass(guarded.states.opened!, { gold: 5, reputation: {}, flags: {} })).toBe(false);
+    expect(guardsPass(guarded.states.opened!, { gold: 60, reputation: {}, flags: {}, research: {} })).toBe(true);
+    expect(guardsPass(guarded.states.opened!, { gold: 5, reputation: {}, flags: {}, research: {} })).toBe(false);
   });
 });
 
@@ -152,7 +154,7 @@ states:
   "haggle.yaml",
 );
 
-const scopeWith = (gold: number): GuardScope => ({ gold, reputation: {}, flags: {} });
+const scopeWith = (gold: number): GuardScope => ({ gold, reputation: {}, flags: {}, research: {} });
 const choose = (option: string) => ({ kind: "event" as const, eventType: CHOOSE_EVENT, payload: { option } });
 
 describe("option-driven transitions (§5.4 dialogue-as-workflow)", () => {

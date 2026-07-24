@@ -16,13 +16,15 @@ export interface GuardScope {
   gold: number;
   reputation: Record<string, number>;
   flags: Record<string, boolean>;
+  /** Completed research nodes, keyed by id → true (§2.3 progression guards). */
+  research: Record<string, boolean>;
   position?: { district: string | null };
   /** Per-instance workflow context (values a state's `set:` accumulated). */
   context?: Record<string, unknown>;
 }
 
 /** The zero scope — used by workflows that reference no player game-state. */
-export const EMPTY_SCOPE: GuardScope = { gold: 0, reputation: {}, flags: {} };
+export const EMPTY_SCOPE: GuardScope = { gold: 0, reputation: {}, flags: {}, research: {} };
 
 /** Load a player's guard scope (§7 guards) from game state. Reads only. */
 export async function loadGuardScope(sql: Sql, playerId: string): Promise<GuardScope> {
@@ -33,10 +35,14 @@ export async function loadGuardScope(sql: Sql, playerId: string): Promise<GuardS
   const [player] = await sql<{ flags: Record<string, boolean>; position_district_id: string | null }[]>`
     SELECT flags, position_district_id FROM players WHERE discord_user_id = ${playerId}
   `;
+  const researchRows = await sql<{ research_id: string }[]>`
+    SELECT research_id FROM research WHERE owner_id = ${playerId} AND status = 'done'
+  `;
   return {
     gold,
     reputation: Object.fromEntries(reputationRows.map((rep) => [rep.npc_id, rep.score])),
     flags: player?.flags ?? {},
+    research: Object.fromEntries(researchRows.map((r) => [r.research_id, true])),
     position: { district: player?.position_district_id ?? null },
   };
 }
@@ -81,6 +87,7 @@ function resolvePath(path: string, scope: GuardScope): unknown {
   if (parts[0] === "gold") return scope.gold;
   if (parts[0] === "reputation") return scope.reputation[parts[1] ?? ""] ?? 0;
   if (parts[0] === "flags") return scope.flags[parts[1] ?? ""] ?? false;
+  if (parts[0] === "research") return scope.research[parts[1] ?? ""] ?? false;
   if (parts[0] === "position") return scope.position?.district ?? null;
   if (parts[0] === "context") return scope.context?.[parts.slice(1).join(".")];
   return undefined;

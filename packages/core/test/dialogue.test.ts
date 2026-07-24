@@ -11,6 +11,7 @@ describe("evalGuard", () => {
     gold: 100,
     reputation: { merchant: 2 },
     flags: { met_aldric: true },
+    research: { trade_routes: true },
     position: { district: "bazaar" },
     context: { step: 3, choice: "red" },
   };
@@ -27,6 +28,11 @@ describe("evalGuard", () => {
     expect(evalGuard("player.position == tavern", scope)).toBe(false);
     expect(evalGuard("player.flags.met_aldric", scope)).toBe(true);
     expect(evalGuard("player.flags.unknown", scope)).toBe(false);
+  });
+
+  it("evaluates research progression guards (§2.3)", () => {
+    expect(evalGuard("player.research.trade_routes", scope)).toBe(true);
+    expect(evalGuard("player.research.masonry", scope)).toBe(false);
   });
 
   it("branches on per-instance context (§7 quest memory)", () => {
