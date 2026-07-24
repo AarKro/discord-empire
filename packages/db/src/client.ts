@@ -3,6 +3,12 @@ import postgres from "postgres";
 import * as schema from "./schema.js";
 
 export type Sql = ReturnType<typeof postgres>;
+/**
+ * The transaction-scoped handle `sql.begin` hands its callback. Distinct from
+ * `Sql` (no CLOSE/END/options), so helpers meant to run only INSIDE a
+ * transaction take this and can't be called on a pooled connection by mistake.
+ */
+export type TxSql = postgres.TransactionSql;
 export type Db = ReturnType<typeof drizzle<typeof schema>>;
 
 export interface DbHandle {

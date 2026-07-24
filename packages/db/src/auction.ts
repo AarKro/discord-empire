@@ -19,7 +19,7 @@
  * ledger rows, each a clean two-party transfer against the `auction` hub. The
  * winner's gold already left their balance at bid time; it is NOT re-debited here.
  */
-import type { Sql } from "./client.js";
+import type { Sql, TxSql } from "./client.js";
 import { jsonParam } from "./client.js";
 
 export interface SettleAuctionRequest {
@@ -28,6 +28,13 @@ export interface SettleAuctionRequest {
   /** Public event id for the resulting trade.completed event (WON only). Must be unique. */
   eventId: string;
   correlationId?: string | null | undefined;
+  /**
+   * The hidden hold-token a bid "buys" to escrow gold (the caller's escrow model
+   * — see the auction capability). Supplied so the close can retire the winner's
+   * copy and the auction Party's stock: without it every settled auction leaves
+   * a token in the winner's inventory and a pair of dead escrow rows behind.
+   */
+  holdItem?: string;
 }
 
 export type SettleAuctionResult =
@@ -100,6 +107,16 @@ export async function settleAuction(sql: Sql, req: SettleAuctionRequest): Promis
         VALUES ('player', ${a.maker_id}, 'auction', ${auction}, 'gold', ${a.price}, ${jsonParam(sql, {})}, 'auction_payout', ${eventDbId})
         RETURNING id
       `;
+      // Retire the winner's hold token: it exists only to make the bid escrow a
+      // trade, and a player can hold one per auction they lead, so decrement
+      // rather than delete — they may still be the high bidder elsewhere.
+      if (req.holdItem) {
+        await tx`
+          UPDATE inventories SET qty = qty - 1
+           WHERE owner_kind = 'player' AND owner_id = ${a.taker_id} AND item_id = ${req.holdItem} AND qty > 0
+        `;
+      }
+      await clearEscrowRows(tx, auction);
       await tx`SELECT pg_notify('empire_events', ${eventDbId})`;
       return { ok: true, outcome: "won", ledgerId: String(led[0]!.id), eventDbId } as const;
     }
@@ -121,6 +138,19 @@ export async function settleAuction(sql: Sql, req: SettleAuctionRequest): Promis
       VALUES ('player', ${a.maker_id}, 'auction', ${auction}, 'gold', 0, ${jsonParam(sql, { [a.item_id]: a.qty })}, 'auction_expired')
       RETURNING id
     `;
+    await clearEscrowRows(tx, auction);
     return { ok: true, outcome: "unsold", ledgerId: String(led[0]!.id) } as const;
   });
+}
+
+/**
+ * Drop the auction Party's balance + inventory rows once it has paid out. The
+ * Party exists only for the lifetime of one auction (it's seeded at listing with
+ * a zero balance and a block of hold tokens), so leaving it behind accrues two
+ * dead rows per auction forever. Runs inside the settling transaction, after the
+ * escrowed value has moved, so it can only ever delete an emptied hub.
+ */
+async function clearEscrowRows(tx: TxSql, auction: string): Promise<void> {
+  await tx`DELETE FROM balances WHERE owner_kind = 'auction' AND owner_id = ${auction}`;
+  await tx`DELETE FROM inventories WHERE owner_kind = 'auction' AND owner_id = ${auction}`;
 }

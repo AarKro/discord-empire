@@ -100,8 +100,12 @@ suite("auction — full lifecycle against Postgres (§5.11)", () => {
     expect(closed!.status).toBe("filled");
     expect((await itemQty("bidder2", "sword"))[0]!.qty).toBe(1);
     expect((await gold("lister"))[0]!.amount).toBe(200);
-    expect((await gold(id, "auction"))[0]!.amount).toBe(0);
     expect((await itemQty(id, "sword", "auction"))[0]?.qty ?? 0).toBe(0);
+    // The hub is per-auction scaffolding: its rows are retired at the close, and
+    // so is the winner's hold token (escrow plumbing, never a real possession).
+    expect(await gold(id, "auction")).toEqual([]);
+    expect(await itemQty(id, "auction_bid", "auction")).toEqual([]);
+    expect((await itemQty("bidder2", "auction_bid"))[0]?.qty ?? 0).toBe(0);
   });
 
   it("no bids: the close returns the item to the lister (unsold)", async () => {

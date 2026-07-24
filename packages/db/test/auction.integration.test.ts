@@ -62,7 +62,7 @@ suite("settleAuction close settlement", () => {
     const [winnerInv] = await h.sql`SELECT qty FROM inventories WHERE owner_kind='player' AND owner_id='winner' AND item_id='sword'`;
     const [listerBal] = await h.sql`SELECT amount FROM balances WHERE owner_kind='player' AND owner_id='lister'`;
     const escrowInv = await h.sql`SELECT qty FROM inventories WHERE owner_kind='auction' AND owner_id='auc_w' AND item_id='sword'`;
-    const [escrowBal] = await h.sql`SELECT amount FROM balances WHERE owner_kind='auction' AND owner_id='auc_w'`;
+    const escrowBal = await h.sql`SELECT amount FROM balances WHERE owner_kind='auction' AND owner_id='auc_w'`;
     const [bid] = await h.sql`SELECT status FROM bids WHERE offer_id='auc_w'`;
     const events = await h.sql`SELECT * FROM events WHERE type='trade.completed'`;
     const ledgerRows = await h.sql`SELECT reason FROM ledger ORDER BY id`;
@@ -70,8 +70,10 @@ suite("settleAuction close settlement", () => {
     expect(offer!.status).toBe("filled");
     expect(winnerInv!.qty).toBe(1);
     expect(listerBal!.amount).toBe(200);
+    // The auction hub exists only for this one auction, so the close retires its
+    // rows rather than leaving an emptied pair behind per auction, forever.
     expect(escrowInv[0]?.qty ?? 0).toBe(0); // item left escrow
-    expect(escrowBal!.amount).toBe(0); // gold left escrow
+    expect(escrowBal.length).toBe(0); // gold left escrow, and the hub is gone
     expect(bid!.status).toBe("won");
     expect(events.length).toBe(1);
     expect(ledgerRows.map((r) => r.reason)).toEqual(["auction_won", "auction_payout"]);
