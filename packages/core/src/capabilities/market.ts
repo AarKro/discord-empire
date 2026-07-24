@@ -21,6 +21,7 @@ import { buttonRow, marketOverviewEmbed, stallEmbed, type MarketOverview } from 
 import { notForMe, payloadString } from "../events.js";
 import { locationChannel } from "../locations.js";
 import { readNpcState, upsertNpcStateEntry } from "../npc-state.js";
+import { crossContinentCommerceBlock } from "../commerce.js";
 import { ulid } from "ulid";
 
 /** How long a direct offer stands before it's stale (quote-style expiry, §5.11). */
@@ -333,6 +334,13 @@ export function marketCapability(): Capability {
     }
     if (offer.maker_id === buyer) {
       await interaction.reply("You can't buy from your own stall.");
+      return;
+    }
+    // Cross-continent commerce needs research + a Trade Post (§2.3); check before
+    // claiming so a blocked buy leaves the listing open.
+    const block = await crossContinentCommerceBlock(ctx.sql, buyer, offer.guild_id);
+    if (block) {
+      await interaction.reply(block);
       return;
     }
     const claimed = await ctx.sql`UPDATE offers SET status = 'filled' WHERE id = ${offerId} AND status = 'open'`;

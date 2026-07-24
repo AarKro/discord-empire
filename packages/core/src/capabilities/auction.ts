@@ -26,6 +26,7 @@ import { auctionEmbed, buttonRow, modal } from "../ui-kit.js";
 import { notForMe, payloadString } from "../events.js";
 import { locationChannel } from "../locations.js";
 import { readNpcState, upsertNpcStateEntry } from "../npc-state.js";
+import { crossContinentCommerceBlock } from "../commerce.js";
 import { ulid } from "ulid";
 
 /** The hidden token whose "sale" escrows a bidder's gold (mirrors BUILD_PERMIT_ITEM). */
@@ -175,6 +176,13 @@ export function auctionCapability(): Capability {
     }
     if (offer.maker_id === bidder) {
       await modalSubmit.reply("You can't bid on your own auction.");
+      return;
+    }
+    // Cross-continent commerce needs research + a Trade Post (§2.3); check before
+    // escrowing so a blocked bid moves no gold.
+    const block = await crossContinentCommerceBlock(ctx.sql, bidder, offer.guild_id);
+    if (block) {
+      await modalSubmit.reply(block);
       return;
     }
     const amount = Number(modalSubmit.fields[BID_FIELD]);

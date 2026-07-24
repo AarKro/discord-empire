@@ -35,6 +35,9 @@ export type { RunBotOptions, CapabilityConfigs } from "./bot-runtime.js";
 export { evalGuard, resolveSource, interpolate, loadGuardScope, DIALOGUE_OPTION_PREFIX } from "./dialogue.js";
 export type { GuardScope } from "./dialogue.js";
 
+// Cross-continent commerce guard (§2.3)
+export { crossContinentCommerceBlock, TRADE_ROUTES_RESEARCH, TRADE_POST_BLUEPRINT } from "./commerce.js";
+
 // Workflow engine (§7): pure transition core + embedded runtime
 export { decide, entry, guardsPass, parseOnError, scopeMatches } from "./workflow/engine.js";
 export type { Stimulus, TransitionDecision } from "./workflow/engine.js";
