@@ -181,6 +181,10 @@ export const research = pgTable(
     ownerId: text("owner_id").notNull(),
     researchId: text("research_id").notNull(),
     status: text("status").notNull().default("locked"), // locked | in_progress | done
+    // The originating workflow instance's correlation, threaded onto
+    // research.completed so a concurrent research's completion routes back to the
+    // right instance (§7) — mirrors build_queue.correlation_id.
+    correlationId: text("correlation_id"),
     completesAt: timestamp("completes_at", { withTimezone: true }),
   },
   (t) => ({ pk: primaryKey({ columns: [t.ownerId, t.researchId] }) }),
@@ -204,6 +208,20 @@ export const blueprintCatalog = pgTable("blueprint_catalog", {
   name: text("name").notNull(), // display name, e.g. "Wheat Farm"
   costGold: bigint("cost_gold", { mode: "number" }).notNull().default(0),
   baseMs: bigint("base_ms", { mode: "number" }).notNull().default(300000),
+});
+
+// The research tree (§5, §4 Architect): the nodes /research offers. Cost is
+// deducted through `trade`; base_ms is tier-scaled at enqueue (scaledResearchMs).
+// prereqs gate availability (all must be 'done'); grants_blueprints are inserted
+// into a player's `blueprints` on completion, unlocking them for /build. Mirrors
+// blueprint_catalog; arrays are jsonb like districts.neighbors.
+export const researchCatalog = pgTable("research_catalog", {
+  id: text("id").primaryKey(), // e.g. "masonry", "trade_routes"
+  name: text("name").notNull(), // display name, e.g. "Trade Routes"
+  costGold: bigint("cost_gold", { mode: "number" }).notNull().default(0),
+  baseMs: bigint("base_ms", { mode: "number" }).notNull().default(300000),
+  prereqs: jsonb("prereqs").notNull().default([]), // research ids that must be done first
+  grantsBlueprints: jsonb("grants_blueprints").notNull().default([]), // blueprint ids unlocked
 });
 
 export const reputation = pgTable(

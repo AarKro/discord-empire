@@ -20,6 +20,7 @@ import { loadContentFile, Manifest, Shop, Continents, Districts } from "@empire/
 import { openDb, jsonParam, type Sql } from "@empire/db";
 import { rootLogger, type Logger } from "./logger.js";
 import { BUILD_PERMIT_ITEM } from "./capabilities/land.js";
+import { RESEARCH_PERMIT_ITEM } from "./capabilities/research.js";
 
 /** A buildable recipe seeded into blueprint_catalog (§5.12, §10 Builder). */
 interface BlueprintSeed {
@@ -37,6 +38,31 @@ interface BlueprintSeed {
 const DEFAULT_BLUEPRINTS: BlueprintSeed[] = [
   { id: "farm", name: "Wheat Farm", costGold: 50, baseMs: 300_000 }, // ~5m
   { id: "forge", name: "Blacksmith Forge", costGold: 100, baseMs: 600_000 }, // ~10m
+  // Research-gated recipes (unlocked by DEFAULT_RESEARCH grants below).
+  { id: "granary", name: "Granary", costGold: 80, baseMs: 300_000 }, // ~5m, needs masonry
+  { id: "trade_post", name: "Trade Post", costGold: 120, baseMs: 600_000 }, // ~10m, needs trade_routes
+];
+
+/** A research node seeded into research_catalog (§4 Architect, §5). */
+interface ResearchSeed {
+  id: string;
+  name: string;
+  costGold: number;
+  baseMs: number;
+  prereqs: string[];
+  grantsBlueprints: string[];
+}
+
+/**
+ * The default research tree for iteration-1 dev. Costs are affordable and timers
+ * short so a dev can watch the tick service complete them. `masonry` and
+ * `trade_routes` are roots; `harbor_charter` chains off `trade_routes` and gates
+ * onward travel (§2.3). Grants unlock the research-gated blueprints above.
+ */
+const DEFAULT_RESEARCH: ResearchSeed[] = [
+  { id: "masonry", name: "Masonry", costGold: 40, baseMs: 300_000, prereqs: [], grantsBlueprints: ["granary"] },
+  { id: "trade_routes", name: "Trade Routes", costGold: 60, baseMs: 300_000, prereqs: [], grantsBlueprints: ["trade_post"] },
+  { id: "harbor_charter", name: "Harbor Charter", costGold: 100, baseMs: 600_000, prereqs: ["trade_routes"], grantsBlueprints: [] },
 ];
 
 interface BootstrapOptions {
@@ -52,6 +78,10 @@ interface BootstrapOptions {
   builderId?: string;
   /** Buildable recipes to seed; defaults to DEFAULT_BLUEPRINTS. */
   blueprints?: BlueprintSeed[];
+  /** The Architect NPC that "sells" research permits (the cost sink). */
+  architectId?: string;
+  /** Research nodes to seed; defaults to DEFAULT_RESEARCH. */
+  research?: ResearchSeed[];
   logger?: Logger;
 }
 
@@ -273,6 +303,22 @@ async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
     }
     log.info({ seeded: blueprintsSeeded, total: blueprints.length }, "blueprint catalog seeded (existing rows untouched)");
 
+    // Seed the research tree idempotently (§4 Architect, §5). Rerunnable:
+    // ON CONFLICT DO NOTHING leaves any hand-tuned rows alone.
+    const research = opts.research ?? DEFAULT_RESEARCH;
+    let researchSeeded = 0;
+    for (const node of research) {
+      const rows = await opts.sql`
+        INSERT INTO research_catalog (id, name, cost_gold, base_ms, prereqs, grants_blueprints)
+        VALUES (${node.id}, ${node.name}, ${node.costGold}, ${node.baseMs},
+                ${jsonParam(opts.sql, node.prereqs)}, ${jsonParam(opts.sql, node.grantsBlueprints)})
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id
+      `;
+      researchSeeded += rows.length;
+    }
+    log.info({ seeded: researchSeeded, total: research.length }, "research catalog seeded (existing rows untouched)");
+
     // The builder NPC "sells" build permits (the cost sink for /build). Seed the
     // NPC row and a large permit stock so the atomic trade always has stock; the
     // ledger write still goes through `trade`.
@@ -287,6 +333,22 @@ async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
         ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
       `;
       log.info({ builder: opts.builderId }, "builder npc + permit stock seeded");
+    }
+
+    // The Architect NPC "sells" research permits (the cost sink for /research),
+    // mirroring the builder permit-sink so the atomic trade always has stock; the
+    // ledger write still goes through `trade`.
+    if (opts.architectId) {
+      await opts.sql`
+        INSERT INTO npcs (id, kind) VALUES (${opts.architectId}, 'architect')
+        ON CONFLICT (id) DO NOTHING
+      `;
+      await opts.sql`
+        INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
+        VALUES ('npc', ${opts.architectId}, ${RESEARCH_PERMIT_ITEM}, 1000000)
+        ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
+      `;
+      log.info({ architect: opts.architectId }, "architect npc + permit stock seeded");
     }
   } finally {
     await client.destroy();
@@ -322,6 +384,9 @@ async function main(): Promise<void> {
   // Seed the builder's cost-sink NPC under its real manifest id (the builder bot
   // trades as its manifest.id), so the two can never drift out of sync.
   const builderManifest = loadContentFile(Manifest, join(CONTENT_DIR, "manifests/builder.yaml"));
+  // The Architect trades as its manifest id (like the builder), so seed its
+  // cost-sink NPC under that same id — the two can never drift out of sync.
+  const architectManifest = loadContentFile(Manifest, join(CONTENT_DIR, "manifests/architect.yaml"));
 
   // Bootstrap needs a token with Manage Channels/Roles; the merchant's has them.
   const token = process.env[manifest.token_env];
@@ -344,6 +409,8 @@ async function main(): Promise<void> {
       // the buildable catalog here too, so a single world:init covers both
       // reference bots (§10). The merchant token has Manage Channels, so it runs it.
       builderId: builderManifest.id,
+      // Same for the Architect's research permit-sink NPC + research catalog (§4).
+      architectId: architectManifest.id,
       logger: rootLogger,
     });
   } finally {

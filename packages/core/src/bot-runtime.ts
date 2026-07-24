@@ -30,6 +30,7 @@ import { presenceVoiceCapability } from "./capabilities/presence-voice.js";
 import { voicelinesCapability, type VoicelineConfig } from "./capabilities/voicelines.js";
 import { ambientChatterCapability, type ChatterConfig } from "./capabilities/ambient-chatter.js";
 import { landCapability } from "./capabilities/land.js";
+import { researchCapability } from "./capabilities/research.js";
 import { notifyCapability } from "./capabilities/notify.js";
 import { commandsCapability, type CommandDef } from "./capabilities/commands.js";
 import { renderCapability } from "./capabilities/render.js";
@@ -74,6 +75,7 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
   voicelines: (deps) => voicelinesCapability(deps.configs.voicelines ?? { triggers: {} }),
   "ambient.chatter": (deps) => ambientChatterCapability(deps.configs["ambient.chatter"] ?? { reactions: {} }),
   land: () => landCapability(),
+  research: () => researchCapability(),
   notify: () => notifyCapability(),
   commands: (deps) => commandsCapability(deps.configs.commands ?? []),
   render: () => renderCapability(),

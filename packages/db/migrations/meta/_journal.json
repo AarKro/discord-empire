@@ -43,6 +43,13 @@
       "when": 1784845895267,
       "tag": "0005_thin_marvel_zombies",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784881058839,
+      "tag": "0006_fluffy_vision",
+      "breakpoints": true
     }
   ]
 }

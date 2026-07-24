@@ -1,0 +1,21 @@
+id: architect
+token_env: ARCHITECT_TOKEN
+personas:
+  "${GUILD_CONTINENT_ONE}":
+    nickname: "Archivist Vael"
+    avatar: vael.png
+    locale_flavor: highlands
+  "${GUILD_CONTINENT_TWO}":
+    nickname: "Loremaster Soraya"
+    avatar: soraya.png
+    locale_flavor: harbor
+# Registration order = dispatch order. topology is the infra presence gate.
+capabilities:
+  - trade
+  - topology
+  - research
+  - notify
+  - commands
+content:
+  workflows:
+    - workflows/architect_research.yaml

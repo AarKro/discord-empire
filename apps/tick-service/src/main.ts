@@ -28,6 +28,7 @@ async function main(): Promise<void> {
       await bus.publish({ type: "tick.hour", payload: { hour: minutes / 60 } });
     }
     await fireDueBuilds();
+    await fireDueResearch();
     await fireDueAuctions();
   }
 
@@ -45,6 +46,24 @@ async function main(): Promise<void> {
         // originating player_build instance among a player's concurrent builds.
         correlationId: b.correlation_id,
         payload: { queue_id: b.id, blueprint: b.blueprint_id },
+      });
+    }
+  }
+
+  /** research.completed for any node whose timer has elapsed (§4 Architect, §5). */
+  async function fireDueResearch(): Promise<void> {
+    const due = await sql<{ owner_id: string; research_id: string; correlation_id: string | null }[]>`
+      SELECT owner_id, research_id, correlation_id FROM research
+      WHERE status = 'in_progress' AND completes_at IS NOT NULL AND completes_at <= now()
+    `;
+    for (const r of due) {
+      await bus.publish({
+        type: "research.completed",
+        actor: { kind: "player", id: r.owner_id },
+        // Thread the node's correlation so the completion routes back to the
+        // originating architect_research instance among a player's concurrent runs.
+        correlationId: r.correlation_id,
+        payload: { node: r.research_id },
       });
     }
   }

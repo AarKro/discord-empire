@@ -1,0 +1,47 @@
+# The /research flow as a declarative workflow (§7). One instance per /research,
+# scoped to the player; a player may research several nodes at once — each instance
+# is told apart by the correlation threaded through its events (§7 correlation
+# routing). Composes the research + trade verbs. Mirrors player_build.yaml.
+id: architect_research
+trigger: { event: research.requested }
+scope: player
+initial: charging
+states:
+  # Guard the node and charge the cost via `trade`. research.request emits
+  # trade.request and records an 'in_progress' row with completes_at NULL (the carry
+  # across the async charge); a bad node or unmet guard emits its own reply and
+  # throws → on_error routes to rejected_pre. A charge that never settles times out.
+  charging:
+    actions:
+      - { "research.request": {} }
+    on:
+      trade.completed: researching
+      trade.failed: rejected
+    timer: { after: 30s, goto: charge_timeout }
+    on_error: rejected_pre
+  # Cost settled: give the pending row a timer and announce it.
+  researching:
+    actions:
+      - { "research.enqueue": {} }
+    on:
+      research.completed: done
+  # Tick fired research.completed: finish the node, grant blueprints, notify (once).
+  done:
+    actions:
+      - { "research.complete": {} }
+    final: true
+  # Charge failed (insufficient funds): discard the pending row, reply in-fiction.
+  rejected:
+    actions:
+      - { "research.reject": { message: "You can't cover the cost of that study just yet." } }
+    final: true
+  # Charge never settled within the window: clean up the pending row. The timer
+  # transition carries the instance's player + correlation (synthetic event), so
+  # research.reject drops the right row even without a triggering bus event.
+  charge_timeout:
+    actions:
+      - { "research.reject": { message: "…the coin never cleared. Try again in a moment." } }
+    final: true
+  # Pre-charge rejection already replied inside research.request; nothing to undo.
+  rejected_pre:
+    final: true
