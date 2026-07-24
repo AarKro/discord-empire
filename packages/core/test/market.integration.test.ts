@@ -9,7 +9,7 @@ import { openDb, type DbHandle } from "@empire/db";
 import { marketCapability } from "../src/capabilities/market.js";
 import { buildMarketOverviewEmbed } from "../src/capabilities/market-overview.js";
 import type { Continents } from "@empire/content-schemas";
-import type { ComponentInteraction } from "../src/gateway.js";
+import type { ComponentInteraction } from "../src/gateway/index.js";
 import type { CapabilityContext } from "../src/capability.js";
 import { rootLogger } from "../src/logger.js";
 

@@ -11,7 +11,7 @@ export { playerTier, currentGuildId, tierScaledMs } from "./players.js";
 export { publishReply, replyToCommand } from "./reply.js";
 export type { ReplySource } from "./reply.js";
 export { readNpcState, upsertNpcStateEntry, deleteNpcStateEntry } from "./npc-state.js";
-export { Gateway, toApplicationCommandJson } from "./gateway.js";
+export { Gateway, toApplicationCommandJson } from "./gateway/index.js";
 export type {
   GatewayOptions,
   ComponentInteraction,
@@ -24,7 +24,7 @@ export type {
   AutocompleteInteraction,
   AutocompleteHandler,
   CommandRegistration,
-} from "./gateway.js";
+} from "./gateway/index.js";
 export { PersonaResolver } from "./persona.js";
 export { ui, buttonRow, selectMenu, stallEmbed, marketOverviewEmbed, modal } from "./ui-kit.js";
 export {

@@ -21,7 +21,7 @@
 import { executeTrade, settleAuction } from "@empire/db";
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
-import type { ModalSubmitInteraction } from "../gateway.js";
+import type { ModalSubmitInteraction } from "../gateway/index.js";
 import { auctionEmbed, modal } from "../ui-kit.js";
 import { renderOfferBoard, type OfferBoard, type OfferRow } from "./offer-board.js";
 import { notForMe, payloadString } from "../events.js";

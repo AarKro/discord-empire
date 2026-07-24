@@ -8,7 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { auctionCapability } from "../src/capabilities/auction.js";
 import type { BusEvent } from "../src/bus.js";
-import type { ModalSubmitInteraction, ModalRequest } from "../src/gateway.js";
+import type { ModalSubmitInteraction, ModalRequest } from "../src/gateway/index.js";
 import type { CapabilityContext } from "../src/capability.js";
 
 interface OfferRow {

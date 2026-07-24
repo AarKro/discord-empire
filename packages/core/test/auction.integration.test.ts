@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { openDb, type DbHandle } from "@empire/db";
 import { auctionCapability } from "../src/capabilities/auction.js";
 import type { BusEvent } from "../src/bus.js";
-import type { ModalSubmitInteraction } from "../src/gateway.js";
+import type { ModalSubmitInteraction } from "../src/gateway/index.js";
 import type { CapabilityContext } from "../src/capability.js";
 import { rootLogger } from "../src/logger.js";
 

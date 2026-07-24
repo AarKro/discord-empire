@@ -14,7 +14,7 @@
 import { executeTrade, type Party, type Sql } from "@empire/db";
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
-import type { ComponentInteraction } from "../gateway.js";
+import type { ComponentInteraction } from "../gateway/index.js";
 import { buttonRow, stallEmbed } from "../ui-kit.js";
 import { renderOfferBoard, type OfferBoard, type OfferRow } from "./offer-board.js";
 import { notForMe, payloadString } from "../events.js";

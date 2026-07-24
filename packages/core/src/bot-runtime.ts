@@ -19,7 +19,7 @@ import { loadContentFile, Manifest, Shop, Schedule, Workflow, Continents } from 
 import { openDb } from "@empire/db";
 import { rootLogger, type Logger } from "./logger.js";
 import { CapabilityRegistry, type Capability, type CapabilityContext } from "./capability.js";
-import { Gateway } from "./gateway.js";
+import { Gateway } from "./gateway/index.js";
 import { EventBus } from "./bus.js";
 import { PersonaResolver } from "./persona.js";
 import { tradeCapability } from "./capabilities/trade.js";

@@ -7,7 +7,7 @@
  * foundation for a future visual workflow editor (§7).
  */
 import type { BusEvent, EventBus } from "./bus.js";
-import type { Gateway } from "./gateway.js";
+import type { Gateway } from "./gateway/index.js";
 import type { PersonaResolver } from "./persona.js";
 import type { Sql } from "@empire/db";
 import type { Logger } from "./logger.js";

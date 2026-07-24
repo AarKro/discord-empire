@@ -8,7 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { marketCapability } from "../src/capabilities/market.js";
 import type { BusEvent } from "../src/bus.js";
-import type { ComponentInteraction } from "../src/gateway.js";
+import type { ComponentInteraction } from "../src/gateway/index.js";
 import type { CapabilityContext } from "../src/capability.js";
 
 interface OfferRow {

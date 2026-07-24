@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { stallCapability, ENTER_STALL_BUTTON } from "../src/capabilities/stall.js";
-import type { ComponentInteraction } from "../src/gateway.js";
+import type { ComponentInteraction } from "../src/gateway/index.js";
 import type { CapabilityContext } from "../src/capability.js";
 
 const SHOP = { id: "aldric", currency: "gold", items: [{ item_id: "x", name: "Trinket", base_price: 5, stock: 3 }] };

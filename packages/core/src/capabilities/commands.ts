@@ -21,7 +21,7 @@ import { ulid } from "ulid";
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
 import { notForMe, payloadString } from "../events.js";
-import type { CommandInteraction, CommandReply } from "../gateway.js";
+import type { CommandInteraction, CommandReply } from "../gateway/index.js";
 
 /** How long we wait for a result event before an in-fiction fallback reply. */
 const REPLY_TIMEOUT_MS = 10_000;
