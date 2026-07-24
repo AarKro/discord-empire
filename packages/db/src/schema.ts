@@ -71,6 +71,9 @@ export const ledger = pgTable(
   (t) => ({
     actorIdx: index("ledger_actor_idx").on(t.actorKind, t.actorId),
     causeIdx: index("ledger_cause_idx").on(t.causeEventId),
+    // revertLedger probes `reason = 'revert:<id>'` for its idempotency marker;
+    // without this that's a full scan of an append-only table on every revert.
+    reasonIdx: index("ledger_reason_idx").on(t.reason),
   }),
 );
 
@@ -279,25 +282,33 @@ export const continentDiscoveries = pgTable(
 );
 
 // Offers / orders / auctions — quotes with expiry (§5.5, §5.11).
-export const offers = pgTable("offers", {
-  id: text("id").primaryKey(),
-  kind: text("kind").notNull(), // direct | order | auction
-  makerKind: text("maker_kind").notNull(),
-  makerId: text("maker_id").notNull(),
-  itemId: text("item_id").notNull(),
-  qty: integer("qty").notNull(),
-  price: bigint("price", { mode: "number" }).notNull(),
-  side: text("side").notNull().default("sell"), // buy | sell
-  status: text("status").notNull().default("open"), // open | filled | expired | cancelled
-  expiresAt: timestamp("expires_at", { withTimezone: true }),
-  // §5.11 player market: the recipient of a `direct` offer, and the continent
-  // (guild) a `order` stall listing renders on / the trade settles in.
-  // For an `auction`: `price` is the current high bid (initialized to the
-  // starting price / reserve), `taker_id` is the current high bidder (NULL until
-  // the first qualifying bid), and `expires_at` is the close time.
-  takerId: text("taker_id"),
-  guildId: text("guild_id"),
-});
+export const offers = pgTable(
+  "offers",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").notNull(), // direct | order | auction
+    makerKind: text("maker_kind").notNull(),
+    makerId: text("maker_id").notNull(),
+    itemId: text("item_id").notNull(),
+    qty: integer("qty").notNull(),
+    price: bigint("price", { mode: "number" }).notNull(),
+    side: text("side").notNull().default("sell"), // buy | sell
+    status: text("status").notNull().default("open"), // open | filled | expired | cancelled
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    // §5.11 player market: the recipient of a `direct` offer, and the continent
+    // (guild) a `order` stall listing renders on / the trade settles in.
+    // For an `auction`: `price` is the current high bid (initialized to the
+    // starting price / reserve), `taker_id` is the current high bidder (NULL until
+    // the first qualifying bid), and `expires_at` is the close time.
+    takerId: text("taker_id"),
+    guildId: text("guild_id"),
+  },
+  (t) => ({
+    // Every Marketplace / Auction House board refresh filters on exactly this
+    // triple, and the tick service sweeps open auctions by expiry each minute.
+    boardIdx: index("offers_board_idx").on(t.kind, t.status, t.guildId),
+  }),
+);
 
 // Auction bids (§5.11): one row per bid placed. The bidder's gold is escrowed
 // on insert (held under the auction Party `auction:<offer_id>`) and refunded on
@@ -335,5 +346,9 @@ export const workflowInstances = pgTable(
   (t) => ({
     scopeIdx: index("wfi_scope_idx").on(t.workflowId, t.scope, t.scopeKey),
     timerIdx: index("wfi_timer_idx").on(t.timerAt),
+    // Every bot re-reads its own active instances on EVERY bus event, so this is
+    // the hottest read in the system; the scope index can't serve it (it leads
+    // with workflow_id but the predicate leads with status).
+    activeIdx: index("wfi_active_idx").on(t.status, t.workflowId),
   }),
 );
