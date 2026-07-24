@@ -58,11 +58,22 @@ function npcEvt(type: string, subjectId = "merchant"): BusEvent {
   };
 }
 
-/** A player-actored event (build.requested / trade.* / build.completed shape). */
-function playerEvt(type: string, playerId: string, correlationId: string | null = null, payload: Record<string, unknown> = {}): BusEvent {
+/**
+ * A player-actored event (build.requested / trade.* / build.completed shape).
+ * `subjectId` is the NPC the command was addressed to — it must match the bot
+ * whose runtime is under test, because the bus is a broadcast log and the
+ * runtime only starts workflows for events addressed to its own bot.
+ */
+function playerEvt(
+  type: string,
+  playerId: string,
+  correlationId: string | null = null,
+  payload: Record<string, unknown> = {},
+  subjectId = "builder",
+): BusEvent {
   return {
     dbId: "0", eventId: `e_${type}`, type, ts: "", guildId: null,
-    actor: { kind: "player", id: playerId }, subject: { kind: "npc", id: "builder" }, payload, correlationId,
+    actor: { kind: "player", id: playerId }, subject: { kind: "npc", id: subjectId }, payload, correlationId,
   };
 }
 
@@ -73,13 +84,13 @@ function worldEvt(type: string): BusEvent {
 
 let h: DbHandle;
 
-function makeRuntime(workflows: Workflow[], actions: Record<string, ActionHandler>): WorkflowRuntime {
+function makeRuntime(workflows: Workflow[], actions: Record<string, ActionHandler>, botId = "builder"): WorkflowRuntime {
   const cap: Capability = { name: "spy", consumes: [], actions };
   const registry = new CapabilityRegistry();
   registry.register(cap);
   const bus = new EventBus(h.sql, "test-runtime", rootLogger);
   const makeContext = (correlationId: string): CapabilityContext => ({
-    bot: "builder", sql: h.sql, bus,
+    bot: botId, sql: h.sql, bus,
     gateway: {} as unknown as CapabilityContext["gateway"],
     personas: {} as unknown as CapabilityContext["personas"],
     logger: rootLogger.child({ correlation_id: correlationId }), config: {},
@@ -107,7 +118,9 @@ suite("embedded workflow runtime (§7)", () => {
 
     beforeEach(() => {
       moves = [];
-      runtime = makeRuntime([wander], { spy_move: (args) => { moves.push({ stop: args.stop }); } });
+      // The wander workflow is the merchant's, and npcEvt addresses "merchant" —
+      // so this runtime must BE the merchant for the trigger to reach it.
+      runtime = makeRuntime([wander], { spy_move: (args) => { moves.push({ stop: args.stop }); } }, "merchant");
     });
 
     it("a trigger creates a scoped instance and dispatches its actions through the registry", async () => {
@@ -135,6 +148,32 @@ suite("embedded workflow runtime (§7)", () => {
       const [row] = await h.sql`SELECT state, status FROM workflow_instances`;
       expect(row).toMatchObject({ state: "at_square", status: "final" });
       expect(moves).toEqual([{ stop: "bazaar" }, { stop: "square" }]);
+    });
+
+    /**
+     * The bus is broadcast, so EVERY bot's `bot.ready` reaches this runtime. An
+     * npc-scoped workflow keys its instance on the event's subject, so without
+     * an addressing check each foreign ready spawned its own copy under that
+     * bot's id — and the singleton guard (per workflow + scope key) let every
+     * one through. Seven bots meant seven wander loops on the merchant.
+     */
+    it("ignores a trigger addressed to a different bot", async () => {
+      await runtime.onEvent(npcEvt("bot.ready", "builder"));
+      await runtime.onEvent(npcEvt("bot.ready", "herald"));
+
+      const [{ n }] = await h.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM workflow_instances`;
+      expect(n).toBe(0);
+      expect(moves).toEqual([]);
+    });
+
+    it("starts exactly one instance when several bots announce readiness", async () => {
+      await runtime.onEvent(npcEvt("bot.ready", "builder"));
+      await runtime.onEvent(npcEvt("bot.ready", "merchant")); // ours
+      await runtime.onEvent(npcEvt("bot.ready", "exchange"));
+
+      const rows = await h.sql<{ scope_key: string }[]>`SELECT scope_key FROM workflow_instances`;
+      expect(rows.map((r) => r.scope_key)).toEqual(["merchant"]);
+      expect(moves).toEqual([{ stop: "bazaar" }]);
     });
   });
 
@@ -603,7 +642,7 @@ states:
     });
 
     it("departs (position cleared + reply), then arrives on the neighbour and announces it", async () => {
-      await rt.onEvent(playerEvt("travel.requested", "p1", "cmd_1", { continent: "g2" }));
+      await rt.onEvent(playerEvt("travel.requested", "p1", "cmd_1", { continent: "g2" }, "herald"));
 
       // On the road: position cleared, an ephemeral command.reply queued for /travel.
       const [mid] = await h.sql<{ position_guild_id: string | null }[]>`SELECT position_guild_id FROM players WHERE discord_user_id = 'p1'`;
@@ -621,7 +660,7 @@ states:
     });
 
     it("rejects a non-neighbour hop: replies with a reason, position unchanged, no arrival", async () => {
-      await rt.onEvent(playerEvt("travel.requested", "p1", "cmd_2", { continent: "g9" }));
+      await rt.onEvent(playerEvt("travel.requested", "p1", "cmd_2", { continent: "g9" }, "herald"));
       const [reply] = await h.sql<{ payload: { message?: string } }[]>`SELECT payload FROM events WHERE type = 'command.reply' ORDER BY id DESC LIMIT 1`;
       expect(reply!.payload.message).toContain("no road that way");
       const [p] = await h.sql<{ position_guild_id: string | null }[]>`SELECT position_guild_id FROM players WHERE discord_user_id = 'p1'`;
@@ -675,7 +714,7 @@ states:
     });
 
     it("walks Market → Farmlands: clears district, then arrives + discovers + grants the view-role", async () => {
-      await rt.onEvent(playerEvt("district.move.requested", "p1", "cmd_1", { district: "farmlands_g1" }));
+      await rt.onEvent(playerEvt("district.move.requested", "p1", "cmd_1", { district: "farmlands_g1" }, "herald"));
       const [mid] = await h.sql<{ position_district_id: string | null }[]>`SELECT position_district_id FROM players WHERE discord_user_id = 'p1'`;
       expect(mid!.position_district_id).toBeNull(); // walking
       const [reply] = await h.sql<{ payload: { message?: string } }[]>`SELECT payload FROM events WHERE type = 'command.reply' ORDER BY id DESC LIMIT 1`;
@@ -691,7 +730,7 @@ states:
     });
 
     it("rejects a non-neighbour quarter: reply, district unchanged, workflow rejected", async () => {
-      await rt.onEvent(playerEvt("district.move.requested", "p1", "cmd_2", { district: "harbourside_g1" }));
+      await rt.onEvent(playerEvt("district.move.requested", "p1", "cmd_2", { district: "harbourside_g1" }, "herald"));
       const [reply] = await h.sql<{ payload: { message?: string } }[]>`SELECT payload FROM events WHERE type = 'command.reply' ORDER BY id DESC LIMIT 1`;
       expect(reply!.payload.message).toContain("no path");
       const [p] = await h.sql<{ position_district_id: string | null }[]>`SELECT position_district_id FROM players WHERE discord_user_id = 'p1'`;

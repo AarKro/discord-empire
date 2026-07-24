@@ -15,6 +15,7 @@ import { jsonParam } from "@empire/db";
 import { ulid } from "ulid";
 import { availableOptions, decide, entry, parseOnError, scopeMatches, type Stimulus, type TransitionDecision } from "./engine.js";
 import { loadGuardScope, resolveSource, interpolate, DIALOGUE_OPTION_PREFIX, EMPTY_SCOPE, type GuardScope } from "../dialogue.js";
+import { notForMe } from "../events.js";
 import { parseDuration } from "./duration.js";
 
 /** A persisted instance row's routing/context fields (as advance() needs them). */
@@ -143,16 +144,27 @@ export class WorkflowRuntime {
 
   /** Bus handler: match triggers, advance matching instances. */
   async onEvent(evt: BusEvent): Promise<void> {
-    // 1) Trigger new instances.
-    for (const wf of this.byTrigger.get(evt.type) ?? []) {
-      if (!this.passesFilter(wf, evt)) continue;
-      await this.startInstance(wf, evt);
+    // 1) Trigger new instances. The bus is a BROADCAST log, so an addressed
+    //    event (one carrying a subject) must only start workflows on the bot it
+    //    names — otherwise every other bot's `bot.ready` would spawn its own
+    //    copy of e.g. merchant_wander, keyed on that bot's id, and the singleton
+    //    guard (per workflow + scope key) would happily let each one through.
+    //    Unaddressed events still reach everyone (see notForMe).
+    if (!notForMe(evt, this.bot())) {
+      for (const wf of this.byTrigger.get(evt.type) ?? []) {
+        if (!this.passesFilter(wf, evt)) continue;
+        await this.startInstance(wf, evt);
+      }
     }
     // 2) Advance existing instances whose current state listens for this event
     //    AND whose scope owns it (§7): a per-player instance only advances on
     //    events attributed to that player, per-npc on that npc as subject.
+    //    Scoped to the workflows THIS bot actually loads — every bot runs this
+    //    on every event, and without the filter each one scans (and discards)
+    //    every other bot's instances.
     const instances = await this.deps.sql<InstanceRow[]>`
-      SELECT id, workflow_id, scope, scope_key, state, context, correlation_id FROM workflow_instances WHERE status = 'active'
+      SELECT id, workflow_id, scope, scope_key, state, context, correlation_id FROM workflow_instances
+      WHERE status = 'active' AND workflow_id = ANY(${[...this.byId.keys()]})
     `;
     for (const inst of instances) {
       const wf = this.byId.get(inst.workflow_id);
@@ -220,11 +232,17 @@ export class WorkflowRuntime {
     const dec = decide(wf, inst.state, stimulus, scope);
     if (dec.nextState === null) return;
     const correlationId = inst.correlation_id ?? `wf_${ulid()}`;
-    await this.deps.sql`
+    // Claim the transition against the state we DECIDED from. An armed timer
+    // fires from setTimeout and can interleave with an awaited bus dispatch at
+    // any point, so both paths can reach here holding the same stale row; the
+    // conditional update lets exactly one of them move the instance, and the
+    // loser drops out before running the target's actions twice.
+    const moved = await this.deps.sql`
       UPDATE workflow_instances SET state = ${dec.nextState}, updated_at = now(),
         status = ${dec.final ? "final" : "active"}
-      WHERE id = ${inst.id}
+      WHERE id = ${inst.id} AND state = ${inst.state} AND status = 'active'
     `;
+    if (moved.count === 0) return;
     // Merge the target's `set:`, then use that context for emits/actions/render.
     const context = await this.applyContext(inst.id, wf, dec.nextState, evt, inst.context);
     scope.context = context;
