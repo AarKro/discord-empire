@@ -29,8 +29,13 @@ import { readNpcState, upsertNpcStateEntry } from "../npc-state.js";
 import { crossContinentCommerceBlock } from "../commerce.js";
 import { ulid } from "ulid";
 
-/** The hidden token whose "sale" escrows a bidder's gold (mirrors BUILD_PERMIT_ITEM). */
-const HOLD_TOKEN = "auction_bid";
+/**
+ * The hidden token whose "sale" escrows a bidder's gold (mirrors
+ * BUILD_PERMIT_ITEM). Exported so it can join the one HIDDEN_ITEMS list every
+ * player-facing inventory view filters on (see items.ts).
+ */
+export const AUCTION_HOLD_ITEM = "auction_bid";
+const HOLD_TOKEN = AUCTION_HOLD_ITEM;
 /** Seed the auction Party with plenty so a bid's escrow trade always has stock. */
 const TOKEN_STOCK = 1_000_000;
 /** The Place Bid button + its modal share this custom id: `auc:bid:<offerId>`. */
@@ -267,7 +272,12 @@ export function auctionCapability(): Capability {
     const [offer] = await ctx.sql<OfferRow[]>`SELECT * FROM offers WHERE id = ${offerId}`;
     if (!offer) return;
 
-    const res = await settleAuction(ctx.sql, { offerId, eventId: `evt_${ulid()}`, correlationId: evt.correlationId ?? null });
+    const res = await settleAuction(ctx.sql, {
+      offerId,
+      eventId: `evt_${ulid()}`,
+      correlationId: evt.correlationId ?? null,
+      holdItem: HOLD_TOKEN, // retire the winner's escrow token + the Party's stock
+    });
     if (!res.ok) return; // already settled (idempotent against tick re-fire)
 
     if (res.outcome === "won" && offer.taker_id) {

@@ -68,8 +68,11 @@ export { travelCapability, startContinent, nextContinent } from "./capabilities/
 export { wayfareCapability } from "./capabilities/wayfare.js";
 export { gatekeeperCapability, observerContinents, discoveredByArriving } from "./capabilities/gatekeeper.js";
 export { marketCapability, buildMarketOverviewEmbed } from "./capabilities/market.js";
-export { auctionCapability } from "./capabilities/auction.js";
+export { auctionCapability, AUCTION_HOLD_ITEM } from "./capabilities/auction.js";
 export { worldMirrorCapability } from "./capabilities/world-mirror.js";
+
+// Internal (non-diegetic) item tokens — never show these in player-facing lists
+export { HIDDEN_ITEMS, isHiddenItem } from "./items.js";
 export {
   buildLeaderboardEmbed,
   leaderboardRows,

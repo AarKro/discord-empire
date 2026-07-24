@@ -9,20 +9,21 @@
  * it's code, not YAML.
  */
 import { join } from "node:path";
-import { runBot, rootLogger, buildMarketOverviewEmbed, type CommandDef } from "@empire/core";
+import { runBot, rootLogger, buildMarketOverviewEmbed, HIDDEN_ITEMS, type CommandDef } from "@empire/core";
 import { loadContentFile, Continents } from "@empire/content-schemas";
 
 /** Continent metadata (names, ring) for the cross-continent /market browse. */
 const continents = loadContentFile(Continents, join(process.env.CONTENT_DIR ?? "content", "continents.yaml"));
 
-/** Suggest items the caller actually holds (what they can sell / list). The
- * hidden auction_bid hold-token is excluded so it can't be traded or listed. */
+/** Suggest items the caller actually holds (what they can sell / list). Internal
+ * cost/hold tokens are excluded so they can't be traded, listed, or auctioned —
+ * HIDDEN_ITEMS is the shared list (see core's items.ts). */
 const itemAutocomplete: CommandDef["autocomplete"] = async (ctx, typed, userId) => {
   const like = `%${typed.toLowerCase()}%`;
   const rows = await ctx.sql<{ item_id: string; qty: number }[]>`
     SELECT item_id, qty FROM inventories
     WHERE owner_kind = 'player' AND owner_id = ${userId} AND qty > 0
-      AND item_id <> 'auction_bid' AND lower(item_id) LIKE ${like}
+      AND item_id <> ALL(${HIDDEN_ITEMS}) AND lower(item_id) LIKE ${like}
     ORDER BY item_id ASC LIMIT 25
   `;
   return rows.map((r) => ({ name: `${r.item_id} (${r.qty})`, value: r.item_id }));

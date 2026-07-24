@@ -10,7 +10,7 @@
  * supplies the manifest and the slash-command defs, whose autocomplete/resolve
  * bodies are live SQL and so are inherently code, not YAML.
  */
-import { runBot, rootLogger, BUILD_PERMIT_ITEM, type CommandDef } from "@empire/core";
+import { runBot, rootLogger, HIDDEN_ITEMS, type CommandDef } from "@empire/core";
 
 // §5.10, §10 Builder. /build is a round-trip (guards → trade → queue → ephemeral
 // reply); /balance and /inventory answer directly from the DB.
@@ -57,11 +57,14 @@ const commands: CommandDef[] = [
     description: "What you own",
     route: "",
     resolve: async (ctx, { userId }) => {
-      // build_permit is an internal cost-modeling token (the builder "sells" it
-      // to charge for a build); it must never surface in the player's packs.
+      // Internal cost/hold tokens (build & research permits, the auction hold)
+      // are economy plumbing, not possessions, so they must never surface in the
+      // player's packs. HIDDEN_ITEMS is the single list — filtering by hand here
+      // is how research_permit and auction_bid leaked into view.
       const rows = await ctx.sql<{ item_id: string; qty: number }[]>`
         SELECT item_id, qty FROM inventories
-        WHERE owner_kind = 'player' AND owner_id = ${userId} AND qty > 0 AND item_id <> ${BUILD_PERMIT_ITEM}
+        WHERE owner_kind = 'player' AND owner_id = ${userId} AND qty > 0
+          AND item_id <> ALL(${HIDDEN_ITEMS})
         ORDER BY item_id ASC
       `;
       if (rows.length === 0) return "Your packs are empty.";
