@@ -27,6 +27,18 @@ importers:
         specifier: ^2.0.5
         version: 2.1.9(@types/node@20.19.43)
 
+  apps/bot-architect:
+    dependencies:
+      '@empire/content-schemas':
+        specifier: workspace:*
+        version: link:../../packages/content-schemas
+      '@empire/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@empire/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+
   apps/bot-builder:
     dependencies:
       '@empire/content-schemas':
