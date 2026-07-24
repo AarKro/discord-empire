@@ -7,6 +7,7 @@
  * this module owns the DB-level position truth and the presence gate.
  */
 import type { Capability, CapabilityContext } from "../capability.js";
+import { replyToCommand } from "../reply.js";
 import type { Sql } from "@empire/db";
 
 export interface PresenceCheck {
@@ -72,18 +73,6 @@ async function arrive(
 }
 
 export function topologyCapability(): Capability {
-  /** Resolve the /move ephemeral reply (a generic command.reply the commands cap settles). */
-  async function reply(ctx: CapabilityContext, evt: { guildId?: string | null; correlationId?: string | null } | null, player: string, message: string): Promise<void> {
-    await ctx.bus.publish({
-      type: "command.reply",
-      guildId: evt?.guildId ?? null,
-      actor: { kind: "player", id: player },
-      subject: { kind: "npc", id: ctx.bot },
-      payload: { message },
-      correlationId: evt?.correlationId ?? null,
-    });
-  }
-
   return {
     name: "topology",
     consumes: [],
@@ -103,17 +92,17 @@ export function topologyCapability(): Capability {
         `;
         const current = pos?.position_district_id ?? null;
         if (!current) {
-          await reply(ctx, evt, player, "You're already on the move, friend — one road at a time.");
+          await replyToCommand(ctx, evt, player, "You're already on the move, friend — one road at a time.");
           throw new Error("already walking");
         }
         const [here] = await ctx.sql<{ neighbors: string[] }[]>`SELECT neighbors FROM districts WHERE id = ${current}`;
         if (!target || !(here?.neighbors ?? []).includes(target)) {
-          await reply(ctx, evt, player, "There's no path to that quarter from where you stand.");
+          await replyToCommand(ctx, evt, player, "There's no path to that quarter from where you stand.");
           throw new Error("invalid district");
         }
         await ctx.sql`UPDATE players SET position_district_id = ${null} WHERE discord_user_id = ${player}`;
         const [dest] = await ctx.sql<{ name: string }[]>`SELECT name FROM districts WHERE id = ${target}`;
-        await reply(ctx, evt, player, `You set off for ${dest?.name ?? "the next quarter"} — a short walk.`);
+        await replyToCommand(ctx, evt, player, `You set off for ${dest?.name ?? "the next quarter"} — a short walk.`);
         ctx.logger.info({ player, from: current, to: target }, "district walk started");
       },
 

@@ -18,13 +18,15 @@
  * high bidder); the `bids` table is the auditable history. On the offers row an
  * auction's `price` starts at the reserve (starting price).
  */
-import { executeTrade, settleAuction, type Sql } from "@empire/db";
+import { executeTrade, settleAuction } from "@empire/db";
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
 import type { ModalSubmitInteraction } from "../gateway.js";
 import { auctionEmbed, buttonRow, modal } from "../ui-kit.js";
 import { notForMe, payloadString } from "../events.js";
-import { locationChannel } from "../locations.js";
+import { landChannel, locationChannel } from "../locations.js";
+import { currentGuildId } from "../players.js";
+import { replyToCommand } from "../reply.js";
 import { readNpcState, upsertNpcStateEntry } from "../npc-state.js";
 import { crossContinentCommerceBlock } from "../commerce.js";
 import { ulid } from "ulid";
@@ -56,31 +58,6 @@ interface OfferRow {
 }
 
 export function auctionCapability(): Capability {
-  async function landChannelFor(sql: Sql, playerId: string): Promise<string | null> {
-    const [plot] = await sql<{ text_channel_id: string | null }[]>`
-      SELECT text_channel_id FROM land_plots WHERE owner_id = ${playerId} AND pruned = false LIMIT 1
-    `;
-    return plot?.text_channel_id ?? null;
-  }
-
-  /** Resolve the ephemeral reply for a slash command (generic command.reply). */
-  async function reply(ctx: CapabilityContext, evt: BusEvent, player: string, message: string): Promise<void> {
-    await ctx.bus.publish({
-      type: "command.reply",
-      guildId: evt.guildId ?? null,
-      actor: { kind: "player", id: player },
-      subject: { kind: "npc", id: ctx.bot },
-      payload: { message },
-      correlationId: evt.correlationId ?? null,
-    });
-  }
-
-  /** A player's current continent (where their auction lists / renders). */
-  async function currentGuild(sql: Sql, playerId: string, fallback: string | null): Promise<string | null> {
-    const [row] = await sql<{ position_guild_id: string | null }[]>`SELECT position_guild_id FROM players WHERE discord_user_id = ${playerId}`;
-    return row?.position_guild_id ?? fallback;
-  }
-
   /**
    * Re-render a continent's Auction House board: ONE embed of that guild's open
    * auctions with a Place Bid button each (Discord's 25-button cap). Shares the
@@ -118,17 +95,17 @@ export function auctionCapability(): Capability {
     const startingPrice = Number(payloadString(evt, "starting_price", "0")) || 0;
     const duration = Number(payloadString(evt, "duration", "0")) || 0;
     if (!item || startingPrice <= 0 || duration <= 0) {
-      await reply(ctx, evt, seller, "Name a real ware, a starting price, and how many minutes it runs.");
+      await replyToCommand(ctx, evt, seller, "Name a real ware, a starting price, and how many minutes it runs.");
       return;
     }
     const [held] = await ctx.sql<{ qty: number }[]>`SELECT qty FROM inventories WHERE owner_kind = 'player' AND owner_id = ${seller} AND item_id = ${item}`;
     if ((held?.qty ?? 0) < qty) {
-      await reply(ctx, evt, seller, `You don't have ${qty}× ${item} to auction.`);
+      await replyToCommand(ctx, evt, seller, `You don't have ${qty}× ${item} to auction.`);
       return;
     }
-    const guildId = await currentGuild(ctx.sql, seller, evt.guildId ?? null);
+    const guildId = await currentGuildId(ctx.sql, seller, evt.guildId ?? null);
     if (!guildId) {
-      await reply(ctx, evt, seller, "You must be somewhere to open an auction.");
+      await replyToCommand(ctx, evt, seller, "You must be somewhere to open an auction.");
       return;
     }
 
@@ -154,7 +131,7 @@ export function auctionCapability(): Capability {
       // Nothing listed yet — drop the seeded escrow rows and bail.
       await ctx.sql`DELETE FROM balances WHERE owner_kind = 'auction' AND owner_id = ${offerId}`;
       await ctx.sql`DELETE FROM inventories WHERE owner_kind = 'auction' AND owner_id = ${offerId}`;
-      await reply(ctx, evt, seller, `You don't have ${qty}× ${item} to auction.`);
+      await replyToCommand(ctx, evt, seller, `You don't have ${qty}× ${item} to auction.`);
       return;
     }
 
@@ -164,7 +141,7 @@ export function auctionCapability(): Capability {
       VALUES (${offerId}, 'auction', 'player', ${seller}, ${item}, ${qty}, ${startingPrice}, 'sell', 'open', ${guildId}, ${expiresAt})
     `;
     await renderBoard(ctx, guildId);
-    await reply(ctx, evt, seller, `Auction opened: **${qty}× ${item}**, starting at **${startingPrice} gold**, for ${duration} min.`);
+    await replyToCommand(ctx, evt, seller, `Auction opened: **${qty}× ${item}**, starting at **${startingPrice} gold**, for ${duration} min.`);
   }
 
   /** Place Bid modal submitted → validate, escrow, refund prior high, claim high. */
@@ -238,7 +215,7 @@ export function auctionCapability(): Capability {
     if (offer.taker_id) {
       await refund(ctx, offerId, offer.taker_id, offer.price, offer.guild_id);
       await ctx.sql`UPDATE bids SET status = 'refunded' WHERE offer_id = ${offerId} AND bidder_id = ${offer.taker_id} AND status = 'held'`;
-      const outbidLand = await landChannelFor(ctx.sql, offer.taker_id);
+      const outbidLand = await landChannel(ctx.sql, offer.taker_id);
       if (outbidLand) {
         await ctx.gateway.sendToChannel(outbidLand, { content: `You've been outbid on **${offer.item_id}** — your ${offer.price} gold is refunded.` });
       }
@@ -281,9 +258,9 @@ export function auctionCapability(): Capability {
     if (!res.ok) return; // already settled (idempotent against tick re-fire)
 
     if (res.outcome === "won" && offer.taker_id) {
-      const winnerLand = await landChannelFor(ctx.sql, offer.taker_id);
+      const winnerLand = await landChannel(ctx.sql, offer.taker_id);
       if (winnerLand) await ctx.gateway.sendToChannel(winnerLand, { content: `You won the auction for **${offer.qty}× ${offer.item_id}** at **${offer.price} gold**!` });
-      const listerLand = await landChannelFor(ctx.sql, offer.maker_id);
+      const listerLand = await landChannel(ctx.sql, offer.maker_id);
       if (listerLand) await ctx.gateway.sendToChannel(listerLand, { content: `Your **${offer.item_id}** sold at auction for **${offer.price} gold**.` });
       // Realm-wide notice: the Herald's world.mirror fans this out to every
       // continent's town-crier (§9). Only sales are worth announcing — a no-bid
@@ -296,7 +273,7 @@ export function auctionCapability(): Capability {
         correlationId: evt.correlationId ?? null,
       });
     } else if (res.outcome === "unsold") {
-      const listerLand = await landChannelFor(ctx.sql, offer.maker_id);
+      const listerLand = await landChannel(ctx.sql, offer.maker_id);
       if (listerLand) await ctx.gateway.sendToChannel(listerLand, { content: `Your auction for **${offer.item_id}** ended with no bids — it's back in your pack.` });
     }
     if (offer.guild_id) await renderBoard(ctx, offer.guild_id);

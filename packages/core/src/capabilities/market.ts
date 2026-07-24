@@ -19,7 +19,9 @@ import type { BusEvent } from "../bus.js";
 import type { ComponentInteraction } from "../gateway.js";
 import { buttonRow, marketOverviewEmbed, stallEmbed, type MarketOverview } from "../ui-kit.js";
 import { notForMe, payloadString } from "../events.js";
-import { locationChannel } from "../locations.js";
+import { landChannel, locationChannel } from "../locations.js";
+import { currentGuildId } from "../players.js";
+import { replyToCommand } from "../reply.js";
 import { readNpcState, upsertNpcStateEntry } from "../npc-state.js";
 import { crossContinentCommerceBlock } from "../commerce.js";
 import { ulid } from "ulid";
@@ -124,25 +126,6 @@ export function marketCapability(): Capability {
     return rows.length > 0;
   }
 
-  async function landChannelFor(sql: Sql, playerId: string): Promise<string | null> {
-    const [plot] = await sql<{ text_channel_id: string | null }[]>`
-      SELECT text_channel_id FROM land_plots WHERE owner_id = ${playerId} AND pruned = false LIMIT 1
-    `;
-    return plot?.text_channel_id ?? null;
-  }
-
-  /** Resolve the /trade ephemeral reply (generic command.reply the commands cap settles). */
-  async function reply(ctx: CapabilityContext, evt: BusEvent, player: string, message: string): Promise<void> {
-    await ctx.bus.publish({
-      type: "command.reply",
-      guildId: evt.guildId ?? null,
-      actor: { kind: "player", id: player },
-      subject: { kind: "npc", id: ctx.bot },
-      payload: { message },
-      correlationId: evt.correlationId ?? null,
-    });
-  }
-
   /** Buyer/seller for a direct offer, from the proposer's `side` (sell=proposer gives item). */
   function parties(offer: OfferRow): { buyer: Party; seller: Party } {
     const proposer: Party = { kind: "player", id: offer.maker_id };
@@ -163,11 +146,11 @@ export function marketCapability(): Capability {
     const price = Number(payloadString(evt, "price", "0")) || 0;
 
     if (!recipient || recipient === proposer || !item || price <= 0) {
-      await reply(ctx, evt, proposer, "That offer doesn't make sense, friend.");
+      await replyToCommand(ctx, evt, proposer, "That offer doesn't make sense, friend.");
       return;
     }
     if (!(await areContacts(ctx.sql, proposer, recipient))) {
-      await reply(ctx, evt, proposer, "You don't know them yet — meet them in a district first.");
+      await replyToCommand(ctx, evt, proposer, "You don't know them yet — meet them in a district first.");
       return;
     }
 
@@ -186,13 +169,13 @@ export function marketCapability(): Capability {
     ]).toJSON();
 
     // Deliver to the recipient's land channel, falling back to the Marketplace board.
-    const channelId = (await landChannelFor(ctx.sql, recipient)) ?? (evt.guildId ? await locationChannel(ctx.sql, evt.guildId, "market") : null);
+    const channelId = (await landChannel(ctx.sql, recipient)) ?? (evt.guildId ? await locationChannel(ctx.sql, evt.guildId, "market") : null);
     if (!channelId) {
-      await reply(ctx, evt, proposer, "They have nowhere to receive it yet — no homestead or marketplace to reach.");
+      await replyToCommand(ctx, evt, proposer, "They have nowhere to receive it yet — no homestead or marketplace to reach.");
       return;
     }
     await ctx.gateway.sendToChannel(channelId, { content, components: [buttons as never] });
-    await reply(ctx, evt, proposer, `Offer sent to <@${recipient}>.`);
+    await replyToCommand(ctx, evt, proposer, `Offer sent to <@${recipient}>.`);
   }
 
   /** Accept/Decline click on a direct offer. */
@@ -247,16 +230,10 @@ export function marketCapability(): Capability {
     await interaction.update({ content: `*Deal struck — ${offer.qty}× ${offer.item_id} for ${offer.price} gold.*`, components: [] });
     await interaction.reply("Trade complete — check your purse and packs.");
     // Ping the counterparty (the proposer) in their land channel.
-    const proposerLand = await landChannelFor(ctx.sql, offer.maker_id);
+    const proposerLand = await landChannel(ctx.sql, offer.maker_id);
     if (proposerLand) {
       await ctx.gateway.sendToChannel(proposerLand, { content: `Your trade with <@${clicker}> settled: **${offer.qty}× ${offer.item_id}** for **${offer.price} gold**.` });
     }
-  }
-
-  /** A player's current continent (where a stall lists / renders). */
-  async function currentGuild(sql: Sql, playerId: string, fallback: string | null): Promise<string | null> {
-    const [row] = await sql<{ position_guild_id: string | null }[]>`SELECT position_guild_id FROM players WHERE discord_user_id = ${playerId}`;
-    return row?.position_guild_id ?? fallback;
   }
 
   /**
@@ -292,17 +269,17 @@ export function marketCapability(): Capability {
     const qty = Math.max(1, Number(payloadString(evt, "qty", "1")) || 1);
     const price = Number(payloadString(evt, "price", "0")) || 0;
     if (!item || price <= 0) {
-      await reply(ctx, evt, seller, "Name a real ware and a fair price, friend.");
+      await replyToCommand(ctx, evt, seller, "Name a real ware and a fair price, friend.");
       return;
     }
     const [held] = await ctx.sql<{ qty: number }[]>`SELECT qty FROM inventories WHERE owner_kind = 'player' AND owner_id = ${seller} AND item_id = ${item}`;
     if ((held?.qty ?? 0) < qty) {
-      await reply(ctx, evt, seller, `You don't have ${qty}× ${item} to sell.`);
+      await replyToCommand(ctx, evt, seller, `You don't have ${qty}× ${item} to sell.`);
       return;
     }
-    const guildId = await currentGuild(ctx.sql, seller, evt.guildId ?? null);
+    const guildId = await currentGuildId(ctx.sql, seller, evt.guildId ?? null);
     if (!guildId) {
-      await reply(ctx, evt, seller, "You must be somewhere to open a stall.");
+      await replyToCommand(ctx, evt, seller, "You must be somewhere to open a stall.");
       return;
     }
     await ctx.sql`
@@ -310,7 +287,7 @@ export function marketCapability(): Capability {
       VALUES (${`off_${ulid()}`}, 'order', 'player', ${seller}, ${item}, ${qty}, ${price}, 'sell', 'open', ${guildId})
     `;
     await renderBoard(ctx, guildId);
-    await reply(ctx, evt, seller, `Listed **${qty}× ${item}** for **${price} gold** on the Marketplace.`);
+    await replyToCommand(ctx, evt, seller, `Listed **${qty}× ${item}** for **${price} gold** on the Marketplace.`);
   }
 
   /** /stall cancel <item> — pull your listing(s) of an item. */
@@ -319,9 +296,9 @@ export function marketCapability(): Capability {
     if (!seller) return;
     const item = payloadString(evt, "item");
     const pulled = await ctx.sql`UPDATE offers SET status = 'cancelled' WHERE kind = 'order' AND status = 'open' AND maker_id = ${seller} AND item_id = ${item}`;
-    const guildId = await currentGuild(ctx.sql, seller, evt.guildId ?? null);
+    const guildId = await currentGuildId(ctx.sql, seller, evt.guildId ?? null);
     if (guildId) await renderBoard(ctx, guildId);
-    await reply(ctx, evt, seller, pulled.count > 0 ? `Pulled your ${item} from the stall.` : `You have no ${item} listed.`);
+    await replyToCommand(ctx, evt, seller, pulled.count > 0 ? `Pulled your ${item} from the stall.` : `You have no ${item} listed.`);
   }
 
   /** Buy click on a stall listing → atomic executeTrade + board refresh + receipts. */
@@ -364,7 +341,7 @@ export function marketCapability(): Capability {
       return;
     }
     await interaction.reply(`Bought **${offer.qty}× ${offer.item_id}** for **${offer.price} gold**.`);
-    const sellerLand = await landChannelFor(ctx.sql, offer.maker_id);
+    const sellerLand = await landChannel(ctx.sql, offer.maker_id);
     if (sellerLand) await ctx.gateway.sendToChannel(sellerLand, { content: `Someone bought **${offer.qty}× ${offer.item_id}** from your stall for **${offer.price} gold**.` });
     if (offer.guild_id) await renderBoard(ctx, offer.guild_id);
   }

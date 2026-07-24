@@ -27,6 +27,22 @@ export async function locationChannel(
 }
 
 /**
+ * The text channel of a player's land plot — where receipts, offers and trade
+ * notices land (§5.9 notify, §5.11 market). Null when they hold no plot yet, or
+ * it was never given a Discord surface.
+ *
+ * Pruned plots are excluded: their channel is deleted or archived, so the live
+ * plot is the only deliverable one. Four call sites re-inlined this SELECT, and
+ * each had to remember the `pruned = false` clause on its own.
+ */
+export async function landChannel(sql: Sql, playerId: string): Promise<string | null> {
+  const [plot] = await sql<{ text_channel_id: string | null }[]>`
+    SELECT text_channel_id FROM land_plots WHERE owner_id = ${playerId} AND pruned = false LIMIT 1
+  `;
+  return plot?.text_channel_id ?? null;
+}
+
+/**
  * The Discord voice-channel id for a logical wander/travel stop in a guild, or
  * null when unmapped (run world:init). world:init keys voice stops by
  * `<stop>_<guildId>` (kind='voice'), so a schedule/workflow stop name like

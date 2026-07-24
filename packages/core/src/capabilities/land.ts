@@ -29,6 +29,8 @@
 import type { Capability, CapabilityContext } from "../capability.js";
 import { locationChannel } from "../locations.js";
 import { payloadString } from "../events.js";
+import { playerTier, tierScaledMs } from "../players.js";
+import { publishReply } from "../reply.js";
 import { ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
 
 /**
@@ -38,15 +40,8 @@ import { ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
  */
 export const BUILD_PERMIT_ITEM = "build_permit";
 
-/** Idle pacing is hybrid: higher tiers build slower (§2.5). */
-export function scaledBuildMs(baseMs: number, tier: number): number {
-  return Math.round(baseMs * (1 + 0.5 * (tier - 1)));
-}
-
-async function playerTier(sql: Sql, playerId: string): Promise<number> {
-  const [row] = await sql<{ tier: number }[]>`SELECT tier FROM players WHERE discord_user_id = ${playerId}`;
-  return row?.tier ?? 1;
-}
+/** Build pacing (§2.5). Named re-export of the shared curve — see tierScaledMs. */
+export const scaledBuildMs = tierScaledMs;
 
 interface BlueprintRow {
   id: string;
@@ -138,24 +133,6 @@ async function ensurePlot(ctx: CapabilityContext, playerId: string, guildId: str
 }
 
 export function landCapability(): Capability {
-  /** Publish an in-fiction rejection the commands capability turns into a reply. */
-  async function publishRejection(
-    ctx: CapabilityContext,
-    player: string,
-    guildId: string | null,
-    correlationId: string | null,
-    message: string,
-  ): Promise<void> {
-    await ctx.bus.publish({
-      type: "build.rejected",
-      guildId,
-      actor: { kind: "player", id: player },
-      subject: { kind: "npc", id: ctx.bot },
-      payload: { message },
-      correlationId,
-    });
-  }
-
   return {
     name: "land",
     // Nothing imperative to consume — the player_build workflow (§7) drives the
@@ -185,14 +162,14 @@ export function landCapability(): Capability {
         // Guard: valid blueprint.
         const blueprint = blueprintId ? await loadBlueprint(ctx.sql, blueprintId) : null;
         if (!blueprint) {
-          await publishRejection(ctx, player, guildId, correlationId, "No such blueprint in the ledgers, friend.");
+          await publishReply(ctx, "build.rejected", { guildId, correlationId }, player, "No such blueprint in the ledgers, friend.");
           throw new Error("invalid blueprint");
         }
 
         // Guard: research-gated recipes require the unlock (§4 Architect). Checked
         // before staking a plot so a locked request costs nothing.
         if (!(await isBuildable(ctx.sql, player, blueprint.id))) {
-          await publishRejection(ctx, player, guildId, correlationId, "You haven't the blueprints for that yet — see the Architect.");
+          await publishReply(ctx, "build.rejected", { guildId, correlationId }, player, "You haven't the blueprints for that yet — see the Architect.");
           throw new Error("blueprint locked");
         }
 
@@ -295,7 +272,7 @@ export function landCapability(): Capability {
         if (player) {
           await ctx.sql`DELETE FROM build_queue WHERE owner_id = ${player} AND correlation_id = ${correlationId} AND status = 'queued'`;
         }
-        await publishRejection(ctx, player ?? "", evt?.guildId ?? null, correlationId, message);
+        await publishReply(ctx, "build.rejected", evt, player ?? "", message);
       },
     },
   };

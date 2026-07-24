@@ -12,24 +12,12 @@
  * stand" once you've moved.
  */
 import type { Capability, CapabilityContext } from "../capability.js";
-import type { BusEvent } from "../bus.js";
 import type { Continents } from "@empire/content-schemas";
 import { locationChannel } from "../locations.js";
+import { replyToCommand } from "../reply.js";
 import { ensurePlayer } from "@empire/db";
 
 export function wayfareCapability(continents: Continents): Capability {
-  /** Resolve the ephemeral /travel reply (a generic command.reply the commands cap settles). */
-  async function reply(ctx: CapabilityContext, evt: BusEvent | null, player: string, message: string): Promise<void> {
-    await ctx.bus.publish({
-      type: "command.reply",
-      guildId: evt?.guildId ?? null,
-      actor: { kind: "player", id: player },
-      subject: { kind: "npc", id: ctx.bot },
-      payload: { message },
-      correlationId: evt?.correlationId ?? null,
-    });
-  }
-
   return {
     name: "wayfare",
     consumes: [],
@@ -55,13 +43,13 @@ export function wayfareCapability(continents: Continents): Capability {
         const current = row?.position_guild_id ?? null;
         if (!current) {
           // Null position = mid-transit — one journey at a time.
-          await reply(ctx, evt, player, "You're already on the road, friend — one journey at a time.");
+          await replyToCommand(ctx, evt, player, "You're already on the road, friend — one journey at a time.");
           throw new Error("already travelling");
         }
 
         const neighbors = continents.continents[current]?.neighbors ?? [];
         if (!destination || !neighbors.includes(destination)) {
-          await reply(ctx, evt, player, "There's no road that way from here.");
+          await replyToCommand(ctx, evt, player, "There's no road that way from here.");
           throw new Error("invalid destination");
         }
 
@@ -70,7 +58,7 @@ export function wayfareCapability(continents: Continents): Capability {
           WHERE discord_user_id = ${player}
         `;
         const name = continents.continents[destination]?.name ?? "distant shores";
-        await reply(ctx, evt, player, `You set out for ${name} — you'll arrive in a few minutes.`);
+        await replyToCommand(ctx, evt, player, `You set out for ${name} — you'll arrive in a few minutes.`);
         ctx.logger.info({ player, from: current, to: destination }, "player departed");
       },
 

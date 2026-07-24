@@ -19,6 +19,8 @@
  */
 import type { Capability, CapabilityContext } from "../capability.js";
 import { payloadString } from "../events.js";
+import { playerTier, tierScaledMs } from "../players.js";
+import { publishReply } from "../reply.js";
 import { ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
 
 /**
@@ -29,15 +31,8 @@ import { ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
  */
 export const RESEARCH_PERMIT_ITEM = "research_permit";
 
-/** Idle pacing is hybrid: higher tiers research slower (§2.5) — same curve as builds. */
-export function scaledResearchMs(baseMs: number, tier: number): number {
-  return Math.round(baseMs * (1 + 0.5 * (tier - 1)));
-}
-
-async function playerTier(sql: Sql, playerId: string): Promise<number> {
-  const [row] = await sql<{ tier: number }[]>`SELECT tier FROM players WHERE discord_user_id = ${playerId}`;
-  return row?.tier ?? 1;
-}
+/** Research pacing (§2.5). Named re-export of the shared curve — see tierScaledMs. */
+export const scaledResearchMs = tierScaledMs;
 
 interface ResearchNodeRow {
   id: string;
@@ -65,24 +60,6 @@ async function doneResearch(sql: Sql, playerId: string): Promise<Set<string>> {
 }
 
 export function researchCapability(): Capability {
-  /** Publish an in-fiction rejection the commands capability turns into a reply. */
-  async function publishRejection(
-    ctx: CapabilityContext,
-    player: string,
-    guildId: string | null,
-    correlationId: string | null,
-    message: string,
-  ): Promise<void> {
-    await ctx.bus.publish({
-      type: "research.rejected",
-      guildId,
-      actor: { kind: "player", id: player },
-      subject: { kind: "npc", id: ctx.bot },
-      payload: { message },
-      correlationId,
-    });
-  }
-
   return {
     name: "research",
     // Nothing imperative to consume — the architect_research workflow (§7) drives
@@ -112,7 +89,7 @@ export function researchCapability(): Capability {
         // Guard: valid node.
         const node = nodeId ? await loadNode(ctx.sql, nodeId) : null;
         if (!node) {
-          await publishRejection(ctx, player, guildId, correlationId, "No such research in the archives, friend.");
+          await publishReply(ctx, "research.rejected", { guildId, correlationId }, player, "No such research in the archives, friend.");
           throw new Error("invalid research node");
         }
 
@@ -121,11 +98,11 @@ export function researchCapability(): Capability {
           SELECT status FROM research WHERE owner_id = ${player} AND research_id = ${node.id}
         `;
         if (existing?.status === "done") {
-          await publishRejection(ctx, player, guildId, correlationId, `You've already mastered **${node.name}**.`);
+          await publishReply(ctx, "research.rejected", { guildId, correlationId }, player, `You've already mastered **${node.name}**.`);
           throw new Error("research already done");
         }
         if (existing?.status === "in_progress") {
-          await publishRejection(ctx, player, guildId, correlationId, `**${node.name}** is already underway.`);
+          await publishReply(ctx, "research.rejected", { guildId, correlationId }, player, `**${node.name}** is already underway.`);
           throw new Error("research already in progress");
         }
 
@@ -133,11 +110,11 @@ export function researchCapability(): Capability {
         const done = await doneResearch(ctx.sql, player);
         const missing = node.prereqs.filter((p) => !done.has(p));
         if (missing.length > 0) {
-          await publishRejection(
+          await publishReply(
             ctx,
+            "research.rejected",
+            { guildId, correlationId },
             player,
-            guildId,
-            correlationId,
             `**${node.name}** needs more groundwork first: ${missing.join(", ")}.`,
           );
           throw new Error("research prereqs unmet");
@@ -258,7 +235,7 @@ export function researchCapability(): Capability {
               AND status = 'in_progress' AND completes_at IS NULL
           `;
         }
-        await publishRejection(ctx, player ?? "", evt?.guildId ?? null, correlationId, message);
+        await publishReply(ctx, "research.rejected", evt, player ?? "", message);
       },
     },
   };

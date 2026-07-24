@@ -6,7 +6,10 @@ export type { BusEvent, PublishInput, EventHandler } from "./bus.js";
 export { notForMe, payloadString } from "./events.js";
 export { Backoff } from "./backoff.js";
 export type { BackoffOptions } from "./backoff.js";
-export { locationChannel, voiceStopChannel } from "./locations.js";
+export { locationChannel, voiceStopChannel, landChannel } from "./locations.js";
+export { playerTier, currentGuildId, tierScaledMs } from "./players.js";
+export { publishReply, replyToCommand } from "./reply.js";
+export type { ReplySource } from "./reply.js";
 export { readNpcState, upsertNpcStateEntry, deleteNpcStateEntry } from "./npc-state.js";
 export { Gateway, toApplicationCommandJson } from "./gateway.js";
 export type {

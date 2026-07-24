@@ -15,6 +15,7 @@
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
 import { notForMe, payloadString } from "../events.js";
+import { landChannel } from "../locations.js";
 
 export interface NotifyPrefs {
   target: "land" | "dm";
@@ -41,17 +42,14 @@ async function deliver(ctx: CapabilityContext, playerId: string, message: string
   if (prefs.dm && prefs.target === "dm") {
     ctx.logger.info({ playerId }, "notify: DM not yet supported; falling back to land channel");
   }
-  // Land plot lookup resolves the concrete channel in the bot process. Exclude
-  // pruned plots — their channel is deleted/archived — so we target the live one.
-  const [plot] = await ctx.sql<{ text_channel_id: string | null }[]>`
-    SELECT text_channel_id FROM land_plots WHERE owner_id = ${playerId} AND pruned = false LIMIT 1
-  `;
-  if (!plot?.text_channel_id) {
+  // Land plot lookup resolves the concrete channel in the bot process.
+  const channelId = await landChannel(ctx.sql, playerId);
+  if (!channelId) {
     ctx.logger.warn({ playerId }, "notify: no land channel; skipping (fallback exhausted)");
     return;
   }
-  await ctx.gateway.sendToChannel(plot.text_channel_id, message);
-  ctx.logger.info({ playerId, channel: plot.text_channel_id }, "notify delivered");
+  await ctx.gateway.sendToChannel(channelId, message);
+  ctx.logger.info({ playerId, channel: channelId }, "notify delivered");
 }
 
 export function notifyCapability(): Capability {
