@@ -86,10 +86,14 @@ function toEvent(row: Row): BusEvent {
   };
 }
 
+/** How many backlog rows one drain query pulls before looping for more. */
+const DRAIN_BATCH = 500;
+
 export class EventBus {
   private listen: { unlisten: () => Promise<void> } | null = null;
-  private buffer: BusEvent[] = [];
   private draining = false;
+  /** A notification arrived while draining — go round once more when it ends. */
+  private pending = false;
   private started = false;
   private lastProcessedId = 0n;
 
@@ -157,47 +161,82 @@ export class EventBus {
       `;
     }
 
-    // 1) LISTEN first — buffer anything that arrives during replay.
-    this.listen = await this.sql.listen(CHANNEL, (payload) => {
-      void this.onNotify(payload, handler);
+    // 1) LISTEN first — buffer anything that arrives during replay. The callback
+    //    is fire-and-forget, so its rejection would be an UNHANDLED one (which
+    //    kills the process): everything below must settle, never throw.
+    this.listen = await this.sql.listen(CHANNEL, () => {
+      void this.onNotify(handler).catch((err) => {
+        this.log.error({ err }, "bus notification handling failed");
+      });
     });
 
-    // 2) Replay everything committed after our cursor. bigint is passed as text
-    //    and compared via ::bigint (postgres-js's typed template rejects bigint).
-    const backlog = await this.sql<Row[]>`
-      SELECT * FROM events WHERE id > ${this.lastProcessedId.toString()}::bigint ORDER BY id ASC
-    `;
-    for (const row of backlog) {
-      await this.dispatch(toEvent(row), handler);
-    }
-
-    // 3) Drain the live buffer (de-dup handled in dispatch by id ordering).
+    // 2) + 3) Replay the backlog and then keep up with live traffic — both are
+    //    the same "read forward from the cursor" drain, so a notification that
+    //    lands mid-replay is picked up by the same loop rather than racing it.
     await this.drain(handler);
   }
 
-  private async onNotify(payload: string, handler: EventHandler): Promise<void> {
-    const dbId = BigInt(payload);
-    const [row] = await this.sql<Row[]>`SELECT * FROM events WHERE id = ${dbId.toString()}::bigint`;
-    if (!row) return;
-    this.buffer.push(toEvent(row));
+  /**
+   * A notification is only a WAKE-UP SIGNAL; its payload (the event id) is
+   * deliberately ignored.
+   *
+   * Fetching the notified row directly looks cheaper, but it loses events: two
+   * NOTIFYs deliver concurrently, each did its own async read, and whichever
+   * read resolved first got dispatched first. A later event landing first
+   * advanced the cursor past an earlier one, which `dispatch` then discarded as
+   * already-seen. Draining forward from the cursor is ordered by construction.
+   */
+  private async onNotify(handler: EventHandler): Promise<void> {
     await this.drain(handler);
   }
 
+  /**
+   * Deliver every committed event after the cursor, in id order, until there is
+   * nothing left. Re-entrant calls set `pending` instead of running a second
+   * interleaved drain, and the outer loop then goes round again — so a
+   * notification arriving mid-drain is never dropped on the floor.
+   */
   private async drain(handler: EventHandler): Promise<void> {
-    if (this.draining) return;
+    if (this.draining) {
+      this.pending = true;
+      return;
+    }
     this.draining = true;
     try {
-      // Process in id order; de-dup: skip anything at/under the cursor.
-      this.buffer.sort((a, b) => (BigInt(a.dbId) < BigInt(b.dbId) ? -1 : 1));
-      while (this.buffer.length > 0) {
-        const evt = this.buffer.shift()!;
-        await this.dispatch(evt, handler);
-      }
+      do {
+        this.pending = false;
+        let batch: Row[];
+        do {
+          // bigint is passed as text and compared via ::bigint (postgres-js's
+          // typed template rejects a JS bigint parameter).
+          batch = await this.sql<Row[]>`
+            SELECT * FROM events
+             WHERE id > ${this.lastProcessedId.toString()}::bigint
+             ORDER BY id ASC
+             LIMIT ${DRAIN_BATCH}
+          `;
+          for (const row of batch) await this.dispatch(toEvent(row), handler);
+        } while (batch.length === DRAIN_BATCH);
+      } while (this.pending);
     } finally {
       this.draining = false;
     }
   }
 
+  /**
+   * Run one event through the handler and advance the cursor.
+   *
+   * A failing handler is LOGGED AND SKIPPED, never rethrown. Rethrowing would be
+   * doubly fatal: during replay it rejects `subscribe()` (which every bot's
+   * entrypoint turns into `process.exit(1)`), and on the live path it becomes an
+   * unhandled rejection — and because the cursor only advances past a handled
+   * event, the very same event replays on the next boot and crashes again. One
+   * bad Discord call would wedge a bot in a permanent crash loop.
+   *
+   * So the cursor advances regardless: the bus's job is delivery, and a handler
+   * that couldn't cope with an event is a handler-level problem to surface in
+   * logs (and via the Ops bot's event log), not a reason to stop the world.
+   */
   private async dispatch(evt: BusEvent, handler: EventHandler): Promise<void> {
     const id = BigInt(evt.dbId);
     // De-dup: replay + a buffered copy of the same event must run exactly once.
@@ -206,14 +245,19 @@ export class EventBus {
     try {
       await handler(evt);
     } catch (err) {
-      log.error({ err, event: evt.type, dbId: evt.dbId }, "event handler failed");
-      throw err;
+      log.error({ err, event: evt.type, dbId: evt.dbId }, "event handler failed; skipping event");
     }
     this.lastProcessedId = id;
-    await this.sql`
-      UPDATE bus_cursors SET last_processed_id = ${id.toString()}::bigint, updated_at = now()
-      WHERE consumer = ${this.consumer}
-    `;
+    try {
+      await this.sql`
+        UPDATE bus_cursors SET last_processed_id = ${id.toString()}::bigint, updated_at = now()
+        WHERE consumer = ${this.consumer}
+      `;
+    } catch (err) {
+      // A cursor write is a checkpoint, not the work itself — losing one only
+      // costs a re-delivery on the next boot (handlers are idempotent by design).
+      log.error({ err, dbId: evt.dbId }, "failed to persist bus cursor");
+    }
   }
 
   async close(): Promise<void> {
