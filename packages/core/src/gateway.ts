@@ -16,9 +16,7 @@ import {
   Routes,
   ThreadAutoArchiveDuration,
   type GuildTextBasedChannel,
-  type SendableChannels,
   type MessageCreateOptions,
-  type MessagePayload,
   type Guild,
   type TextChannel,
   type ModalBuilder,
@@ -179,11 +177,12 @@ export function toApplicationCommandJson(defs: CommandRegistration[]): unknown[]
 
 /**
  * A minimal FIFO queue so bursty outbound work (e.g. thirty role grants from one
- * event, §9) is serialized per bot. Capabilities pass cost hints via `weight`.
+ * event, §9) is serialized per bot — discord.js does the actual rate-limit
+ * bucketing, this just keeps us from firing a burst at it all at once.
  */
 class CallQueue {
   private chain: Promise<unknown> = Promise.resolve();
-  enqueue<T>(fn: () => Promise<T>, _weight = 1): Promise<T> {
+  enqueue<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.chain.then(fn, fn);
     this.chain = run.catch(() => {});
     return run as Promise<T>;
@@ -244,7 +243,7 @@ export class Gateway {
               this.queue
                 .enqueue(async () => {
                   await interaction.followUp({ content, ephemeral: true });
-                }, 1)
+                })
                 .catch((err) => {
                   this.log.warn({ err, customId: interaction.customId }, "failed to send ephemeral follow-up");
                 }),
@@ -252,7 +251,7 @@ export class Gateway {
               this.queue
                 .enqueue(async () => {
                   await interaction.editReply(content as Parameters<typeof interaction.editReply>[0]);
-                }, 1)
+                })
                 .catch((err) => {
                   this.log.warn({ err, customId: interaction.customId }, "failed to edit component message");
                 }),
@@ -289,7 +288,7 @@ export class Gateway {
                 .enqueue(async () => {
                   const payload = typeof response === "string" ? { content: response } : response;
                   await interaction.editReply(payload as never);
-                }, 1)
+                })
                 .catch((err) => {
                   this.log.warn({ err, command: interaction.commandName }, "failed to edit deferred reply");
                 }),
@@ -350,7 +349,7 @@ export class Gateway {
                   if (!interaction.deferred && !interaction.replied)
                     await interaction.deferReply({ ephemeral: true });
                   await interaction.editReply({ content });
-                }, 1)
+                })
                 .catch((err) => {
                   this.log.warn({ err, customId: interaction.customId }, "failed to reply to modal submit");
                 }),
@@ -429,7 +428,7 @@ export class Gateway {
     await this.queue.enqueue(async () => {
       await rest.put(Routes.applicationGuildCommands(appId, guildId), { body });
       this.log.info({ guildId, commands: defs.map((def) => def.name) }, "slash commands registered");
-    }, 2);
+    });
   }
 
   async login(): Promise<void> {
@@ -458,17 +457,12 @@ export class Gateway {
             this.log.warn({ err, guildId }, "failed to set nickname");
           });
         }
-      }, 2);
+      });
     }
   }
 
   async fetchGuild(guildId: string): Promise<Guild | null> {
     return this.client.guilds.cache.get(guildId) ?? null;
-  }
-
-  /** Send a message through the queue; caller resolves the persona for wording. */
-  send(channel: SendableChannels, content: string | MessagePayload | MessageCreateOptions): Promise<unknown> {
-    return this.queue.enqueue(async () => channel.send(content), 1);
   }
 
   /** Resolve a guild text-based channel (text channel or thread) by id. */
@@ -481,20 +475,38 @@ export class Gateway {
     return channel;
   }
 
-  /** Send plain-data message options (embeds/components JSON) to a channel or thread. */
+  /**
+   * Send plain-data message options (embeds/components JSON) to a channel or
+   * thread; returns the new message id, or null if it couldn't be delivered.
+   *
+   * Delivery failures (a revoked SEND_MESSAGES, a since-deleted channel, a 5xx)
+   * resolve to null rather than rejecting. Most callers are bus handlers, and a
+   * rejection there would be logged-and-skipped by the bus at best — better to
+   * make "couldn't post" an ordinary outcome, matching the missing-channel case.
+   */
   sendToChannel(channelId: string, content: string | MessageCreateOptions): Promise<string | null> {
     return this.queue.enqueue(async () => {
       const channel = await this.fetchTextBased(channelId);
       if (!channel) return null;
-      const message = await channel.send(content);
-      return message.id;
-    }, 1);
+      try {
+        const message = await channel.send(content);
+        return message.id;
+      } catch (err) {
+        this.log.warn({ err, channelId }, "failed to send message (need Send Messages?)");
+        return null;
+      }
+    });
   }
 
   /**
    * Keep one pinned message per (channel, purpose): edit the known message if
    * it still exists, otherwise send a fresh one and pin it. Returns the id the
    * caller should persist for the next upsert (§5.3 "a pinned embed").
+   *
+   * A FAILED EDIT keeps the existing id rather than posting a replacement: the
+   * surface goes stale until the next render instead of leaving a second pinned
+   * embed behind every time Discord hiccups. A deleted message is a different
+   * case — the fetch returns null and we legitimately post a fresh one.
    */
   upsertPinnedMessage(
     channelId: string,
@@ -507,16 +519,26 @@ export class Gateway {
       if (existingMessageId) {
         const existing = await channel.messages.fetch(existingMessageId).catch(() => null);
         if (existing) {
-          await existing.edit({ content: content.content ?? null, embeds: content.embeds ?? [], components: content.components ?? [] });
+          try {
+            await existing.edit({ content: content.content ?? null, embeds: content.embeds ?? [], components: content.components ?? [] });
+          } catch (err) {
+            this.log.warn({ err, channelId, messageId: existing.id }, "failed to edit pinned message; leaving it stale");
+          }
           return existing.id;
         }
       }
-      const message = await channel.send(content);
+      let message;
+      try {
+        message = await channel.send(content);
+      } catch (err) {
+        this.log.warn({ err, channelId }, "failed to post pinned message (need Send Messages?)");
+        return null;
+      }
       await message.pin().catch((err) => {
         this.log.warn({ err, channelId }, "failed to pin message (need Manage Messages)");
       });
       return message.id;
-    }, 2);
+    });
   }
 
   /**
@@ -547,17 +569,23 @@ export class Gateway {
         });
       } catch (err) {
         this.log.warn({ err, channelId }, "private thread failed; falling back to public");
-        thread = await parent.threads.create({
-          name,
-          type: ChannelType.PublicThread,
-          autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
-        });
+        try {
+          thread = await parent.threads.create({
+            name,
+            type: ChannelType.PublicThread,
+            autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
+          });
+        } catch (fallbackErr) {
+          // No thread at all — the caller skips the render rather than crashing.
+          this.log.warn({ err: fallbackErr, channelId }, "public thread fallback failed too (need Create Threads?)");
+          return null;
+        }
       }
       await thread.members.add(userId).catch((err) => {
         this.log.warn({ err, userId }, "failed to add player to thread");
       });
       return thread.id;
-    }, 2);
+    });
   }
 
   /**
@@ -592,7 +620,7 @@ export class Gateway {
         if (text) await text.delete().catch(() => {}); // roll back the orphaned text channel
         return null;
       }
-    }, 2);
+    });
   }
 
   /**
@@ -610,7 +638,7 @@ export class Gateway {
       await member.roles.add(roleId).catch((err) => {
         this.log.warn({ err, guildId, userId, roleId }, "failed to grant role (need Manage Roles / role hierarchy)");
       });
-    }, 1);
+    });
   }
 
   archiveThread(threadId: string): Promise<void> {
@@ -620,7 +648,7 @@ export class Gateway {
       await channel.setArchived(true).catch((err) => {
         this.log.warn({ err, threadId }, "failed to archive thread");
       });
-    }, 1);
+    });
   }
 
   /**
