@@ -20,14 +20,24 @@ const commands: CommandDef[] = [
     description: "Queue a building on your land",
     route: "build.requested",
     options: [{ name: "blueprint", description: "What to build", autocomplete: true, required: true }],
-    autocomplete: async (ctx, typed) => {
+    autocomplete: async (ctx, typed, userId) => {
       const like = `%${typed.toLowerCase()}%`;
       const rows = await ctx.sql<{ id: string; name: string; cost_gold: number }[]>`
         SELECT id, name, cost_gold FROM blueprint_catalog
         WHERE lower(name) LIKE ${like} OR lower(id) LIKE ${like}
-        ORDER BY cost_gold ASC LIMIT 25
+        ORDER BY cost_gold ASC
       `;
-      return rows.map((r) => ({ name: `${r.name} (${r.cost_gold}g)`, value: r.id }));
+      // Gate research-locked recipes (§4 Architect): a blueprint granted by some
+      // research node only appears once the player owns it (via /research).
+      // Ungated recipes (farm/forge) always show. Filter then cap at 25.
+      const gatedRows = await ctx.sql<{ grants_blueprints: string[] }[]>`SELECT grants_blueprints FROM research_catalog`;
+      const gated = new Set(gatedRows.flatMap((r) => r.grants_blueprints));
+      const ownedRows = await ctx.sql<{ blueprint_id: string }[]>`SELECT blueprint_id FROM blueprints WHERE owner_id = ${userId}`;
+      const owned = new Set(ownedRows.map((r) => r.blueprint_id));
+      return rows
+        .filter((r) => !gated.has(r.id) || owned.has(r.id))
+        .slice(0, 25)
+        .map((r) => ({ name: `${r.name} (${r.cost_gold}g)`, value: r.id }));
     },
   },
   {

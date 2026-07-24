@@ -28,12 +28,18 @@ interface World {
   channelUpdates?: number;
   /** row the guarded build_queue completion UPDATE returns (null = already done). */
   completeRow?: { owner_id: string; blueprint_id: string } | null;
+  /** true = some research node gates this blueprint (isBuildable's first probe). */
+  gated?: boolean;
+  /** true = the player owns the (gated) blueprint via research/found. */
+  owned?: boolean;
 }
 
 function makeCtx(world: World): CapabilityContext {
   const sql = (strings: TemplateStringsArray): Promise<unknown[]> => {
     const q = strings.join("?");
     if (q.includes("FROM blueprint_catalog")) return Promise.resolve(world.blueprint ? [world.blueprint] : []);
+    if (q.includes("FROM research_catalog")) return Promise.resolve(world.gated ? [{ one: 1 }] : []);
+    if (q.includes("FROM blueprints")) return Promise.resolve(world.owned ? [{ one: 1 }] : []);
     if (q.includes("FROM locations"))
       return Promise.resolve(world.landCategoryId ? [{ channel_id: world.landCategoryId }] : []);
     if (q.includes("FROM land_plots"))
@@ -150,6 +156,23 @@ describe("build.request — guards → stake → charge (§10 Builder)", () => {
     const world = base({});
     await verb(landCapability(), "build.request", {}, evt({ type: "build.requested", payload: { blueprint: "farm" } }), makeCtx(world));
     expect(world.plotInserts).toBe(0);
+  });
+
+  it("rejects a research-gated blueprint the player hasn't unlocked and throws", async () => {
+    const world = base({ gated: true, owned: false });
+    await expect(
+      verb(landCapability(), "build.request", {}, evt({ type: "build.requested", payload: { blueprint: "trade_post" } }), makeCtx(world)),
+    ).rejects.toThrow();
+    const rej = world.published.find((e) => e.type === "build.rejected");
+    expect(String(rej?.payload?.message)).toContain("Architect");
+    expect(world.published.find((e) => e.type === "trade.request")).toBeUndefined();
+    expect(world.plotInserts).toBe(0); // guarded before staking a plot
+  });
+
+  it("allows a gated blueprint once the player owns it (research unlocked)", async () => {
+    const world = base({ gated: true, owned: true });
+    await verb(landCapability(), "build.request", {}, evt({ type: "build.requested", payload: { blueprint: "trade_post" } }), makeCtx(world));
+    expect(world.published.find((e) => e.type === "trade.request")).toBeDefined();
   });
 
   it("allows concurrent builds — a second request also charges (no serialize block)", async () => {

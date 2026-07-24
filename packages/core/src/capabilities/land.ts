@@ -63,6 +63,24 @@ async function loadBlueprint(sql: Sql, id: string): Promise<BlueprintRow | null>
 }
 
 /**
+ * A blueprint is buildable iff it is NOT gated behind research — i.e. no research
+ * node grants it — OR the player already owns it (granted by completed research,
+ * §4 Architect, or found). Starter recipes like farm/forge are granted by nothing,
+ * so they always build; research-gated ones stay hidden until unlocked.
+ */
+async function isBuildable(sql: Sql, playerId: string, blueprintId: string): Promise<boolean> {
+  const [gated] = await sql<{ one: number }[]>`
+    SELECT 1 AS one FROM research_catalog
+    WHERE grants_blueprints @> ${JSON.stringify([blueprintId])} LIMIT 1
+  `;
+  if (!gated) return true;
+  const [owned] = await sql<{ one: number }[]>`
+    SELECT 1 AS one FROM blueprints WHERE owner_id = ${playerId} AND blueprint_id = ${blueprintId} LIMIT 1
+  `;
+  return Boolean(owned);
+}
+
+/**
  * Give a plot its Discord surface: a text + voice channel under the guild's
  * "Land" category (seeded by world:init as a `locations` row of kind 'land').
  * Best-effort — a missing category or Manage Channels permission logs and
@@ -169,6 +187,13 @@ export function landCapability(): Capability {
         if (!blueprint) {
           await publishRejection(ctx, player, guildId, correlationId, "No such blueprint in the ledgers, friend.");
           throw new Error("invalid blueprint");
+        }
+
+        // Guard: research-gated recipes require the unlock (§4 Architect). Checked
+        // before staking a plot so a locked request costs nothing.
+        if (!(await isBuildable(ctx.sql, player, blueprint.id))) {
+          await publishRejection(ctx, player, guildId, correlationId, "You haven't the blueprints for that yet — see the Architect.");
+          throw new Error("blueprint locked");
         }
 
         // First build stakes a starter plot and provisions its channels.
