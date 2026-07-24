@@ -22,12 +22,12 @@ import { executeTrade, settleAuction } from "@empire/db";
 import type { Capability, CapabilityContext } from "../capability.js";
 import type { BusEvent } from "../bus.js";
 import type { ModalSubmitInteraction } from "../gateway.js";
-import { auctionEmbed, buttonRow, modal } from "../ui-kit.js";
+import { auctionEmbed, modal } from "../ui-kit.js";
+import { renderOfferBoard, type OfferBoard, type OfferRow } from "./offer-board.js";
 import { notForMe, payloadString } from "../events.js";
-import { landChannel, locationChannel } from "../locations.js";
+import { landChannel } from "../locations.js";
 import { currentGuildId } from "../players.js";
 import { replyToCommand } from "../reply.js";
-import { readNpcState, upsertNpcStateEntry } from "../npc-state.js";
 import { crossContinentCommerceBlock } from "../commerce.js";
 import { ulid } from "ulid";
 
@@ -44,47 +44,23 @@ const TOKEN_STOCK = 1_000_000;
 const BID_ID = /^auc:bid:(.+)$/;
 const BID_FIELD = "amount";
 
-interface OfferRow {
-  id: string;
-  kind: string;
-  maker_id: string;
-  taker_id: string | null;
-  item_id: string;
-  qty: number;
-  price: number;
-  status: string;
-  guild_id: string | null;
-  expires_at: string | null;
-}
-
 export function auctionCapability(): Capability {
   /**
-   * Re-render a continent's Auction House board: ONE embed of that guild's open
-   * auctions with a Place Bid button each (Discord's 25-button cap). Shares the
-   * Marketplace channel with the stall board but is tracked SEPARATELY in the
-   * exchange bot's npcs.state.auction_boards[guild].
+   * A continent's Auction House board: that guild's live lots, each with a Place
+   * Bid button. Shares the Marketplace channel with the stall board but is
+   * tracked under its OWN npcs.state key, so the two pinned messages don't
+   * clobber each other.
    */
-  async function renderBoard(ctx: CapabilityContext, guildId: string): Promise<void> {
-    const channelId = await locationChannel(ctx.sql, guildId, "market");
-    if (!channelId) {
-      ctx.logger.warn({ guildId }, "no Marketplace channel — run world:init");
-      return;
-    }
-    const offers = await ctx.sql<OfferRow[]>`
-      SELECT * FROM offers WHERE kind = 'auction' AND status = 'open' AND guild_id = ${guildId} ORDER BY id LIMIT 25
-    `;
-    const embed = auctionEmbed(
-      "Auction House",
-      offers.map((o) => ({ name: `${o.qty}× ${o.item_id}`, bid: o.price, hasBid: o.taker_id != null })),
-    );
-    const rows: unknown[] = [];
-    for (let i = 0; i < offers.length; i += 5) {
-      rows.push(buttonRow(offers.slice(i, i + 5).map((o) => ({ id: `auc:bid:${o.id}`, label: `Bid on ${o.item_id}` }))).toJSON());
-    }
-    const state = await readNpcState<{ auction_boards?: Record<string, string> }>(ctx.sql, ctx.bot);
-    const messageId = await ctx.gateway.upsertPinnedMessage(channelId, state.auction_boards?.[guildId] ?? null, { embeds: [embed.toJSON()], components: rows as never[] });
-    if (messageId) await upsertNpcStateEntry(ctx.sql, ctx.bot, "auction_boards", guildId, messageId);
-  }
+  const AUCTION_BOARD: OfferBoard = {
+    kind: "auction",
+    stateKey: "auction_boards",
+    embed: (offers) =>
+      auctionEmbed("Auction House", offers.map((o) => ({ name: `${o.qty}× ${o.item_id}`, bid: o.price, hasBid: o.taker_id != null }))),
+    button: (o) => ({ id: `auc:bid:${o.id}`, label: `Bid on ${o.item_id}` }),
+  };
+
+  const renderBoard = (ctx: CapabilityContext, guildId: string): Promise<void> =>
+    renderOfferBoard(ctx, guildId, AUCTION_BOARD);
 
   /** /auction <item> <qty> <starting_price> <duration> — open a timed auction. */
   async function listAuction(evt: BusEvent, ctx: CapabilityContext): Promise<void> {
