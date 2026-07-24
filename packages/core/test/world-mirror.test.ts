@@ -11,6 +11,8 @@ import type { CapabilityContext } from "../src/capability.js";
 interface World {
   criers: { channel_id: string | null }[];
   posts: { channelId: string; content: string }[];
+  /** channel ids whose send() should throw (deleted channel / missing perm). */
+  failing?: Set<string>;
 }
 
 function makeCtx(world: World): CapabilityContext {
@@ -25,6 +27,7 @@ function makeCtx(world: World): CapabilityContext {
     bus: {} as unknown as CapabilityContext["bus"],
     gateway: {
       sendToChannel: async (channelId: string, content: { content?: string }) => {
+        if (world.failing?.has(channelId)) throw new Error("Missing Permissions");
         world.posts.push({ channelId, content: content.content ?? "" });
         return "msg_1";
       },
@@ -63,5 +66,15 @@ describe("world.mirror (§9)", () => {
     const world: World = { criers: [{ channel_id: "crier1" }], posts: [] };
     await worldMirrorCapability().handle!(announce(), makeCtx(world));
     expect(world.posts).toHaveLength(0);
+  });
+
+  it("keeps broadcasting when one continent's channel throws", async () => {
+    const world: World = {
+      criers: [{ channel_id: "crier1" }, { channel_id: "boom" }, { channel_id: "crier3" }],
+      posts: [],
+      failing: new Set(["boom"]),
+    };
+    await worldMirrorCapability().handle!(announce("news"), makeCtx(world));
+    expect(world.posts.map((p) => p.channelId)).toEqual(["crier1", "crier3"]);
   });
 });

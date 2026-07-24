@@ -30,10 +30,16 @@ export function worldMirrorCapability(): Capability {
       let posted = 0;
       for (const crier of criers) {
         if (!crier.channel_id) continue;
-        await ctx.gateway.sendToChannel(crier.channel_id, { content: message });
-        posted += 1;
+        // Isolate each continent: a deleted channel or a missing SEND perm on one
+        // crier must not abort the broadcast to the others.
+        try {
+          await ctx.gateway.sendToChannel(crier.channel_id, { content: message });
+          posted += 1;
+        } catch (err) {
+          ctx.logger.warn({ err, channelId: crier.channel_id }, "crier broadcast failed for one continent");
+        }
       }
-      ctx.logger.info({ posted, type: evt.type }, "world announcement mirrored to criers");
+      ctx.logger.info({ posted, total: criers.length, type: evt.type }, "world announcement mirrored to criers");
     },
   };
 }

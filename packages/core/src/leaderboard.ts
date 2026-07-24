@@ -36,11 +36,14 @@ export function renownScore(r: { gold: number; builds: number; research: number 
  * top LEADERBOARD_SIZE, score-descending.
  */
 export async function leaderboardRows(sql: Sql): Promise<LeaderboardRow[]> {
+  // No ::int casts: int8 columns (balances.amount, count(*)) come back as JS
+  // numbers via the driver's global bigint parser (see @empire/db openDb), and
+  // ::int (int4) would add a needless 2.1B overflow cliff on gold.
   const rows = await sql<{ player: string; gold: number; builds: number; research: number }[]>`
     SELECT p.discord_user_id AS player,
-           COALESCE(b.amount, 0)::int AS gold,
-           COALESCE(bc.n, 0)::int     AS builds,
-           COALESCE(rc.n, 0)::int     AS research
+           COALESCE(b.amount, 0) AS gold,
+           COALESCE(bc.n, 0)     AS builds,
+           COALESCE(rc.n, 0)     AS research
       FROM players p
       LEFT JOIN balances b
         ON b.owner_kind = 'player' AND b.owner_id = p.discord_user_id AND b.currency = 'gold'
