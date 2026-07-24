@@ -84,7 +84,10 @@ export function renderCapability(): Capability {
     const known = await loadThreadId(ctx.sql, ctx.bot, playerId);
     if (known) return known;
     const guildId = evt.guildId;
-    if (!guildId) return null;
+    // No persona on that continent means this NPC isn't there to talk to.
+    // Checked rather than letting resolve() throw — this runs from a bus
+    // handler, where a throw is only ever logged and skipped.
+    if (!guildId || !ctx.personas.has(guildId)) return null;
     const channelId = await bazaarChannel(ctx.sql, guildId);
     if (!channelId) {
       ctx.logger.warn({ guildId }, "no bazaar location for guild — run world:init");
@@ -124,7 +127,8 @@ export function renderCapability(): Capability {
 
         case "stall.closed": {
           // Re-render as closed: swap the pinned embed for the closed state.
-          if (!evt.guildId) return;
+          // No persona on that continent means no stall was ever drawn there.
+          if (!evt.guildId || !ctx.personas.has(evt.guildId)) return;
           const persona = ctx.personas.resolve(evt.guildId);
           const channelId = await bazaarChannel(ctx.sql, evt.guildId);
           if (!channelId) return;

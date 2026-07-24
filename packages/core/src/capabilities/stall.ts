@@ -10,6 +10,7 @@
 import type { Shop } from "@empire/content-schemas";
 import type { Capability, CapabilityContext } from "../capability.js";
 import { stallEmbed, buttonRow } from "../ui-kit.js";
+import { notForMe } from "../events.js";
 import { requiresPresence } from "./topology.js";
 import { ensurePlayer, type Sql } from "@empire/db";
 
@@ -37,6 +38,13 @@ export function stallCapability(shop: Shop): Capability {
     actions: {
       "stall.open": async (_args, evt, ctx: CapabilityContext) => {
         const guildId = ctx.personas.homeGuild(evt?.guildId);
+        // No persona here means this NPC doesn't exist on that continent, so it
+        // has no stall to draw. Checked rather than letting resolve() throw: this
+        // runs from a bus handler, where a throw is only ever logged and skipped.
+        if (!ctx.personas.has(guildId)) {
+          ctx.logger.debug({ guildId }, "no persona on this continent — skipping stall render");
+          return;
+        }
         const persona = ctx.personas.resolve(guildId);
         const items = await liveItems(ctx.sql, ctx.bot, shop);
         const embed = stallEmbed(`${persona.nickname}'s Stall`, items);
@@ -84,9 +92,14 @@ export function stallCapability(shop: Shop): Capability {
         });
       });
     },
-    /** Re-render the open stall after a purchase, so its stock reflects the sale. */
+    /**
+     * Re-render the open stall after a purchase, so its stock reflects the sale.
+     * The bus is broadcast: only this NPC's OWN sales change its stock, so an
+     * auction escrow, a player-to-player stall buy, or the Builder's permit
+     * charge must not drag the pinned embed through a needless Discord edit.
+     */
     async handle(evt, ctx) {
-      if (evt.type === "trade.completed") {
+      if (evt.type === "trade.completed" && !notForMe(evt, ctx.bot)) {
         await this.actions["stall.open"]!({}, evt, ctx);
       }
     },
