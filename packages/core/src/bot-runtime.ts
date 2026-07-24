@@ -39,6 +39,7 @@ import { wayfareCapability } from "./capabilities/wayfare.js";
 import { gatekeeperCapability } from "./capabilities/gatekeeper.js";
 import { marketCapability } from "./capabilities/market.js";
 import { auctionCapability } from "./capabilities/auction.js";
+import { worldMirrorCapability } from "./capabilities/world-mirror.js";
 import { WorkflowRuntime } from "./workflow/runtime.js";
 
 /** Code-provided capability config that can't live in YAML, keyed by capability name. */
@@ -96,6 +97,7 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
   },
   market: () => marketCapability(),
   auction: () => auctionCapability(),
+  "world.mirror": () => worldMirrorCapability(),
 };
 
 /**

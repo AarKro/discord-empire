@@ -19,11 +19,12 @@ const suite = url ? describe : describe.skip;
 let h: DbHandle;
 
 /** Build the auction cap, capture its modal-submit handler, real sql + noop gateway. */
-function setup(): { cap: ReturnType<typeof auctionCapability>; ctx: CapabilityContext; bid: (offerId: string, amount: number, userId: string) => Promise<void> } {
+function setup(): { cap: ReturnType<typeof auctionCapability>; ctx: CapabilityContext; bid: (offerId: string, amount: number, userId: string) => Promise<void>; published: { type: string; payload?: Record<string, unknown> }[] } {
   let submitHandler: (i: ModalSubmitInteraction) => Promise<void> = async () => {};
+  const published: { type: string; payload?: Record<string, unknown> }[] = [];
   const ctx = {
     bot: "exchange", sql: h.sql,
-    bus: { publish: async () => undefined } as unknown as CapabilityContext["bus"],
+    bus: { publish: async (input: { type: string; payload?: Record<string, unknown> }) => { published.push(input); return undefined; } } as unknown as CapabilityContext["bus"],
     gateway: {
       sendToChannel: async () => "m",
       upsertPinnedMessage: async () => null,
@@ -37,7 +38,7 @@ function setup(): { cap: ReturnType<typeof auctionCapability>; ctx: CapabilityCo
   cap.init!(ctx);
   const bid = (offerId: string, amount: number, userId: string) =>
     submitHandler({ customId: `auc:bid:${offerId}`, fields: { amount: String(amount) }, userId, guildId: "g1", channelId: "c", reply: async () => {} });
-  return { cap, ctx, bid };
+  return { cap, ctx, bid, published };
 }
 
 const listEvt = (lister: string, payload: Record<string, unknown>): BusEvent => ({
@@ -105,7 +106,7 @@ suite("auction — full lifecycle against Postgres (§5.11)", () => {
 
   it("no bids: the close returns the item to the lister (unsold)", async () => {
     await seedPlayer("lister", { gold: 0, items: [["shield", 2]] });
-    const { cap, ctx } = setup();
+    const { cap, ctx, published } = setup();
     await cap.handle!(listEvt("lister", { item: "shield", qty: "2", starting_price: "500", duration: "30" }), ctx);
     const id = await auctionId();
     expect((await itemQty("lister", "shield"))[0]?.qty ?? 0).toBe(0); // escrowed
@@ -114,6 +115,23 @@ suite("auction — full lifecycle against Postgres (§5.11)", () => {
     const [closed] = await h.sql<{ status: string }[]>`SELECT status FROM offers WHERE id=${id}`;
     expect(closed!.status).toBe("expired");
     expect((await itemQty("lister", "shield"))[0]!.qty).toBe(2); // returned
+    // An unsold auction is not worth a realm announcement (§9).
+    expect(published.some((e) => e.type === "world.announce")).toBe(false);
+  });
+
+  it("a sold close announces the result to the realm (§9)", async () => {
+    await seedPlayer("lister", { gold: 0, items: [["crown", 1]] });
+    await seedPlayer("bidder1", { gold: 500 });
+    const { cap, ctx, bid, published } = setup();
+    await cap.handle!(listEvt("lister", { item: "crown", qty: "1", starting_price: "100", duration: "30" }), ctx);
+    const id = await auctionId();
+    await bid(id, 250, "bidder1");
+
+    await cap.handle!(closeEvt(id), ctx);
+    const announce = published.find((e) => e.type === "world.announce");
+    expect(announce).toBeDefined();
+    expect(String(announce!.payload!.message)).toContain("crown");
+    expect(String(announce!.payload!.message)).toContain("250 gold");
   });
 
   it("a re-fired close is idempotent (no double-delivery)", async () => {

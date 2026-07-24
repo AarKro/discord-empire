@@ -10,7 +10,7 @@
  * continent ring and so is code, not YAML.
  */
 import { join } from "node:path";
-import { runBot, rootLogger, type CommandDef } from "@empire/core";
+import { runBot, rootLogger, buildLeaderboardEmbed, type CommandDef } from "@empire/core";
 import { loadContentFile, Continents } from "@empire/content-schemas";
 
 const CONTENT_DIR = process.env.CONTENT_DIR ?? "content";
@@ -60,6 +60,14 @@ const commands: CommandDef[] = [
       const like = typed.toLowerCase();
       return rows.filter((r) => r.name.toLowerCase().includes(like)).map((r) => ({ name: r.name, value: r.id })).slice(0, 25);
     },
+  },
+  {
+    // A direct-answer command (no bus round-trip): the resolver reads the ledger +
+    // progression tables and replies with the cross-continent renown ranking (§9).
+    name: "leaderboard",
+    description: "See the realm's most renowned, across every continent",
+    route: "",
+    resolve: async (ctx) => ({ embeds: [(await buildLeaderboardEmbed(ctx.sql)).toJSON()] }),
   },
 ];
 

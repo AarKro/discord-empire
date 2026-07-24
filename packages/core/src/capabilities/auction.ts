@@ -275,6 +275,16 @@ export function auctionCapability(): Capability {
       if (winnerLand) await ctx.gateway.sendToChannel(winnerLand, { content: `You won the auction for **${offer.qty}× ${offer.item_id}** at **${offer.price} gold**!` });
       const listerLand = await landChannelFor(ctx.sql, offer.maker_id);
       if (listerLand) await ctx.gateway.sendToChannel(listerLand, { content: `Your **${offer.item_id}** sold at auction for **${offer.price} gold**.` });
+      // Realm-wide notice: the Herald's world.mirror fans this out to every
+      // continent's town-crier (§9). Only sales are worth announcing — a no-bid
+      // return stays quiet.
+      await ctx.bus.publish({
+        type: "world.announce",
+        guildId: offer.guild_id ?? null,
+        actor: { kind: "world", id: "auction" },
+        payload: { message: `📢 An auction for **${offer.qty}× ${offer.item_id}** closed at **${offer.price} gold**.` },
+        correlationId: evt.correlationId ?? null,
+      });
     } else if (res.outcome === "unsold") {
       const listerLand = await landChannelFor(ctx.sql, offer.maker_id);
       if (listerLand) await ctx.gateway.sendToChannel(listerLand, { content: `Your auction for **${offer.item_id}** ended with no bids — it's back in your pack.` });

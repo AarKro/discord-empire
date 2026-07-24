@@ -16,6 +16,7 @@ capabilities:
   - wayfare
   - topology
   - gatekeeper
+  - world.mirror
 content:
   continents: continents.yaml
   workflows:

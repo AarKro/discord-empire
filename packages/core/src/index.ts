@@ -69,3 +69,12 @@ export { wayfareCapability } from "./capabilities/wayfare.js";
 export { gatekeeperCapability, observerContinents, discoveredByArriving } from "./capabilities/gatekeeper.js";
 export { marketCapability, buildMarketOverviewEmbed } from "./capabilities/market.js";
 export { auctionCapability } from "./capabilities/auction.js";
+export { worldMirrorCapability } from "./capabilities/world-mirror.js";
+export {
+  buildLeaderboardEmbed,
+  leaderboardRows,
+  renownScore,
+  BUILD_WEIGHT,
+  RESEARCH_WEIGHT,
+  LEADERBOARD_SIZE,
+} from "./leaderboard.js";

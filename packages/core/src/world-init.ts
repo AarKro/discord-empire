@@ -216,6 +216,14 @@ async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
       if (!marketplace) marketplace = await guild.channels.create({ name: "marketplace", type: ChannelType.GuildText });
       await upsertLocation(opts.sql, { id: `market_${guildId}`, guildId, channelId: marketplace.id, kind: "market" });
 
+      // The town-crier (§9) — where the Herald mirrors realm-wide world.* notices
+      // (auction results, leaderboard sweeps). Not presence-gated: it's world news,
+      // visible to everyone on the continent, so it stays at guild root rather than
+      // under a presence-gated district.
+      let crier = channels.find((channel) => channel?.type === ChannelType.GuildText && channel.name === "town-crier") ?? null;
+      if (!crier) crier = await guild.channels.create({ name: "town-crier", type: ChannelType.GuildText });
+      await upsertLocation(opts.sql, { id: `crier_${guildId}`, guildId, channelId: crier.id, kind: "crier", requiresPresence: false });
+
       // The NPC's wander stops are voice channels (§5.1). Iteration 1 seeds two —
       // the Bazaar and the Market Square — keyed in `locations` by their logical
       // stop name (`<name>_<guildId>`, kind='voice') so presence.voice resolves
@@ -263,6 +271,7 @@ async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
         {
           guild: guild.name,
           bazaar: `${bazaar.id}${createdText ? " (created)" : " (found)"}`,
+          crier: crier.id,
           voice: seededVoice.join(", "),
           land: `${landCategory.id}${createdCategory ? " (created)" : " (found)"}`,
           districts: (opts.districts.districts[guildId] ?? []).map((d) => d.id).join(", "),
