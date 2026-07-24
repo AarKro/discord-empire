@@ -20,9 +20,11 @@ capabilities:
   - voicelines
   - ambient.chatter
   - render
+# world:init seeds two voice stops per continent — bazaar_vc and market_square_vc
+# — so a home must name one of those for it to resolve to a real channel.
 home:
   "${GUILD_CONTINENT_ONE}": { voice_channel: bazaar_vc }
-  "${GUILD_CONTINENT_TWO}": { voice_channel: harbor_vc }
+  "${GUILD_CONTINENT_TWO}": { voice_channel: bazaar_vc }
 content:
   shop: shops/aldric.yaml
   voicelines: audio/aldric/

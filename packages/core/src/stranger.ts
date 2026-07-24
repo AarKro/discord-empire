@@ -93,10 +93,12 @@ export async function approachStranger(
   if ((pos?.position_guild_id ?? null) !== here) return "You sense no such presence nearby.";
 
   // 2) ONCE PER VISIT — has this player already been given a line this appearance?
+  // Bound by VISIT_WINDOW itself (bound as text, cast server-side) so the window
+  // can't drift away from the exported constant the way a literal did.
   const [seen] = await sql<{ n: number }[]>`
     SELECT count(*)::int AS n FROM events
      WHERE type = 'dialogue.approached' AND actor_id = ${userId} AND guild_id = ${here}
-       AND ts > now() - interval '45 minutes'
+       AND ts > now() - ${VISIT_WINDOW}::interval
   `;
   if ((seen?.n ?? 0) > 0) {
     return "The stranger meets your eyes and says nothing more — their words for you are already spoken.";
