@@ -45,6 +45,14 @@ describe("shipped content validates against schemas", () => {
     // §5.11 player market: the exchange bot hosts /trade, /stall via commands + market.
     const exchange = loadContentFile(Manifest, join(CONTENT, "manifests/exchange.yaml"));
     expect(exchange.capabilities).toEqual(expect.arrayContaining(["commands", "market"]));
+    // §4/§5 research: the architect bot hosts /research + /techtree via commands + research.
+    const architect = loadContentFile(Manifest, join(CONTENT, "manifests/architect.yaml"));
+    expect(architect.capabilities).toEqual(expect.arrayContaining(["commands", "research"]));
+    // §9 ops bot: the hidden admin surface — commands only, its own token, no home.
+    const ops = loadContentFile(Manifest, join(CONTENT, "manifests/ops.yaml"));
+    expect(ops.capabilities).toEqual(["commands"]);
+    expect(ops.token_env).toBe("OPS_TOKEN");
+    expect(ops.home).toBeUndefined();
   });
 
   it("shop, schedule", () => {

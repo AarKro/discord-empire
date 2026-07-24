@@ -1,0 +1,17 @@
+# The ops bot — the hidden admin/observability surface (framework spec §9). Its
+# own bot/token so the admin commands don't ride on a player-facing bot. Present
+# in every continent guild (to register the /admin-* commands) but stands in no
+# voice and holds no home — it's a command surface, not an NPC. The commands are
+# gated to server Administrators via Discord default_member_permissions (set in
+# apps/bot-ops/src/main.ts), so ordinary players never see them.
+id: ops
+token_env: OPS_TOKEN
+personas:
+  "${GUILD_CONTINENT_ONE}":
+    nickname: "Ops Console"
+    locale_flavor: highlands
+  "${GUILD_CONTINENT_TWO}":
+    nickname: "Ops Console"
+    locale_flavor: harbor
+capabilities:
+  - commands

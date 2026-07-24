@@ -256,4 +256,13 @@ describe("toApplicationCommandJson (CommandDef → Discord API JSON)", () => {
       { name: "balance", description: "Coin", type: 1, options: [] },
     ]);
   });
+
+  it("emits default_member_permissions only when set (§9 admin gating)", () => {
+    const [gated, open] = toApplicationCommandJson([
+      { name: "admin-revert", description: "Undo", defaultMemberPermissions: "8" },
+      { name: "balance", description: "Coin" },
+    ]) as { default_member_permissions?: string }[];
+    expect(gated!.default_member_permissions).toBe("8");
+    expect(open!).not.toHaveProperty("default_member_permissions");
+  });
 });

@@ -55,12 +55,16 @@ jobs:
         run: docker build -f infra/Dockerfile.service --build-arg APP=bot-merchant -t empire/bot-merchant .
       - name: Build service image (bot-builder)
         run: docker build -f infra/Dockerfile.service --build-arg APP=bot-builder -t empire/bot-builder .
+      - name: Build service image (bot-architect)
+        run: docker build -f infra/Dockerfile.service --build-arg APP=bot-architect -t empire/bot-architect .
       - name: Build service image (bot-secret-merchant)
         run: docker build -f infra/Dockerfile.service --build-arg APP=bot-secret-merchant -t empire/bot-secret-merchant .
       - name: Build service image (bot-herald)
         run: docker build -f infra/Dockerfile.service --build-arg APP=bot-herald -t empire/bot-herald .
       - name: Build service image (bot-exchange)
         run: docker build -f infra/Dockerfile.service --build-arg APP=bot-exchange -t empire/bot-exchange .
+      - name: Build service image (bot-ops)
+        run: docker build -f infra/Dockerfile.service --build-arg APP=bot-ops -t empire/bot-ops .
       - name: Build service image (tick-service)
         run: docker build -f infra/Dockerfile.service --build-arg APP=tick-service -t empire/tick-service .
       - name: Build migration image

@@ -52,6 +52,12 @@ export interface CommandDef {
     ctx: CapabilityContext,
     input: { options: Record<string, string>; userId: string; guildId: string | null },
   ) => Promise<string | CommandReply>;
+  /**
+   * Discord `default_member_permissions` bitfield as a string (§9). "8"
+   * (Administrator) gates a command to server admins — the Ops bot uses it so its
+   * /admin-* surface is hidden from ordinary players.
+   */
+  defaultMemberPermissions?: string;
 }
 
 interface Pending {
@@ -125,7 +131,12 @@ export function commandsCapability(defs: CommandDef[]): Capability {
       for (const guildId of ctx.personas.guildIds) {
         await ctx.gateway.registerApplicationCommands(
           guildId,
-          defs.map((def) => ({ name: def.name, description: def.description, ...(def.options ? { options: def.options } : {}) })),
+          defs.map((def) => ({
+            name: def.name,
+            description: def.description,
+            ...(def.options ? { options: def.options } : {}),
+            ...(def.defaultMemberPermissions !== undefined ? { defaultMemberPermissions: def.defaultMemberPermissions } : {}),
+          })),
         );
       }
 

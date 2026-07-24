@@ -148,6 +148,12 @@ export interface CommandRegistration {
   name: string;
   description: string;
   options?: { name: string; description: string; autocomplete?: boolean; required?: boolean }[];
+  /**
+   * Discord `default_member_permissions` bitfield as a string (§9 Ops bot). When
+   * set, only members with those permissions see/run the command — e.g. "8"
+   * (Administrator) hides the admin surface from ordinary players.
+   */
+  defaultMemberPermissions?: string;
 }
 
 /**
@@ -160,6 +166,7 @@ export function toApplicationCommandJson(defs: CommandRegistration[]): unknown[]
     name: def.name,
     description: def.description,
     type: 1,
+    ...(def.defaultMemberPermissions !== undefined ? { default_member_permissions: def.defaultMemberPermissions } : {}),
     options: (def.options ?? []).map((option) => ({
       type: 3,
       name: option.name,

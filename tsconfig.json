@@ -7,8 +7,10 @@
     { "path": "apps/tick-service" },
     { "path": "apps/bot-merchant" },
     { "path": "apps/bot-builder" },
+    { "path": "apps/bot-architect" },
     { "path": "apps/bot-secret-merchant" },
     { "path": "apps/bot-herald" },
-    { "path": "apps/bot-exchange" }
+    { "path": "apps/bot-exchange" },
+    { "path": "apps/bot-ops" }
   ]
 }
