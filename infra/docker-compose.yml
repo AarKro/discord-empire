@@ -108,6 +108,10 @@ services:
       DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
       CONTENT_DIR: /app/content
       SECRET_MERCHANT_TOKEN: ${SECRET_MERCHANT_TOKEN}
+      # LLM-worded /approach (§5.4/§11) — optional; unset ⇒ authored fallback lines.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DIALOGUE_MODEL: ${DIALOGUE_MODEL:-claude-haiku-4-5}
+      DIALOGUE_MAX_PER_HOUR: ${DIALOGUE_MAX_PER_HOUR:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ../content:/app/content:ro

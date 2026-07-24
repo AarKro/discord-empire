@@ -79,3 +79,7 @@ export {
   LEADERBOARD_SIZE,
 } from "./leaderboard.js";
 export { buildEventsEmbed, buildWorkflowsEmbed, ADMIN_EVENTS_LIMIT, ADMIN_WORKFLOWS_LIMIT } from "./admin.js";
+export { generateLine, isDialogueLlmEnabled } from "./llm.js";
+export type { GenerateLineOptions, MessagesClient } from "./llm.js";
+export { approachStranger, VISIT_WINDOW, DEFAULT_MAX_PER_HOUR } from "./stranger.js";
+export type { ApproachDeps, StrangerPersona } from "./stranger.js";
