@@ -121,14 +121,25 @@ export function marketOverviewEmbed(o: MarketOverview): EmbedBuilder {
   return embed;
 }
 
-export function modal(id: string, title: string, fields: { id: string; label: string }[]): ModalBuilder {
+export interface ModalFieldSpec {
+  id: string;
+  label: string;
+  placeholder?: string | undefined;
+  /** Discord enforces this client-side; callers must still re-check on submit. */
+  maxLength?: number | undefined;
+  paragraph?: boolean | undefined;
+}
+
+export function modal(id: string, title: string, fields: ModalFieldSpec[]): ModalBuilder {
   const builder = new ModalBuilder().setCustomId(id).setTitle(title);
   for (const field of fields) {
-    builder.addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder().setCustomId(field.id).setLabel(field.label).setStyle(TextInputStyle.Short),
-      ),
-    );
+    const input = new TextInputBuilder()
+      .setCustomId(field.id)
+      .setLabel(field.label)
+      .setStyle(field.paragraph ? TextInputStyle.Paragraph : TextInputStyle.Short);
+    if (field.placeholder) input.setPlaceholder(field.placeholder);
+    if (field.maxLength) input.setMaxLength(field.maxLength);
+    builder.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
   }
   return builder;
 }

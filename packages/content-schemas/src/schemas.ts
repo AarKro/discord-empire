@@ -62,12 +62,29 @@ export const Guard = z.object({
   expr: z.string().min(1), // e.g. "player.gold >= 50", "player.reputation.merchant >= 3"
 });
 
+// The free-text field a `kind: modal` option opens. `max_length` is applied twice:
+// Discord enforces it client-side on the TextInput, and the dialogue capability
+// re-truncates on submit — a modal payload is player-supplied and must not be
+// trusted to have honoured it. Limits mirror Discord's own (label 45, hint 100).
+export const DialogueInput = z.object({
+  label: z.string().min(1).max(45).default("Your reply"),
+  placeholder: z.string().max(100).optional(),
+  max_length: z.number().int().min(1).max(4000).default(200),
+  paragraph: z.boolean().default(false),
+  /** Ephemeral confirmation on submit — the real reply lands in the thread. */
+  ack: z.string().min(1).default("Sent."),
+});
+export type DialogueInput = z.infer<typeof DialogueInput>;
+
 // A player-facing choice on a workflow state's `prompt` (see WorkflowState): a
-// button with an optional guard, a goto, and events it emits when chosen.
+// button with an optional guard, a goto, and events it emits when chosen. With
+// `kind: modal` the button opens `input`'s text field first and the typed value
+// rides along on the resulting `dialogue.choose` as `payload.input`.
 export const DialogueOption = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   kind: z.enum(["button", "select", "modal"]).default("button"),
+  input: DialogueInput.optional(),
   guard: Guard.optional(),
   goto: z.string().optional(),
   emit: z.array(z.object({ type: z.string(), payload: z.record(z.unknown()).optional() })).optional(),

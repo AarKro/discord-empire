@@ -14,7 +14,7 @@ import type { Sql } from "@empire/db";
 import { jsonParam } from "@empire/db";
 import { ulid } from "ulid";
 import { availableOptions, decide, entry, parseOnError, scopeMatches, type Stimulus, type TransitionDecision } from "./engine.js";
-import { loadGuardScope, resolveSource, interpolate, DIALOGUE_OPTION_PREFIX, EMPTY_SCOPE, type GuardScope } from "../dialogue/guards.js";
+import { loadGuardScope, resolveSource, interpolate, DIALOGUE_OPTION_PREFIX, DIALOGUE_MODAL_PREFIX, EMPTY_SCOPE, type GuardScope } from "../dialogue/guards.js";
 import { notForMe } from "../events/helpers.js";
 import { parseDuration } from "./duration.js";
 
@@ -104,8 +104,16 @@ export class WorkflowRuntime {
     if (!state?.prompt) return;
     const ctx = scope.context ?? {};
     const type = opened ? "dialogue.opened" : state.final ? "dialogue.closed" : "dialogue.node";
-    // Prompt + labels weave in remembered context ({{context.x}}).
-    const options = availableOptions(state, scope).map((o) => ({ id: `${DIALOGUE_OPTION_PREFIX}${o.id}`, label: interpolate(o.label, evt, ctx), kind: o.kind }));
+    // Prompt + labels weave in remembered context ({{context.x}}). A `kind: modal`
+    // option carries the modal prefix so the gateway can intercept its click before
+    // acking, and ships its `input` spec so the dialogue capability can build the
+    // field without re-reading content.
+    const options = availableOptions(state, scope).map((o) => ({
+      id: `${o.kind === "modal" ? DIALOGUE_MODAL_PREFIX : DIALOGUE_OPTION_PREFIX}${o.id}`,
+      label: interpolate(o.label, evt, ctx),
+      kind: o.kind,
+      ...(o.input ? { input: o.input } : {}),
+    }));
     await this.deps.bus.publish({
       type,
       guildId: evt?.guildId ?? null,

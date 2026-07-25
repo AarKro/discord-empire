@@ -11,6 +11,14 @@ import { readBalance } from "@empire/db";
 /** Custom-id prefix for the option buttons a prompt-bearing state renders. */
 export const DIALOGUE_OPTION_PREFIX = "dlg:";
 
+/**
+ * Custom-id prefix for a `kind: modal` option (§5.4 "modal inputs"). It needs to
+ * be distinguishable from a plain option BEFORE the click is acknowledged: the
+ * gateway must intercept a modal-opening button ahead of its auto-deferUpdate,
+ * because Discord only permits `showModal` on a not-yet-acked interaction.
+ */
+export const DIALOGUE_MODAL_PREFIX = "dlgm:";
+
 /** Game-state facts a guard can reference (§7 guards). */
 export interface GuardScope {
   gold: number;
