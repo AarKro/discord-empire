@@ -4,13 +4,19 @@
  * leaving one guild's voice and reappearing on a neighbour (see manifests/
  * secret_merchant.yaml + workflows/secret_merchant.yaml).
  *
- * Beyond wandering, it hosts `/approach` (§5.4/§11): a player on the stranger's
- * continent gets ONE cryptic, LLM-worded line per appearance. The gating +
- * generation + authored fallback all live in @empire/core's `approachStranger`
- * (three cost gates: presence, once-per-visit, a hard hourly ceiling), so this
- * entrypoint just wires the command to it.
+ * Beyond wandering it hosts the stranger's two player-facing surfaces (§5.4/§11),
+ * both of which are LLM-worded and therefore both metered:
+ *
+ *   /approach  ONE cryptic line per appearance. All of it — gates, generation,
+ *              authored fallback — lives in core's `approachStranger`.
+ *   /riddle    Starts the riddle session workflow, which then runs itself. This
+ *              entrypoint only refuses cheaply (absent stranger, visit already
+ *              spent) so a doomed request never opens a private thread.
+ *
+ * The same three cost gates cover both: presence, once-per-visit, and a hard
+ * hourly ceiling shared across every LLM feature (core's dialogue/budget.ts).
  */
-import { runBot, rootLogger, approachStranger, npcProximity, type CommandDef } from "@empire/core";
+import { runBot, rootLogger, approachStranger, npcProximity, dealtThisVisit, type CommandDef } from "@empire/core";
 
 const commands: CommandDef[] = [
   {
@@ -24,6 +30,11 @@ const commands: CommandDef[] = [
     resolve: async (ctx, { userId, guildId }) => {
       if (!(await npcProximity(ctx.sql, ctx.bot, userId)).shared) {
         return "You search the shadows, but no stranger stirs here.";
+      }
+      // Cost gate: one riddle per appearance, so a single player can't spend the
+      // whole realm's hourly generation budget by re-running /riddle.
+      if (await dealtThisVisit(ctx.sql, userId)) {
+        return "*The stranger waves you off.* One riddle a visit, traveller. I have other roads to walk.";
       }
       await ctx.bus.publish({
         type: "riddle.requested",

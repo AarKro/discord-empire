@@ -15,6 +15,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { loadContentFile, Riddles } from "@empire/content-schemas";
 import {
+  dealtThisVisit,
+  RIDDLE_VISIT_WINDOW,
   judgeAnswer,
   leaksAnswer,
   matchesAnswer,
@@ -257,6 +259,38 @@ describe("shipped riddle book", () => {
     for (const riddle of book.riddles) {
       expect(leaksAnswer(riddle.prompt, riddle.answers), `riddle "${riddle.id}" prompt leaks`).toBe(false);
     }
+  });
+});
+
+describe("dealtThisVisit — the per-player cost gate", () => {
+  /** A sql fake that returns `n` for the riddle.dealt COUNT and records the query. */
+  const counting = (n: number) => {
+    const queries: string[] = [];
+    const fn = (strings: TemplateStringsArray) => {
+      queries.push(strings.join("?"));
+      return Promise.resolve([{ n }]);
+    };
+    return { sql: fn as unknown as Parameters<typeof dealtThisVisit>[0], queries };
+  };
+
+  it("is open when the player has not been dealt a riddle this visit", async () => {
+    const { sql } = counting(0);
+    expect(await dealtThisVisit(sql, "p1")).toBe(false);
+  });
+
+  it("closes once they have", async () => {
+    const { sql } = counting(1);
+    expect(await dealtThisVisit(sql, "p1")).toBe(true);
+  });
+
+  it("counts riddle.dealt, not riddle.requested — a refused request must not burn the visit", async () => {
+    const { sql, queries } = counting(0);
+    await dealtThisVisit(sql, "p1");
+
+    expect(queries[0]).toContain("riddle.dealt");
+    expect(queries[0]).not.toContain("riddle.requested");
+    // The window is bound as a parameter, so it can't drift from the constant.
+    expect(RIDDLE_VISIT_WINDOW).toBe("45 minutes");
   });
 });
 

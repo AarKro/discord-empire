@@ -231,6 +231,34 @@ export async function judgeAnswer(riddle: Riddle, guess: string, opts: JudgeOpti
   }
 }
 
+/**
+ * Once-per-visit window for riddle sessions — matches the stranger's dwell time
+ * and `VISIT_WINDOW` in stranger.ts, so "one encounter per appearance" means the
+ * same thing for `/approach` and `/riddle`.
+ */
+export const RIDDLE_VISIT_WINDOW = "45 minutes";
+
+/**
+ * True when this player has already been dealt a riddle during the stranger's
+ * current appearance.
+ *
+ * This is the PER-PLAYER cost gate, and it's the one that stops a single player
+ * monopolising the realm's hourly budget: without it, /riddle could be re-run
+ * indefinitely, and each fresh session buys another three hint generations. The
+ * global breaker alone would bound the spend but not who gets to spend it.
+ *
+ * Counts `riddle.dealt`, not `riddle.requested`, so a request refused for absence
+ * or an exhausted book doesn't burn the player's visit.
+ */
+export async function dealtThisVisit(sql: Sql, playerId: string): Promise<boolean> {
+  const [seen] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM events
+     WHERE type = 'riddle.dealt' AND actor_id = ${playerId}
+       AND ts > now() - ${RIDDLE_VISIT_WINDOW}::interval
+  `;
+  return (seen?.n ?? 0) > 0;
+}
+
 /** The first riddle this player has not already solved, or undefined when they're all done. */
 export function pickRiddle(riddles: Riddle[], flags: Record<string, boolean>): Riddle | undefined {
   return riddles.find((r) => !flags[solvedFlag(r.id)]);

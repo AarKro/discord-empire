@@ -100,7 +100,7 @@ export type { GenerateLineOptions, MessagesClient } from "./dialogue/llm.js";
 export { approachStranger, VISIT_WINDOW } from "./dialogue/stranger.js";
 export type { ApproachDeps, StrangerPersona } from "./dialogue/stranger.js";
 export { DEFAULT_MAX_PER_HOUR, maxPerHour, overHourlyCap } from "./dialogue/budget.js";
-export { normalize, matchesAnswer, leaksAnswer, unusedHints, writeHint, judgeAnswer, pickRiddle, solvedFlag } from "./dialogue/riddle.js";
+export { normalize, matchesAnswer, leaksAnswer, unusedHints, writeHint, judgeAnswer, pickRiddle, solvedFlag, dealtThisVisit, RIDDLE_VISIT_WINDOW } from "./dialogue/riddle.js";
 export type { Riddle, HintResult, HintOptions, JudgeResult, JudgeOptions } from "./dialogue/riddle.js";
 export { riddleCapability } from "./capabilities/riddle.js";
 export type { RiddleBook } from "./capabilities/riddle.js";
