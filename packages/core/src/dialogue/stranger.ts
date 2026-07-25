@@ -19,7 +19,7 @@
 import type { Sql } from "@empire/db";
 import type { EventBus } from "../events/bus.js";
 import type { Logger } from "../logger.js";
-import { readNpcState } from "../world/npc-state.js";
+import { npcProximity } from "../world/npc-state.js";
 import { generateLine, isDialogueLlmEnabled, type MessagesClient } from "./llm.js";
 import { maxPerHour, overHourlyCap } from "./budget.js";
 
@@ -81,15 +81,10 @@ export async function approachStranger(
 ): Promise<string> {
   const { sql, bus, logger, npcId } = deps;
 
-  // 1) PRESENCE — where is the stranger standing right now?
-  const state = await readNpcState<{ guild?: string | null }>(sql, npcId);
-  const here = state.guild ?? null;
-  if (!here) return "You search the shadows, but no stranger stirs here. Perhaps on another shore.";
-
-  const [pos] = await sql<{ position_guild_id: string | null }[]>`
-    SELECT position_guild_id FROM players WHERE discord_user_id = ${userId}
-  `;
-  if ((pos?.position_guild_id ?? null) !== here) return "You sense no such presence nearby.";
+  // 1) PRESENCE — is the stranger standing on this player's continent?
+  const { npcGuild, shared: here } = await npcProximity(sql, npcId, userId);
+  if (!npcGuild) return "You search the shadows, but no stranger stirs here. Perhaps on another shore.";
+  if (!here) return "You sense no such presence nearby.";
 
   // 2) ONCE PER VISIT — has this player already been given a line this appearance?
   // Bound by VISIT_WINDOW itself (bound as text, cast server-side) so the window

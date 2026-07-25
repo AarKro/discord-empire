@@ -23,7 +23,7 @@ import type { BusEvent } from "../events/bus.js";
 import type { Capability, CapabilityContext } from "../runtime/capability.js";
 import type { MessagesClient } from "../dialogue/llm.js";
 import { grantReward } from "@empire/db";
-import { readNpcState } from "../world/npc-state.js";
+import { npcProximity } from "../world/npc-state.js";
 import { readFlags, setPlayerFlag } from "../world/players.js";
 import { payloadString } from "../events/helpers.js";
 import { judgeAnswer, pickRiddle, solvedFlag, writeHint, type Riddle } from "../dialogue/riddle.js";
@@ -74,12 +74,7 @@ export function riddleCapability(book: RiddleBook, client?: MessagesClient): Cap
         if (!player) return;
         const guildId = evt?.guildId ?? null;
 
-        const state = await readNpcState<{ guild?: string | null }>(ctx.sql, ctx.bot);
-        const here = state.guild ?? null;
-        const [pos] = await ctx.sql<{ position_guild_id: string | null }[]>`
-          SELECT position_guild_id FROM players WHERE discord_user_id = ${player}
-        `;
-        if (!here || (pos?.position_guild_id ?? null) !== here) {
+        if (!(await npcProximity(ctx.sql, ctx.bot, player)).shared) {
           await emit(ctx, player, guildId, "riddle.absent", {});
           return;
         }

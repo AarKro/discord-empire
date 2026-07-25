@@ -61,6 +61,39 @@ describe("shipped content validates against schemas", () => {
     expect(loadContentFile(Schedule, join(CONTENT, "schedules/aldric.yaml")).stops.length).toBeGreaterThan(0);
   });
 
+  it("the riddle workflow wires modal options to the states that capture them", () => {
+    const wf = loadContentFile(Workflow, join(CONTENT, "workflows/secret_merchant_riddle.yaml"));
+    expect(wf.scope).toBe("player");
+
+    // The initial state must carry a prompt: the first render has to be a
+    // dialogue.opened so the render capability opens the private thread. Without
+    // it every later prompt is a dialogue.node into a thread that doesn't exist.
+    expect(wf.states[wf.initial]?.prompt).toBeTruthy();
+
+    // Every modal option needs an `input` spec, and must land on a state whose
+    // `set:` actually captures event.payload.input — otherwise the player types
+    // into the void.
+    const modalOptions = Object.values(wf.states).flatMap((s) => s.options.filter((o) => o.kind === "modal"));
+    expect(modalOptions.length).toBeGreaterThan(0);
+    for (const option of modalOptions) {
+      expect(option.input, `option "${option.id}" is kind: modal but has no input spec`).toBeTruthy();
+      const target = wf.states[option.goto ?? ""];
+      expect(target, `option "${option.id}" has no goto target`).toBeTruthy();
+      expect(
+        Object.values(target!.set),
+        `option "${option.id}" goes to a state that never reads event.payload.input`,
+      ).toContain("event.payload.input");
+    }
+
+    // Every `goto`/`on:`/timer target must exist, or the session dead-ends.
+    const targets = Object.values(wf.states).flatMap((s) => [
+      ...Object.values(s.on),
+      ...s.options.map((o) => o.goto).filter((g): g is string => Boolean(g)),
+      ...(s.timer ? [s.timer.goto] : []),
+    ]);
+    for (const target of targets) expect(Object.keys(wf.states)).toContain(target);
+  });
+
   it("riddles — each carries exactly the three hints the question budget spends", () => {
     const book = loadContentFile(Riddles, join(CONTENT, "riddles.yaml"));
     expect(book.riddles.length).toBeGreaterThan(0);

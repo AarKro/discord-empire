@@ -10,9 +10,31 @@
  * (three cost gates: presence, once-per-visit, a hard hourly ceiling), so this
  * entrypoint just wires the command to it.
  */
-import { runBot, rootLogger, approachStranger, type CommandDef } from "@empire/core";
+import { runBot, rootLogger, approachStranger, npcProximity, type CommandDef } from "@empire/core";
 
 const commands: CommandDef[] = [
+  {
+    // Starts the riddle workflow (workflows/secret_merchant_riddle.yaml), which
+    // runs the whole session. Presence is checked HERE as well as in riddle.deal
+    // so an absent stranger is refused with a cheap ephemeral line, rather than
+    // opening a private thread just to say nobody is home.
+    name: "riddle",
+    description: "Ask the hooded stranger for a riddle, if they are near",
+    route: "",
+    resolve: async (ctx, { userId, guildId }) => {
+      if (!(await npcProximity(ctx.sql, ctx.bot, userId)).shared) {
+        return "You search the shadows, but no stranger stirs here.";
+      }
+      await ctx.bus.publish({
+        type: "riddle.requested",
+        guildId,
+        actor: { kind: "player", id: userId },
+        subject: { kind: "npc", id: ctx.bot },
+        payload: {},
+      });
+      return "*The stranger beckons you aside.* Look for their words in a thread of your own.";
+    },
+  },
   {
     // A direct-answer command: the resolver runs the gates + generation and
     // replies ephemerally — a private whisper from the stranger.

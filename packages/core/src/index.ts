@@ -10,7 +10,8 @@ export { locationChannel, voiceStopChannel, landChannel } from "./world/location
 export { playerTier, currentGuildId, tierScaledMs } from "./world/players.js";
 export { publishReply, replyToCommand } from "./events/reply.js";
 export type { ReplySource } from "./events/reply.js";
-export { readNpcState, upsertNpcStateEntry, deleteNpcStateEntry } from "./world/npc-state.js";
+export { readNpcState, upsertNpcStateEntry, deleteNpcStateEntry, npcProximity } from "./world/npc-state.js";
+export type { NpcProximity } from "./world/npc-state.js";
 export { Gateway, toApplicationCommandJson } from "./gateway/index.js";
 export type {
   GatewayOptions,

@@ -339,6 +339,86 @@ states:
     });
   });
 
+  // §5.4 "modal inputs". A modal option is an ORDINARY option that also carries
+  // text, so the engine resolves it exactly like a button — the only differences
+  // are the custom-id prefix (the gateway must intercept the click before acking)
+  // and the `input` spec riding along so the modal can be built at click time.
+  describe("kind: modal options carry free text into instance context", () => {
+    const riddle = parseContent(
+      Workflow,
+      `
+id: modal_riddle
+scope: player
+trigger: { event: riddle.requested }
+initial: posing
+states:
+  posing:
+    prompt: "What speaks without a mouth?"
+    options:
+      - id: answer
+        label: Answer
+        kind: modal
+        goto: judging
+        input: { label: Your answer, max_length: 60, ack: "Whispered." }
+      - { id: leave, label: "Walk away", goto: gone }
+  judging:
+    set: { guess: "event.payload.input" }
+    prompt: "You said {{context.guess}}."
+    final: true
+  gone: { prompt: "Another time.", final: true }
+`,
+      "modal_riddle.yaml",
+    );
+    let runtime: WorkflowRuntime;
+
+    beforeEach(() => {
+      runtime = makeRuntime([riddle], {});
+    });
+
+    const evtsOf = (type: string) => h.sql<{ payload: Record<string, unknown> }[]>`SELECT payload FROM events WHERE type = ${type} ORDER BY id`;
+
+    it("renders a modal option with the dlgm: prefix and its input spec", async () => {
+      await ensurePlayer(h.sql, "p1", "g1", 0);
+      await runtime.onEvent(playerEvt("riddle.requested", "p1"));
+
+      const [opened] = await evtsOf("dialogue.opened");
+      const options = opened!.payload.options as { id: string; kind: string; input?: { max_length: number } }[];
+      // The modal option is prefixed differently; the plain one is untouched.
+      expect(options.map((o) => o.id)).toEqual(["dlgm:answer", "dlg:leave"]);
+      expect(options[0]!.input?.max_length).toBe(60);
+      expect(options[1]!.input).toBeUndefined();
+    });
+
+    it("advances on the choose event and stores the typed text in context", async () => {
+      await ensurePlayer(h.sql, "p1", "g1", 0);
+      await runtime.onEvent(playerEvt("riddle.requested", "p1"));
+      // What the dialogue capability publishes after a modal submit: the bare
+      // option id plus the typed value.
+      await runtime.onEvent(playerEvt("dialogue.choose", "p1", null, { option: "answer", input: "an echo" }));
+
+      const [inst] = await h.sql<{ state: string; context: Record<string, unknown> }[]>`
+        SELECT state, context FROM workflow_instances WHERE workflow_id = 'modal_riddle'
+      `;
+      expect(inst).toMatchObject({ state: "judging" });
+      expect(inst!.context.guess).toBe("an echo");
+      // …and the captured text is interpolable straight back into the next prompt.
+      const [closed] = await evtsOf("dialogue.closed");
+      expect(closed!.payload.text).toBe("You said an echo.");
+    });
+
+    it("still advances when the modal came back empty", async () => {
+      await ensurePlayer(h.sql, "p1", "g1", 0);
+      await runtime.onEvent(playerEvt("riddle.requested", "p1"));
+      await runtime.onEvent(playerEvt("dialogue.choose", "p1", null, { option: "answer", input: "" }));
+
+      const [inst] = await h.sql<{ state: string; context: Record<string, unknown> }[]>`
+        SELECT state, context FROM workflow_instances WHERE workflow_id = 'modal_riddle'
+      `;
+      expect(inst!.state).toBe("judging");
+      expect(inst!.context.guess).toBe("");
+    });
+  });
+
   describe("per-instance context + correlation routing (§7)", () => {
     const quest = parseContent(Workflow, `
 id: ctx_quest

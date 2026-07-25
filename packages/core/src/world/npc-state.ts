@@ -35,3 +35,31 @@ export async function upsertNpcStateEntry(sql: Sql, npcId: string, map: string, 
 export async function deleteNpcStateEntry(sql: Sql, npcId: string, map: string, key: string): Promise<void> {
   await sql`UPDATE npcs SET state = state #- ARRAY[${map}, ${key}]::text[] WHERE id = ${npcId}`;
 }
+
+/** Where a travelling NPC stands relative to one player (see `npcProximity`). */
+export interface NpcProximity {
+  /** The continent the npc is on, or null when it's nowhere — "on the road" (§9). */
+  npcGuild: string | null;
+  /** The continent they SHARE, or null when they aren't standing together. */
+  shared: string | null;
+}
+
+/**
+ * Locate a TRAVELLING npc relative to a player. Both facts are returned because
+ * callers tell them apart in fiction: a stranger who is mid-transit ("no stranger
+ * stirs here") reads differently from one who is simply on another shore.
+ *
+ * This is the presence gate for the Secret Merchant's player-facing surfaces —
+ * the first and cheapest LLM cost gate, since it's pure game state. Kept in one
+ * place because `/approach`, `/riddle` and `riddle.deal` all ask it, and a copy
+ * that drifted would let a player interact with an absent stranger.
+ */
+export async function npcProximity(sql: Sql, npcId: string, playerId: string): Promise<NpcProximity> {
+  const state = await readNpcState<{ guild?: string | null }>(sql, npcId);
+  const npcGuild = state.guild ?? null;
+  if (!npcGuild) return { npcGuild: null, shared: null };
+  const [player] = await sql<{ position_guild_id: string | null }[]>`
+    SELECT position_guild_id FROM players WHERE discord_user_id = ${playerId}
+  `;
+  return { npcGuild, shared: (player?.position_guild_id ?? null) === npcGuild ? npcGuild : null };
+}
