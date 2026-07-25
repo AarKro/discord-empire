@@ -1,16 +1,16 @@
 // Core infrastructure
 export { rootLogger, withCorrelation } from "./logger.js";
 export type { Logger } from "./logger.js";
-export { EventBus, CHANNEL } from "./bus.js";
-export type { BusEvent, PublishInput, EventHandler } from "./bus.js";
-export { notForMe, payloadString } from "./events.js";
+export { EventBus, CHANNEL } from "./events/bus.js";
+export type { BusEvent, PublishInput, EventHandler } from "./events/bus.js";
+export { notForMe, payloadString } from "./events/helpers.js";
 export { Backoff } from "./backoff.js";
 export type { BackoffOptions } from "./backoff.js";
-export { locationChannel, voiceStopChannel, landChannel } from "./locations.js";
-export { playerTier, currentGuildId, tierScaledMs } from "./players.js";
-export { publishReply, replyToCommand } from "./reply.js";
-export type { ReplySource } from "./reply.js";
-export { readNpcState, upsertNpcStateEntry, deleteNpcStateEntry } from "./npc-state.js";
+export { locationChannel, voiceStopChannel, landChannel } from "./world/locations.js";
+export { playerTier, currentGuildId, tierScaledMs } from "./world/players.js";
+export { publishReply, replyToCommand } from "./events/reply.js";
+export type { ReplySource } from "./events/reply.js";
+export { readNpcState, upsertNpcStateEntry, deleteNpcStateEntry } from "./world/npc-state.js";
 export { Gateway, toApplicationCommandJson } from "./gateway/index.js";
 export type {
   GatewayOptions,
@@ -25,23 +25,23 @@ export type {
   AutocompleteHandler,
   CommandRegistration,
 } from "./gateway/index.js";
-export { PersonaResolver } from "./persona.js";
-export { ui, buttonRow, selectMenu, stallEmbed, marketOverviewEmbed, modal } from "./ui-kit.js";
+export { PersonaResolver } from "./runtime/persona.js";
+export { ui, buttonRow, selectMenu, stallEmbed, marketOverviewEmbed, modal } from "./ui/kit.js";
 export {
   CapabilityRegistry,
-} from "./capability.js";
-export type { Capability, CapabilityContext, ActionHandler } from "./capability.js";
+} from "./runtime/capability.js";
+export type { Capability, CapabilityContext, ActionHandler } from "./runtime/capability.js";
 
 // Manifest-driven bot runner (§4 lifecycle)
-export { runBot, buildCapabilities } from "./bot-runtime.js";
-export type { RunBotOptions, CapabilityConfigs } from "./bot-runtime.js";
+export { runBot, buildCapabilities } from "./runtime/bot-runtime.js";
+export type { RunBotOptions, CapabilityConfigs } from "./runtime/bot-runtime.js";
 
 // Guard evaluation + player scope (unit-tested)
-export { evalGuard, resolveSource, interpolate, loadGuardScope, DIALOGUE_OPTION_PREFIX } from "./dialogue.js";
-export type { GuardScope } from "./dialogue.js";
+export { evalGuard, resolveSource, interpolate, loadGuardScope, DIALOGUE_OPTION_PREFIX } from "./dialogue/guards.js";
+export type { GuardScope } from "./dialogue/guards.js";
 
 // Cross-continent commerce guard (§2.3)
-export { crossContinentCommerceBlock, TRADE_ROUTES_RESEARCH, TRADE_POST_BLUEPRINT } from "./commerce.js";
+export { crossContinentCommerceBlock, TRADE_ROUTES_RESEARCH, TRADE_POST_BLUEPRINT } from "./world/commerce.js";
 
 // Workflow engine (§7): pure transition core + embedded runtime
 export { decide, entry, guardsPass, parseOnError, scopeMatches } from "./workflow/engine.js";
@@ -78,7 +78,7 @@ export { auctionCapability, AUCTION_HOLD_ITEM } from "./capabilities/auction.js"
 export { worldMirrorCapability } from "./capabilities/world-mirror.js";
 
 // Internal (non-diegetic) item tokens — never show these in player-facing lists
-export { HIDDEN_ITEMS, isHiddenItem } from "./items.js";
+export { HIDDEN_ITEMS, isHiddenItem } from "./world/items.js";
 export {
   buildLeaderboardEmbed,
   leaderboardRows,
@@ -86,9 +86,9 @@ export {
   BUILD_WEIGHT,
   RESEARCH_WEIGHT,
   LEADERBOARD_SIZE,
-} from "./leaderboard.js";
-export { buildEventsEmbed, buildWorkflowsEmbed, ADMIN_EVENTS_LIMIT, ADMIN_WORKFLOWS_LIMIT } from "./admin.js";
-export { generateLine, isDialogueLlmEnabled } from "./llm.js";
-export type { GenerateLineOptions, MessagesClient } from "./llm.js";
-export { approachStranger, VISIT_WINDOW, DEFAULT_MAX_PER_HOUR } from "./stranger.js";
-export type { ApproachDeps, StrangerPersona } from "./stranger.js";
+} from "./ui/leaderboard.js";
+export { buildEventsEmbed, buildWorkflowsEmbed, ADMIN_EVENTS_LIMIT, ADMIN_WORKFLOWS_LIMIT } from "./ui/admin.js";
+export { generateLine, isDialogueLlmEnabled } from "./dialogue/llm.js";
+export type { GenerateLineOptions, MessagesClient } from "./dialogue/llm.js";
+export { approachStranger, VISIT_WINDOW, DEFAULT_MAX_PER_HOUR } from "./dialogue/stranger.js";
+export type { ApproachDeps, StrangerPersona } from "./dialogue/stranger.js";

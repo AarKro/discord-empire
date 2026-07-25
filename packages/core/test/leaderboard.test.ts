@@ -4,7 +4,7 @@
  * per-player aggregate query is faked — we assert the scoring + ordering + render.
  */
 import { describe, it, expect } from "vitest";
-import { renownScore, leaderboardRows, buildLeaderboardEmbed, BUILD_WEIGHT, RESEARCH_WEIGHT } from "../src/leaderboard.js";
+import { renownScore, leaderboardRows, buildLeaderboardEmbed, BUILD_WEIGHT, RESEARCH_WEIGHT } from "../src/ui/leaderboard.js";
 import type { Sql } from "@empire/db";
 
 type Row = { player: string; gold: number; builds: number; research: number };

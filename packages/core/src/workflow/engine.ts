@@ -10,7 +10,7 @@
  * database or Discord.
  */
 import type { DialogueOption, Workflow, WorkflowState } from "@empire/content-schemas";
-import { evalGuard, EMPTY_SCOPE, type GuardScope } from "../dialogue.js";
+import { evalGuard, EMPTY_SCOPE, type GuardScope } from "../dialogue/guards.js";
 import { parseDuration } from "./duration.js";
 
 /** The event a player's option click arrives as; its payload carries `option`. */

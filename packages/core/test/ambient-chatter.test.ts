@@ -6,8 +6,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { ambientChatterCapability } from "../src/capabilities/ambient-chatter.js";
-import type { BusEvent } from "../src/bus.js";
-import type { CapabilityContext } from "../src/capability.js";
+import type { BusEvent } from "../src/events/bus.js";
+import type { CapabilityContext } from "../src/runtime/capability.js";
 
 interface World {
   bazaars: Record<string, string>; // guildId -> bazaar channel id

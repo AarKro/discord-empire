@@ -12,16 +12,16 @@
  * own gateway, so a click routes straight back here.
  */
 import { executeTrade, type Party, type Sql } from "@empire/db";
-import type { Capability, CapabilityContext } from "../capability.js";
-import type { BusEvent } from "../bus.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
+import type { BusEvent } from "../events/bus.js";
 import type { ComponentInteraction } from "../gateway/index.js";
-import { buttonRow, stallEmbed } from "../ui-kit.js";
+import { buttonRow, stallEmbed } from "../ui/kit.js";
 import { renderOfferBoard, type OfferBoard, type OfferRow } from "./offer-board.js";
-import { notForMe, payloadString } from "../events.js";
-import { landChannel, locationChannel } from "../locations.js";
-import { currentGuildId } from "../players.js";
-import { replyToCommand } from "../reply.js";
-import { crossContinentCommerceBlock } from "../commerce.js";
+import { notForMe, payloadString } from "../events/helpers.js";
+import { landChannel, locationChannel } from "../world/locations.js";
+import { currentGuildId } from "../world/players.js";
+import { replyToCommand } from "../events/reply.js";
+import { crossContinentCommerceBlock } from "../world/commerce.js";
 import { ulid } from "ulid";
 
 /** How long a direct offer stands before it's stale (quote-style expiry, §5.11). */

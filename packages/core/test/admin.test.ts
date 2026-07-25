@@ -4,7 +4,7 @@
  * faked — we assert the SQL→embed shaping, not Postgres.
  */
 import { describe, it, expect } from "vitest";
-import { buildEventsEmbed, buildWorkflowsEmbed } from "../src/admin.js";
+import { buildEventsEmbed, buildWorkflowsEmbed } from "../src/ui/admin.js";
 import type { Sql } from "@empire/db";
 
 function fakeSql(rows: unknown[]): Sql {

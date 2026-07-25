@@ -17,7 +17,7 @@ const continents = loadContentFile(Continents, join(process.env.CONTENT_DIR ?? "
 
 /** Suggest items the caller actually holds (what they can sell / list). Internal
  * cost/hold tokens are excluded so they can't be traded, listed, or auctioned —
- * HIDDEN_ITEMS is the shared list (see core's items.ts). */
+ * HIDDEN_ITEMS is the shared list (see core's world/items.ts). */
 const itemAutocomplete: CommandDef["autocomplete"] = async (ctx, typed, userId) => {
   const like = `%${typed.toLowerCase()}%`;
   const rows = await ctx.sql<{ item_id: string; qty: number }[]>`

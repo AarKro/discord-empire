@@ -11,10 +11,10 @@
  * now the presence gate (requiresPresence) actually enforces "trade where you
  * stand" once you've moved.
  */
-import type { Capability, CapabilityContext } from "../capability.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
 import type { Continents } from "@empire/content-schemas";
-import { locationChannel } from "../locations.js";
-import { replyToCommand } from "../reply.js";
+import { locationChannel } from "../world/locations.js";
+import { replyToCommand } from "../events/reply.js";
 import { ensurePlayer } from "@empire/db";
 
 export function wayfareCapability(continents: Continents): Capability {

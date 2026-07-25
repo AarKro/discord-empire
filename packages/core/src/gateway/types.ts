@@ -9,7 +9,7 @@
  * discord.js type leaking into a capability would have to be added here first.
  */
 import type { MessageCreateOptions, ModalBuilder } from "discord.js";
-import type { PersonaResolver } from "../persona.js";
+import type { PersonaResolver } from "../runtime/persona.js";
 import type { Logger } from "../logger.js";
 
 export interface GatewayOptions {

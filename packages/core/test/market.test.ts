@@ -7,9 +7,9 @@
  */
 import { describe, it, expect } from "vitest";
 import { marketCapability } from "../src/capabilities/market.js";
-import type { BusEvent } from "../src/bus.js";
+import type { BusEvent } from "../src/events/bus.js";
 import type { ComponentInteraction } from "../src/gateway/index.js";
-import type { CapabilityContext } from "../src/capability.js";
+import type { CapabilityContext } from "../src/runtime/capability.js";
 
 interface OfferRow {
   id: string; kind: string; maker_id: string; taker_id: string | null;

@@ -13,7 +13,7 @@
  * what pairs it with the waiting interaction. Getting any of those wrong is a
  * silently-unanswered command, so it lives in one place.
  */
-import type { CapabilityContext } from "./capability.js";
+import type { CapabilityContext } from "../runtime/capability.js";
 
 /** The envelope fields a reply inherits from the event that triggered it. */
 export interface ReplySource {

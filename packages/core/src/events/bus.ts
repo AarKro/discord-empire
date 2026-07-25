@@ -20,8 +20,8 @@
 import type { Sql } from "@empire/db";
 import { jsonParam } from "@empire/db";
 import { ulid } from "ulid";
-import type { Logger } from "./logger.js";
-import { rootLogger, withCorrelation } from "./logger.js";
+import type { Logger } from "../logger.js";
+import { rootLogger, withCorrelation } from "../logger.js";
 
 export const CHANNEL = "empire_events";
 

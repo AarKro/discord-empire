@@ -13,10 +13,10 @@
  * Both boards previously carried their own copy of that arithmetic.
  */
 import type { EmbedBuilder } from "discord.js";
-import type { CapabilityContext } from "../capability.js";
-import { locationChannel } from "../locations.js";
-import { readNpcState, upsertNpcStateEntry } from "../npc-state.js";
-import { buttonRow } from "../ui-kit.js";
+import type { CapabilityContext } from "../runtime/capability.js";
+import { locationChannel } from "../world/locations.js";
+import { readNpcState, upsertNpcStateEntry } from "../world/npc-state.js";
+import { buttonRow } from "../ui/kit.js";
 
 /**
  * A row of the `offers` table as the boards read it. `side` is only meaningful

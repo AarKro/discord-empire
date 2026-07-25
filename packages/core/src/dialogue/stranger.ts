@@ -17,9 +17,9 @@
  * feature degrades to atmospheric-but-static and never blocks the game.
  */
 import type { Sql } from "@empire/db";
-import type { EventBus } from "./bus.js";
-import type { Logger } from "./logger.js";
-import { readNpcState } from "./npc-state.js";
+import type { EventBus } from "../events/bus.js";
+import type { Logger } from "../logger.js";
+import { readNpcState } from "../world/npc-state.js";
 import { generateLine, isDialogueLlmEnabled, type MessagesClient } from "./llm.js";
 
 /** Once-per-visit window — a player gets one line per appearance. Tuned to the

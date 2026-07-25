@@ -5,7 +5,7 @@
  * injected — no network.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { generateLine, isDialogueLlmEnabled, type MessagesClient } from "../src/llm.js";
+import { generateLine, isDialogueLlmEnabled, type MessagesClient } from "../src/dialogue/llm.js";
 
 function client(res: { stop_reason: string | null; content: { type: string; text?: string }[] }): MessagesClient {
   return { messages: { create: async () => res } };

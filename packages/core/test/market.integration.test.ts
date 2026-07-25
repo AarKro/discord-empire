@@ -10,7 +10,7 @@ import { marketCapability } from "../src/capabilities/market.js";
 import { buildMarketOverviewEmbed } from "../src/capabilities/market-overview.js";
 import type { Continents } from "@empire/content-schemas";
 import type { ComponentInteraction } from "../src/gateway/index.js";
-import type { CapabilityContext } from "../src/capability.js";
+import type { CapabilityContext } from "../src/runtime/capability.js";
 import { rootLogger } from "../src/logger.js";
 
 const url = process.env.TEST_DATABASE_URL;

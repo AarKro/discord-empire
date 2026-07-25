@@ -10,9 +10,9 @@
  * openings) reuses the same fan-out without touching the mirror. Mounted on the
  * Herald alone, so a single process does the cross-guild broadcast (§9).
  */
-import type { Capability, CapabilityContext } from "../capability.js";
-import type { BusEvent } from "../bus.js";
-import { payloadString } from "../events.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
+import type { BusEvent } from "../events/bus.js";
+import { payloadString } from "../events/helpers.js";
 
 export function worldMirrorCapability(): Capability {
   return {

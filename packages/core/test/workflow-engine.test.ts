@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { availableOptions, CHOOSE_EVENT, decide, entry, guardsPass, parseOnError, scopeMatches } from "../src/workflow/engine.js";
 import { parseDuration } from "../src/workflow/duration.js";
-import type { GuardScope } from "../src/dialogue.js";
+import type { GuardScope } from "../src/dialogue/guards.js";
 import { Workflow, parseContent } from "@empire/content-schemas";
 
 const secretMerchant = parseContent(

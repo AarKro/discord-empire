@@ -7,15 +7,15 @@
  * workflow_instances; timers reconciled from `timer_at` on boot).
  */
 import type { Workflow } from "@empire/content-schemas";
-import type { BusEvent, EventBus } from "../bus.js";
-import type { CapabilityContext, CapabilityRegistry } from "../capability.js";
+import type { BusEvent, EventBus } from "../events/bus.js";
+import type { CapabilityContext, CapabilityRegistry } from "../runtime/capability.js";
 import type { Logger } from "../logger.js";
 import type { Sql } from "@empire/db";
 import { jsonParam } from "@empire/db";
 import { ulid } from "ulid";
 import { availableOptions, decide, entry, parseOnError, scopeMatches, type Stimulus, type TransitionDecision } from "./engine.js";
-import { loadGuardScope, resolveSource, interpolate, DIALOGUE_OPTION_PREFIX, EMPTY_SCOPE, type GuardScope } from "../dialogue.js";
-import { notForMe } from "../events.js";
+import { loadGuardScope, resolveSource, interpolate, DIALOGUE_OPTION_PREFIX, EMPTY_SCOPE, type GuardScope } from "../dialogue/guards.js";
+import { notForMe } from "../events/helpers.js";
 import { parseDuration } from "./duration.js";
 
 /** A persisted instance row's routing/context fields (as advance() needs them). */

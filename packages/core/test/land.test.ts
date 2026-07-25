@@ -7,8 +7,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { landCapability, scaledBuildMs } from "../src/capabilities/land.js";
-import type { BusEvent } from "../src/bus.js";
-import type { CapabilityContext } from "../src/capability.js";
+import type { BusEvent } from "../src/events/bus.js";
+import type { CapabilityContext } from "../src/runtime/capability.js";
 
 interface World {
   blueprint: { id: string; name: string; cost_gold: number; base_ms: number } | null;

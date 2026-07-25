@@ -6,7 +6,7 @@
  * capabilities that need no content files, so they stay hermetic (no disk/env).
  */
 import { describe, it, expect } from "vitest";
-import { buildCapabilities } from "../src/bot-runtime.js";
+import { buildCapabilities } from "../src/runtime/bot-runtime.js";
 import type { Manifest } from "@empire/content-schemas";
 
 function manifest(caps: string[]): Manifest {

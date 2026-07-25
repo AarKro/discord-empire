@@ -19,7 +19,7 @@
  */
 import type { Continents } from "@empire/content-schemas";
 import { ensurePlayer, type Sql } from "@empire/db";
-import type { Capability, CapabilityContext } from "../capability.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
 
 interface ContinentRoleRow {
   guild_id: string;

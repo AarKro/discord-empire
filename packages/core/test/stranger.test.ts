@@ -6,9 +6,9 @@
  * `dialogue.approached` marks every spent visit.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { approachStranger } from "../src/stranger.js";
-import type { MessagesClient } from "../src/llm.js";
-import type { ApproachDeps } from "../src/stranger.js";
+import { approachStranger } from "../src/dialogue/stranger.js";
+import type { MessagesClient } from "../src/dialogue/llm.js";
+import type { ApproachDeps } from "../src/dialogue/stranger.js";
 
 interface World {
   guild: string | null; // where the stranger stands (npcs.state.guild)

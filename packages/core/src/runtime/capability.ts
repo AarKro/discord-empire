@@ -6,11 +6,11 @@
  * (verbs) it exports. The action registry is discoverable, which is the
  * foundation for a future visual workflow editor (§7).
  */
-import type { BusEvent, EventBus } from "./bus.js";
-import type { Gateway } from "./gateway/index.js";
+import type { BusEvent, EventBus } from "../events/bus.js";
+import type { Gateway } from "../gateway/index.js";
 import type { PersonaResolver } from "./persona.js";
 import type { Sql } from "@empire/db";
-import type { Logger } from "./logger.js";
+import type { Logger } from "../logger.js";
 
 /** Services every capability is handed at registration. */
 export interface CapabilityContext {

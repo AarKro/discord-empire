@@ -5,8 +5,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { worldMirrorCapability } from "../src/capabilities/world-mirror.js";
-import type { BusEvent } from "../src/bus.js";
-import type { CapabilityContext } from "../src/capability.js";
+import type { BusEvent } from "../src/events/bus.js";
+import type { CapabilityContext } from "../src/runtime/capability.js";
 
 interface World {
   criers: { channel_id: string | null }[];

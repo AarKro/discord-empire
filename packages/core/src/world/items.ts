@@ -11,9 +11,9 @@
  * so `/inventory`, item autocomplete, and anything else that reads a player's
  * packs can't drift apart the way they did when each call site kept its own.
  */
-import { BUILD_PERMIT_ITEM } from "./capabilities/land.js";
-import { RESEARCH_PERMIT_ITEM } from "./capabilities/research.js";
-import { AUCTION_HOLD_ITEM } from "./capabilities/auction.js";
+import { BUILD_PERMIT_ITEM } from "../capabilities/land.js";
+import { RESEARCH_PERMIT_ITEM } from "../capabilities/research.js";
+import { AUCTION_HOLD_ITEM } from "../capabilities/auction.js";
 
 /** Every internal token, for `item_id <> ALL(${HIDDEN_ITEMS})` filters. */
 export const HIDDEN_ITEMS: readonly string[] = [

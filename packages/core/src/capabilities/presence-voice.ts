@@ -14,8 +14,8 @@
  * Logical stop names (e.g. "bazaar_vc") resolve to real voice channels via the
  * `locations` rows world:init seeds (id = `<name>_<guildId>`, kind='voice').
  */
-import type { Capability, CapabilityContext } from "../capability.js";
-import { locationChannel, voiceStopChannel } from "../locations.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
+import { locationChannel, voiceStopChannel } from "../world/locations.js";
 import { jsonParam } from "@empire/db";
 
 /** One stop on an NPC's wander route: a logical voice-channel name in a guild. */

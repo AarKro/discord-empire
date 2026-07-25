@@ -4,7 +4,7 @@
  * line sets. The trigger mapping is content, not code. Audio playback is a dev-
  * server concern; the trigger/cooldown bookkeeping is the testable core.
  */
-import type { Capability, CapabilityContext } from "../capability.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
 
 export interface VoicelineConfig {
   /** trigger event type -> relative audio paths (per-persona sets keyed later). */

@@ -7,9 +7,9 @@
  * per guild so a burst of events in one continent doesn't spam its chat while
  * leaving other continents free to react.
  */
-import type { Capability, CapabilityContext } from "../capability.js";
-import { locationChannel } from "../locations.js";
-import { payloadString } from "../events.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
+import { locationChannel } from "../world/locations.js";
+import { payloadString } from "../events/helpers.js";
 
 export interface ChatterConfig {
   /** event type -> candidate framing lines to react with. */

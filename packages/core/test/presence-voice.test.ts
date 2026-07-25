@@ -8,8 +8,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { presenceVoiceCapability, type WanderStop } from "../src/capabilities/presence-voice.js";
-import type { BusEvent } from "../src/bus.js";
-import type { CapabilityContext } from "../src/capability.js";
+import type { BusEvent } from "../src/events/bus.js";
+import type { CapabilityContext } from "../src/runtime/capability.js";
 
 interface World {
   /** locations row id (e.g. "bazaar_vc_g1") → Discord voice channel id. */

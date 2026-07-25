@@ -8,9 +8,9 @@
  * this capability only renders and routes the Enter button into dialogue.
  */
 import type { Shop } from "@empire/content-schemas";
-import type { Capability, CapabilityContext } from "../capability.js";
-import { stallEmbed, buttonRow } from "../ui-kit.js";
-import { notForMe } from "../events.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
+import { stallEmbed, buttonRow } from "../ui/kit.js";
+import { notForMe } from "../events/helpers.js";
 import { requiresPresence } from "./topology.js";
 import { ensurePlayer, type Sql } from "@empire/db";
 

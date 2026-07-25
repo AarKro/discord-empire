@@ -17,10 +17,10 @@
  * routes each event (the charge's trade.completed, the tick's research.completed)
  * back to the right instance and the verbs act on the matching row.
  */
-import type { Capability, CapabilityContext } from "../capability.js";
-import { payloadString } from "../events.js";
-import { playerTier, tierScaledMs } from "../players.js";
-import { publishReply } from "../reply.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
+import { payloadString } from "../events/helpers.js";
+import { playerTier, tierScaledMs } from "../world/players.js";
+import { publishReply } from "../events/reply.js";
 import { ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
 
 /**

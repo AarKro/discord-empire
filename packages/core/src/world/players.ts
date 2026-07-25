@@ -7,7 +7,8 @@
  * site — the same reason `locations.ts` exists.
  *
  * The richer read (gold, reputation, flags, research) is `loadGuardScope` in
- * dialogue.ts, which stays there because it exists to feed guard evaluation.
+ * dialogue/guards.ts, which stays there because it exists to feed guard
+ * evaluation.
  */
 import type { Sql } from "@empire/db";
 

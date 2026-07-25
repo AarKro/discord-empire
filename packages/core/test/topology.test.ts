@@ -8,8 +8,8 @@
 import { describe, it, expect } from "vitest";
 import { topologyCapability, requiresPresence } from "../src/capabilities/topology.js";
 import type { Sql } from "@empire/db";
-import type { BusEvent } from "../src/bus.js";
-import type { CapabilityContext } from "../src/capability.js";
+import type { BusEvent } from "../src/events/bus.js";
+import type { CapabilityContext } from "../src/runtime/capability.js";
 
 interface World {
   guild: string | null;

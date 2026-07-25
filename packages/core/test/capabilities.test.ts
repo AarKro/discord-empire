@@ -8,8 +8,8 @@
 import { describe, it, expect } from "vitest";
 import { Shop, parseContent } from "@empire/content-schemas";
 import { tradeCapability, effectiveFloor } from "../src/capabilities/trade.js";
-import type { BusEvent } from "../src/bus.js";
-import type { CapabilityContext } from "../src/capability.js";
+import type { BusEvent } from "../src/events/bus.js";
+import type { CapabilityContext } from "../src/runtime/capability.js";
 
 const shop = parseContent(
   Shop,

@@ -4,7 +4,7 @@
  * each combination of home continent, research, and Trade Post building.
  */
 import { describe, it, expect } from "vitest";
-import { crossContinentCommerceBlock } from "../src/commerce.js";
+import { crossContinentCommerceBlock } from "../src/world/commerce.js";
 import type { Sql } from "@empire/db";
 
 interface World {

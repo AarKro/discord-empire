@@ -12,10 +12,10 @@
  * reaches here, so the player is never pinged twice. notify carries no
  * domain knowledge — the message text is decided by the publisher.
  */
-import type { Capability, CapabilityContext } from "../capability.js";
-import type { BusEvent } from "../bus.js";
-import { notForMe, payloadString } from "../events.js";
-import { landChannel } from "../locations.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
+import type { BusEvent } from "../events/bus.js";
+import { notForMe, payloadString } from "../events/helpers.js";
+import { landChannel } from "../world/locations.js";
 
 export interface NotifyPrefs {
   target: "land" | "dm";

@@ -21,8 +21,8 @@ import { WorkflowRuntime } from "../src/workflow/runtime.js";
 import { travelCapability } from "../src/capabilities/travel.js";
 import { wayfareCapability } from "../src/capabilities/wayfare.js";
 import { topologyCapability } from "../src/capabilities/topology.js";
-import { EventBus, type BusEvent } from "../src/bus.js";
-import { CapabilityRegistry, type Capability, type CapabilityContext, type ActionHandler } from "../src/capability.js";
+import { EventBus, type BusEvent } from "../src/events/bus.js";
+import { CapabilityRegistry, type Capability, type CapabilityContext, type ActionHandler } from "../src/runtime/capability.js";
 import { rootLogger } from "../src/logger.js";
 
 const url = process.env.TEST_DATABASE_URL;

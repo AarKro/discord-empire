@@ -9,7 +9,7 @@
 import type { Sql } from "@empire/db";
 import type { Continents } from "@empire/content-schemas";
 import type { EmbedBuilder } from "discord.js";
-import { marketOverviewEmbed, type MarketOverview } from "../ui-kit.js";
+import { marketOverviewEmbed, type MarketOverview } from "../ui/kit.js";
 import type { OfferRow } from "./offer-board.js";
 
 /** Max lines per continent in the `/market` browse before we truncate + count. */

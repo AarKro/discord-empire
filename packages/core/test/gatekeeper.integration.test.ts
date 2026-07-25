@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { openDb, type DbHandle } from "@empire/db";
 import { gatekeeperCapability } from "../src/capabilities/gatekeeper.js";
-import type { Capability, CapabilityContext } from "../src/capability.js";
+import type { Capability, CapabilityContext } from "../src/runtime/capability.js";
 import type { Continents } from "@empire/content-schemas";
 import type { MemberJoin } from "../src/gateway/index.js";
 import { rootLogger } from "../src/logger.js";

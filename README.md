@@ -59,11 +59,11 @@ The four not-yet-built bots (`bot-herald`, `bot-architect`, `bot-tavern`,
   `executeTrade`); workflows reach the economy via the `trade.execute` action,
   dialogue via `trade.request` events consumed by `trade` — which also enforces
   the shop's hidden, reputation-adjusted haggle floor (`effectiveFloor`).
-- **Nothing outside `core` touches discord.js directly** — `core/src/gateway.ts`
+- **Nothing outside `core` touches discord.js directly** — `core/src/gateway/`
   is the single import site.
 - The ledger is append-only; balances/inventories are derived and reconcilable.
 - Events are lossless across restarts: subscribe → replay since last id → drain
-  buffer de-duped (see `core/src/bus.ts`).
+  buffer de-duped (see `core/src/events/bus.ts`).
 
 ## Getting started (dev)
 
@@ -143,7 +143,7 @@ Or the whole stack containerized: `docker compose -f infra/docker-compose.yml up
 - [x] A **new shop/dialogue variant ships via YAML edit only** — content is
       Zod-validated at boot; `content-files.test.ts` guards the shipped files.
 - [x] A **bot restart loses zero events** — replay-since-last-processed-id +
-      de-dup in the bus (`core/src/bus.ts`).
+      de-dup in the bus (`core/src/events/bus.ts`).
 
 Discord-touching code (voice, threads, embeds) is validated on the dev servers,
 not mocked, per the tech spec.

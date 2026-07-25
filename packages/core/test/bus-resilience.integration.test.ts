@@ -14,7 +14,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { openDb, type DbHandle } from "@empire/db";
-import { EventBus } from "../src/bus.js";
+import { EventBus } from "../src/events/bus.js";
 import { rootLogger } from "../src/logger.js";
 
 const url = process.env.TEST_DATABASE_URL;

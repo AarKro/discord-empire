@@ -26,11 +26,11 @@
  * Channel provisioning is exercised on dev servers; queue state and the
  * charge→enqueue handshake are the testable core.
  */
-import type { Capability, CapabilityContext } from "../capability.js";
-import { locationChannel } from "../locations.js";
-import { payloadString } from "../events.js";
-import { playerTier, tierScaledMs } from "../players.js";
-import { publishReply } from "../reply.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
+import { locationChannel } from "../world/locations.js";
+import { payloadString } from "../events/helpers.js";
+import { playerTier, tierScaledMs } from "../world/players.js";
+import { publishReply } from "../events/reply.js";
 import { ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
 
 /**

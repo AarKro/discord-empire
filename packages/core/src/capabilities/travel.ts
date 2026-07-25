@@ -12,10 +12,10 @@
  * npcs.state ({ guild, destination, previous }) so a reboot resumes on the right
  * continent (or stays on the road if it rebooted mid-transit).
  */
-import type { Capability, CapabilityContext } from "../capability.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
 import type { Continents } from "@empire/content-schemas";
-import { voiceStopChannel } from "../locations.js";
-import { readNpcState } from "../npc-state.js";
+import { voiceStopChannel } from "../world/locations.js";
+import { readNpcState } from "../world/npc-state.js";
 import { jsonParam } from "@empire/db";
 
 /** The voice channel a traveler lingers in on each continent (seeded by world:init). */

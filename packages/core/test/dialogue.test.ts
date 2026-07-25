@@ -4,7 +4,7 @@
  * workflow engine + runtime suites. Here we test the shared guard expression core.
  */
 import { describe, it, expect } from "vitest";
-import { evalGuard, resolveSource, interpolate, type GuardScope } from "../src/dialogue.js";
+import { evalGuard, resolveSource, interpolate, type GuardScope } from "../src/dialogue/guards.js";
 
 describe("evalGuard", () => {
   const scope: GuardScope = {

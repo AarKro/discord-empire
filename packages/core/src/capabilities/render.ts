@@ -12,12 +12,12 @@
  * workflow instance that also survives). A thread entry is dropped when its tree
  * closes, so only open conversations are held.
  */
-import type { Capability, CapabilityContext } from "../capability.js";
-import type { BusEvent } from "../bus.js";
-import { notForMe } from "../events.js";
-import { locationChannel } from "../locations.js";
-import { readNpcState, upsertNpcStateEntry, deleteNpcStateEntry } from "../npc-state.js";
-import { buttonRow, stallEmbed } from "../ui-kit.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
+import type { BusEvent } from "../events/bus.js";
+import { notForMe } from "../events/helpers.js";
+import { locationChannel } from "../world/locations.js";
+import { readNpcState, upsertNpcStateEntry, deleteNpcStateEntry } from "../world/npc-state.js";
+import { buttonRow, stallEmbed } from "../ui/kit.js";
 import type { Sql } from "@empire/db";
 import { readBalance } from "@empire/db";
 

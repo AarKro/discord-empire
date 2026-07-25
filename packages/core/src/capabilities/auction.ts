@@ -19,22 +19,22 @@
  * auction's `price` starts at the reserve (starting price).
  */
 import { executeTrade, settleAuction } from "@empire/db";
-import type { Capability, CapabilityContext } from "../capability.js";
-import type { BusEvent } from "../bus.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
+import type { BusEvent } from "../events/bus.js";
 import type { ModalSubmitInteraction } from "../gateway/index.js";
-import { auctionEmbed, modal } from "../ui-kit.js";
+import { auctionEmbed, modal } from "../ui/kit.js";
 import { renderOfferBoard, type OfferBoard, type OfferRow } from "./offer-board.js";
-import { notForMe, payloadString } from "../events.js";
-import { landChannel } from "../locations.js";
-import { currentGuildId } from "../players.js";
-import { replyToCommand } from "../reply.js";
-import { crossContinentCommerceBlock } from "../commerce.js";
+import { notForMe, payloadString } from "../events/helpers.js";
+import { landChannel } from "../world/locations.js";
+import { currentGuildId } from "../world/players.js";
+import { replyToCommand } from "../events/reply.js";
+import { crossContinentCommerceBlock } from "../world/commerce.js";
 import { ulid } from "ulid";
 
 /**
  * The hidden token whose "sale" escrows a bidder's gold (mirrors
  * BUILD_PERMIT_ITEM). Exported so it can join the one HIDDEN_ITEMS list every
- * player-facing inventory view filters on (see items.ts).
+ * player-facing inventory view filters on (see world/items.ts).
  */
 export const AUCTION_HOLD_ITEM = "auction_bid";
 const HOLD_TOKEN = AUCTION_HOLD_ITEM;

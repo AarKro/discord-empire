@@ -9,8 +9,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { commandsCapability, type CommandDef } from "../src/capabilities/commands.js";
 import { toApplicationCommandJson } from "../src/gateway/index.js";
-import type { BusEvent } from "../src/bus.js";
-import type { CapabilityContext } from "../src/capability.js";
+import type { BusEvent } from "../src/events/bus.js";
+import type { CapabilityContext } from "../src/runtime/capability.js";
 import type { CommandInteraction, AutocompleteInteraction } from "../src/gateway/index.js";
 
 interface FakeGateway {

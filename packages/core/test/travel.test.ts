@@ -9,8 +9,8 @@
 import { describe, it, expect } from "vitest";
 import { travelCapability, startContinent, nextContinent } from "../src/capabilities/travel.js";
 import type { Continents } from "@empire/content-schemas";
-import type { BusEvent } from "../src/bus.js";
-import type { CapabilityContext } from "../src/capability.js";
+import type { BusEvent } from "../src/events/bus.js";
+import type { CapabilityContext } from "../src/runtime/capability.js";
 
 const TWO: Continents = {
   continents: {

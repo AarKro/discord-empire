@@ -6,8 +6,8 @@
  * contact/discovery recording. Full travel timers ride on the workflow engine;
  * this module owns the DB-level position truth and the presence gate.
  */
-import type { Capability, CapabilityContext } from "../capability.js";
-import { replyToCommand } from "../reply.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
+import { replyToCommand } from "../events/reply.js";
 import type { Sql } from "@empire/db";
 
 export interface PresenceCheck {

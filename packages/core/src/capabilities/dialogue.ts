@@ -6,8 +6,8 @@
  * turn an option-button click into the `dialogue.choose` event the runtime's
  * current state listens for — the reverse of the runtime's option rendering.
  */
-import type { Capability, CapabilityContext } from "../capability.js";
-import { DIALOGUE_OPTION_PREFIX } from "../dialogue.js";
+import type { Capability, CapabilityContext } from "../runtime/capability.js";
+import { DIALOGUE_OPTION_PREFIX } from "../dialogue/guards.js";
 
 export function dialogueCapability(): Capability {
   return {
