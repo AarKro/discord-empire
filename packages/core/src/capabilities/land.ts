@@ -31,14 +31,8 @@ import { locationChannel } from "../world/locations.js";
 import { payloadString } from "../events/helpers.js";
 import { playerTier, tierScaledMs } from "../world/players.js";
 import { publishReply } from "../events/reply.js";
+import { BUILD_PERMIT_ITEM } from "../world/items.js";
 import { ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
-
-/**
- * The single-use item a builder "sells" the player for a build. Modeling the
- * cost as a trade keeps the LEDGER write inside `trade` (invariant #2); the
- * atomic contract also gives us the "insufficient funds" guard for free.
- */
-export const BUILD_PERMIT_ITEM = "build_permit";
 
 /** Build pacing (§2.5). Named re-export of the shared curve — see tierScaledMs. */
 export const scaledBuildMs = tierScaledMs;

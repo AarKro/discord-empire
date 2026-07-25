@@ -65,8 +65,8 @@ export type { ChatterConfig } from "./capabilities/ambient-chatter.js";
 export { notifyCapability } from "./capabilities/notify.js";
 export { commandsCapability } from "./capabilities/commands.js";
 export type { CommandDef } from "./capabilities/commands.js";
-export { landCapability, scaledBuildMs, BUILD_PERMIT_ITEM } from "./capabilities/land.js";
-export { researchCapability, scaledResearchMs, RESEARCH_PERMIT_ITEM } from "./capabilities/research.js";
+export { landCapability, scaledBuildMs } from "./capabilities/land.js";
+export { researchCapability, scaledResearchMs } from "./capabilities/research.js";
 export { topologyCapability, requiresPresence } from "./capabilities/topology.js";
 export type { PresenceCheck } from "./capabilities/topology.js";
 export { travelCapability, startContinent, nextContinent } from "./capabilities/travel.js";
@@ -74,11 +74,17 @@ export { wayfareCapability } from "./capabilities/wayfare.js";
 export { gatekeeperCapability, observerContinents, discoveredByArriving } from "./capabilities/gatekeeper.js";
 export { marketCapability } from "./capabilities/market.js";
 export { buildMarketOverviewEmbed } from "./capabilities/market-overview.js";
-export { auctionCapability, AUCTION_HOLD_ITEM } from "./capabilities/auction.js";
+export { auctionCapability } from "./capabilities/auction.js";
 export { worldMirrorCapability } from "./capabilities/world-mirror.js";
 
 // Internal (non-diegetic) item tokens — never show these in player-facing lists
-export { HIDDEN_ITEMS, isHiddenItem } from "./world/items.js";
+export {
+  HIDDEN_ITEMS,
+  isHiddenItem,
+  BUILD_PERMIT_ITEM,
+  RESEARCH_PERMIT_ITEM,
+  AUCTION_HOLD_ITEM,
+} from "./world/items.js";
 export {
   buildLeaderboardEmbed,
   leaderboardRows,

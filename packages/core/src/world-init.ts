@@ -19,8 +19,7 @@ import { ChannelType, Client, GatewayIntentBits, type Guild, type GuildBasedChan
 import { loadContentFile, Manifest, Shop, Continents, Districts } from "@empire/content-schemas";
 import { openDb, jsonParam, type Sql } from "@empire/db";
 import { rootLogger, type Logger } from "./logger.js";
-import { BUILD_PERMIT_ITEM } from "./capabilities/land.js";
-import { RESEARCH_PERMIT_ITEM } from "./capabilities/research.js";
+import { BUILD_PERMIT_ITEM, RESEARCH_PERMIT_ITEM } from "./world/items.js";
 
 /** A buildable recipe seeded into blueprint_catalog (§5.12, §10 Builder). */
 interface BlueprintSeed {

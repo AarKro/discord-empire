@@ -29,14 +29,9 @@ import { landChannel } from "../world/locations.js";
 import { currentGuildId } from "../world/players.js";
 import { replyToCommand } from "../events/reply.js";
 import { crossContinentCommerceBlock } from "../world/commerce.js";
+import { AUCTION_HOLD_ITEM } from "../world/items.js";
 import { ulid } from "ulid";
 
-/**
- * The hidden token whose "sale" escrows a bidder's gold (mirrors
- * BUILD_PERMIT_ITEM). Exported so it can join the one HIDDEN_ITEMS list every
- * player-facing inventory view filters on (see world/items.ts).
- */
-export const AUCTION_HOLD_ITEM = "auction_bid";
 const HOLD_TOKEN = AUCTION_HOLD_ITEM;
 /** Seed the auction Party with plenty so a bid's escrow trade always has stock. */
 const TOKEN_STOCK = 1_000_000;

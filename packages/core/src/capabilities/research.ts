@@ -21,15 +21,8 @@ import type { Capability, CapabilityContext } from "../runtime/capability.js";
 import { payloadString } from "../events/helpers.js";
 import { playerTier, tierScaledMs } from "../world/players.js";
 import { publishReply } from "../events/reply.js";
+import { RESEARCH_PERMIT_ITEM } from "../world/items.js";
 import { ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
-
-/**
- * The single-use item the Architect "sells" the player for a research. Modeling
- * the cost as a trade keeps the LEDGER write inside `trade` (invariant #2); the
- * atomic contract also gives us the "insufficient funds" guard for free. Mirrors
- * BUILD_PERMIT_ITEM.
- */
-export const RESEARCH_PERMIT_ITEM = "research_permit";
 
 /** Research pacing (§2.5). Named re-export of the shared curve — see tierScaledMs. */
 export const scaledResearchMs = tierScaledMs;

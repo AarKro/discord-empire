@@ -10,10 +10,22 @@
  * They must never surface in a player-facing list. This is the ONE list of them,
  * so `/inventory`, item autocomplete, and anything else that reads a player's
  * packs can't drift apart the way they did when each call site kept its own.
+ *
+ * The ids live HERE rather than in the capability that spends each one, because
+ * the list needs all three: sourcing them from capabilities/ meant world/ and
+ * capabilities/ imported each other. world-init wants two of them as well, to
+ * stock the permit-sink NPCs, and it has no business loading a whole capability
+ * to read a string.
  */
-import { BUILD_PERMIT_ITEM } from "../capabilities/land.js";
-import { RESEARCH_PERMIT_ITEM } from "../capabilities/research.js";
-import { AUCTION_HOLD_ITEM } from "../capabilities/auction.js";
+
+/** The single-use item a builder "sells" the player for a build (§2.5). */
+export const BUILD_PERMIT_ITEM = "build_permit";
+
+/** The Architect's equivalent, sold once per queued research node. */
+export const RESEARCH_PERMIT_ITEM = "research_permit";
+
+/** The token whose "sale" escrows a bidder's gold for the life of a bid. */
+export const AUCTION_HOLD_ITEM = "auction_bid";
 
 /** Every internal token, for `item_id <> ALL(${HIDDEN_ITEMS})` filters. */
 export const HIDDEN_ITEMS: readonly string[] = [
