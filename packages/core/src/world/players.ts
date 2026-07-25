@@ -10,7 +10,7 @@
  * dialogue/guards.ts, which stays there because it exists to feed guard
  * evaluation.
  */
-import type { Sql } from "@empire/db";
+import { jsonParam, type Sql } from "@empire/db";
 
 /**
  * Idle pacing is hybrid: higher tiers take LONGER to build and research (§2.5).
@@ -46,4 +46,25 @@ export async function currentGuildId(
     SELECT position_guild_id FROM players WHERE discord_user_id = ${playerId}
   `;
   return row?.position_guild_id ?? fallback;
+}
+
+/** The player's boolean flags (§5.4 guards) — `{}` for an unregistered player. */
+export async function readFlags(sql: Sql, playerId: string): Promise<Record<string, boolean>> {
+  const [row] = await sql<{ flags: Record<string, boolean> }[]>`
+    SELECT flags FROM players WHERE discord_user_id = ${playerId}
+  `;
+  return row?.flags ?? {};
+}
+
+/**
+ * Set one boolean flag, merging rather than replacing so concurrent writers to
+ * OTHER keys aren't clobbered — `flags` is a single jsonb column shared by every
+ * feature that marks progress on a player (met_aldric, riddle_*, …).
+ */
+export async function setPlayerFlag(sql: Sql, playerId: string, flag: string, value = true): Promise<void> {
+  await sql`
+    UPDATE players
+       SET flags = flags || ${jsonParam(sql, { [flag]: value })}::jsonb
+     WHERE discord_user_id = ${playerId}
+  `;
 }

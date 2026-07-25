@@ -21,12 +21,11 @@ import type { EventBus } from "../events/bus.js";
 import type { Logger } from "../logger.js";
 import { readNpcState } from "../world/npc-state.js";
 import { generateLine, isDialogueLlmEnabled, type MessagesClient } from "./llm.js";
+import { maxPerHour, overHourlyCap } from "./budget.js";
 
 /** Once-per-visit window — a player gets one line per appearance. Tuned to the
  *  Secret Merchant's dwell (see workflows/secret_merchant.yaml). */
 export const VISIT_WINDOW = "45 minutes";
-/** Default hourly ceiling on real generations; override with DIALOGUE_MAX_PER_HOUR. */
-export const DEFAULT_MAX_PER_HOUR = 30;
 
 /** Authored fallback lines — the stranger's voice when the model is unavailable. */
 const FALLBACK_LINES = [
@@ -104,13 +103,9 @@ export async function approachStranger(
     return "The stranger meets your eyes and says nothing more — their words for you are already spoken.";
   }
 
-  // 3) GLOBAL CIRCUIT BREAKER — a hard hourly ceiling on real generations.
-  const maxPerHour = Number(process.env.DIALOGUE_MAX_PER_HOUR ?? DEFAULT_MAX_PER_HOUR);
-  const [recent] = await sql<{ n: number }[]>`
-    SELECT count(*)::int AS n FROM events
-     WHERE type = 'dialogue.generated' AND ts > now() - interval '1 hour'
-  `;
-  const overCap = (recent?.n ?? 0) >= maxPerHour;
+  // 3) GLOBAL CIRCUIT BREAKER — a hard hourly ceiling on real generations,
+  // shared with every other LLM dialogue feature (see dialogue/budget.ts).
+  const overCap = await overHourlyCap(sql);
 
   let line: string;
   let generated = false;
@@ -126,7 +121,7 @@ export async function approachStranger(
       line = pickFallback(`${userId}:${here}`);
     }
   } else {
-    if (overCap) logger.info({ maxPerHour }, "dialogue circuit breaker tripped — using authored fallback");
+    if (overCap) logger.info({ maxPerHour: maxPerHour() }, "dialogue circuit breaker tripped — using authored fallback");
     line = pickFallback(`${userId}:${here}`);
   }
 

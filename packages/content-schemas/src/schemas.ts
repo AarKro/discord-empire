@@ -33,6 +33,8 @@ export const Manifest = z.object({
       // Continent ring (§9) — a travelling NPC's `travel` capability reads it to
       // walk between continents by their authored neighbours.
       continents: z.string().optional(),
+      // Riddle book for the `riddle` capability (§5.4 / §11).
+      riddles: z.string().optional(),
     })
     .optional(),
 });
@@ -56,6 +58,34 @@ export const Shop = z.object({
   items: z.array(ShopItem).min(1),
 });
 export type Shop = z.infer<typeof Shop>;
+
+// --- Riddles (§5.4 / §11 LLM-worded dialogue) ---------------------------------
+// Everything that DECIDES an outcome is authored here: the accepted answers and
+// the hints. The model only re-words a hint from this list and never sees
+// `answers`, so no prompt injection can produce a clue the author didn't write.
+export const Riddle = z.object({
+  id: z.string().min(1),
+  prompt: z.string().min(1),
+  // Accepted answers incl. synonyms/spellings; matched after normalisation, so
+  // case, punctuation and a leading article don't need listing.
+  answers: z.array(z.string().min(1)).min(1),
+  // Exactly three, escalating — the question budget is three, one hint each.
+  hints: z.array(z.string().min(1)).length(3),
+  reward: z
+    .object({
+      gold: z.number().int().nonnegative().optional(),
+      item: z.string().min(1).optional(),
+      qty: z.number().int().positive().optional(),
+      reputation: z.number().int().optional(),
+    })
+    .default({}),
+});
+export type Riddle = z.infer<typeof Riddle>;
+
+export const Riddles = z.object({
+  riddles: z.array(Riddle).min(1),
+});
+export type Riddles = z.infer<typeof Riddles>;
 
 // --- Guards + player options (§5.4) — the pieces a dialogue workflow uses -----
 export const Guard = z.object({

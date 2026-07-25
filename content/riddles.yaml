@@ -1,0 +1,58 @@
+# The Secret Merchant's riddles (framework spec §5.4 / §11).
+#
+# AUTHORING CONTRACT — read before adding one:
+#
+#   answers   Every accepted spelling/synonym. Matching normalises first
+#             (lowercase, punctuation stripped, a leading "a/an/the" dropped), so
+#             list MEANINGS, not casings: "echo" covers "An Echo!" already.
+#             answers[0] is the canonical one shown to the judge model.
+#
+#   hints     EXACTLY three, escalating from oblique to nearly-explicit. These are
+#             the only clues that can ever reach a player: the model picks one and
+#             re-words it, and is never shown `answers`. A hint that gives the
+#             answer away in plain words is therefore a content bug, not a model
+#             bug — hint 3 should make a thoughtful player confident, not certain.
+#
+#   reward    Paid once per player per riddle, via the ledger (world → player).
+#             Keep it modest: this is a flavour minigame, not an income source.
+riddles:
+  - id: echo
+    prompt: >-
+      I speak without a mouth and hear without ears. I have no body, but I come
+      alive on the wind. What am I?
+    answers: [echo, an echo, reverberation]
+    hints:
+      - The mountains give me back to you, but never keep me.
+      - I own nothing of my own — every word I say, I borrowed from you first.
+      - Shout across a canyon and you will meet me on the way back.
+    reward:
+      gold: 60
+      reputation: 1
+
+  - id: map
+    prompt: >-
+      I have cities but no houses, forests but no trees, and water but no fish.
+      What am I?
+    answers: [map, a map, chart, atlas]
+    hints:
+      - A traveller who cannot read me will walk twice as far.
+      - I am the whole world folded small enough to carry in one hand.
+      - Every road on me is drawn in ink, and none of them will take you anywhere alone.
+    reward:
+      gold: 75
+      reputation: 1
+
+  - id: shadow
+    prompt: >-
+      I follow you all day and vanish when you are surrounded by light on every
+      side. The brighter the lantern, the darker I grow. What am I?
+    answers: [shadow, a shadow, shade]
+    hints:
+      - I am the one companion who never speaks and never leaves before you do.
+      - Noon makes me small; a low sun makes me a giant.
+      - Stand between a torch and a wall, and you will have made me.
+    reward:
+      gold: 90
+      item: lantern_oil
+      qty: 1
+      reputation: 2

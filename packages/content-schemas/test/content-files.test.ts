@@ -16,6 +16,7 @@ import {
   Continents,
   Districts,
   Instances,
+  Riddles,
 } from "../src/index.js";
 
 const CONTENT = join(dirname(fileURLToPath(import.meta.url)), "../../../content");
@@ -58,6 +59,19 @@ describe("shipped content validates against schemas", () => {
   it("shop, schedule", () => {
     expect(loadContentFile(Shop, join(CONTENT, "shops/aldric.yaml")).items.length).toBeGreaterThan(0);
     expect(loadContentFile(Schedule, join(CONTENT, "schedules/aldric.yaml")).stops.length).toBeGreaterThan(0);
+  });
+
+  it("riddles — each carries exactly the three hints the question budget spends", () => {
+    const book = loadContentFile(Riddles, join(CONTENT, "riddles.yaml"));
+    expect(book.riddles.length).toBeGreaterThan(0);
+    for (const riddle of book.riddles) {
+      expect(riddle.hints).toHaveLength(3);
+      expect(riddle.answers.length).toBeGreaterThan(0);
+    }
+    // Ids are the player-flag key (`riddle_<id>`), so a duplicate would make one
+    // riddle unwinnable the moment the other was solved.
+    const ids = book.riddles.map((r) => r.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it("workflows", () => {

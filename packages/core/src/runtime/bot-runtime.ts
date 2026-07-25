@@ -15,7 +15,7 @@
  * in core because it wires core's own pieces (gateway, bus, capabilities).
  */
 import { isAbsolute, join } from "node:path";
-import { loadContentFile, Manifest, Shop, Schedule, Workflow, Continents } from "@empire/content-schemas";
+import { loadContentFile, Manifest, Shop, Schedule, Workflow, Continents, Riddles } from "@empire/content-schemas";
 import { openDb } from "@empire/db";
 import { rootLogger, type Logger } from "../logger.js";
 import { CapabilityRegistry, type Capability, type CapabilityContext } from "./capability.js";
@@ -39,6 +39,7 @@ import { wayfareCapability } from "../capabilities/wayfare.js";
 import { gatekeeperCapability } from "../capabilities/gatekeeper.js";
 import { marketCapability } from "../capabilities/market.js";
 import { auctionCapability } from "../capabilities/auction.js";
+import { riddleCapability } from "../capabilities/riddle.js";
 import { worldMirrorCapability } from "../capabilities/world-mirror.js";
 import { WorkflowRuntime } from "../workflow/runtime.js";
 
@@ -50,7 +51,7 @@ export interface CapabilityConfigs {
 }
 
 /** The manifest `content` keys that name a single loadable file. */
-type ContentKey = "shop" | "schedule" | "continents";
+type ContentKey = "shop" | "schedule" | "continents" | "riddles";
 
 /**
  * Loads + validates one content file. Typed off `loadContentFile` itself so the
@@ -110,6 +111,7 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
   gatekeeper: (deps) => gatekeeperCapability(required(deps, Continents, "continents", "gatekeeper")),
   market: () => marketCapability(),
   auction: () => auctionCapability(),
+  riddle: (deps) => riddleCapability(required(deps, Riddles, "riddles", "riddle")),
   "world.mirror": () => worldMirrorCapability(),
 };
 
