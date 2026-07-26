@@ -9,6 +9,10 @@ personas:
     nickname: "Foreman Kai"
     avatar: kai.png
     locale_flavor: harbor
+  "${GUILD_CONTINENT_THREE}":
+    nickname: "Warden Bryn"
+    avatar: bryn.png
+    locale_flavor: wildwood
 # Registration order = dispatch order. topology is the infra presence gate.
 capabilities:
   - trade

@@ -9,6 +9,10 @@ personas:
     nickname: "Loremaster Soraya"
     avatar: soraya.png
     locale_flavor: harbor
+  "${GUILD_CONTINENT_THREE}":
+    nickname: "Greensage Ilyth"
+    avatar: ilyth.png
+    locale_flavor: wildwood
 # Registration order = dispatch order. topology is the infra presence gate.
 capabilities:
   - trade

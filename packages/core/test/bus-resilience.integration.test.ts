@@ -32,7 +32,6 @@ async function eventually(check: () => boolean, timeoutMs = 2000): Promise<void>
   expect(check()).toBe(true);
 }
 
-
 suite("event bus resilience (§3)", () => {
   beforeAll(async () => {
     h = openDb(url!, { max: 4 });

@@ -13,5 +13,8 @@ personas:
   "${GUILD_CONTINENT_TWO}":
     nickname: "Ops Console"
     locale_flavor: harbor
+  "${GUILD_CONTINENT_THREE}":
+    nickname: "Ops Console"
+    locale_flavor: wildwood
 capabilities:
   - commands

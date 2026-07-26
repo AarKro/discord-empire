@@ -1,16 +1,29 @@
-# Guild IDs → continent metadata (§9). Two dev continents for iteration 1; a
-# three-continent ring is the launch target. Guild IDs come from .env via
-# env-placeholder substitution in the content loader (see .env.example).
+# Guild IDs → continent metadata (§9). The launch target from §2.1 — a
+# three-continent ring, every continent neighbouring both others. Guild IDs come
+# from .env via env-placeholder substitution in the content loader (see
+# .env.example).
+#
+# `neighbors` is the travel graph: it governs which hops /travel offers, which
+# continents a player observes (the gatekeeper grants Observer at home's
+# neighbours), and how the Secret Merchant walks the ring. A true ring means
+# nextContinent()'s backtrack-avoidance finally does something — with two
+# continents it could only ping-pong.
 continents:
   "${GUILD_CONTINENT_ONE}":
     name: "Continent One"
     order: 1
-    neighbors: ["${GUILD_CONTINENT_TWO}"]
+    neighbors: ["${GUILD_CONTINENT_TWO}", "${GUILD_CONTINENT_THREE}"]
     resource_bias: highlands
     locale_flavor: highlands
   "${GUILD_CONTINENT_TWO}":
     name: "Continent Two"
     order: 2
-    neighbors: ["${GUILD_CONTINENT_ONE}"]
+    neighbors: ["${GUILD_CONTINENT_THREE}", "${GUILD_CONTINENT_ONE}"]
     resource_bias: harbor
     locale_flavor: harbor
+  "${GUILD_CONTINENT_THREE}":
+    name: "The Thornwild"
+    order: 3
+    neighbors: ["${GUILD_CONTINENT_ONE}", "${GUILD_CONTINENT_TWO}"]
+    resource_bias: wildwood
+    locale_flavor: wildwood

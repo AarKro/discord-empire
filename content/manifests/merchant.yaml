@@ -9,6 +9,10 @@ personas:
     nickname: "Mei Lin"
     avatar: meilin.png
     locale_flavor: harbor
+  "${GUILD_CONTINENT_THREE}":
+    nickname: "Hazel Bramblewick"
+    avatar: hazel.png
+    locale_flavor: wildwood
 # Registration order = dispatch order; render stays last so it draws the latest
 # state. topology (presence gate) and render (bus→Discord surface) are infra.
 capabilities:
@@ -24,6 +28,7 @@ capabilities:
 home:
   "${GUILD_CONTINENT_ONE}": { voice_channel: bazaar_vc }
   "${GUILD_CONTINENT_TWO}": { voice_channel: bazaar_vc }
+  "${GUILD_CONTINENT_THREE}": { voice_channel: bazaar_vc }
 content:
   shop: shops/aldric.yaml
   schedule: schedules/aldric.yaml

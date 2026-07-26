@@ -10,6 +10,9 @@ personas:
   "${GUILD_CONTINENT_TWO}":
     nickname: "The Exchange"
     locale_flavor: harbor
+  "${GUILD_CONTINENT_THREE}":
+    nickname: "The Exchange"
+    locale_flavor: wildwood
 capabilities:
   - commands
   - market

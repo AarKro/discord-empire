@@ -11,3 +11,11 @@ districts:
   "${GUILD_CONTINENT_TWO}":
     - { id: market_district, name: "Market District", holds_bazaar: true, neighbors: [tavern_row] }
     - { id: tavern_row, name: "Tavern Row", neighbors: [market_district] }
+  # `holds_bazaar` (not the id) is what world:init keys the public starting square
+  # off, so the Thornwild's is free to be called Greenmarket. The id stays
+  # `market_district` across all three continents anyway — one shape to reason
+  # about when a query names a district id.
+  "${GUILD_CONTINENT_THREE}":
+    - { id: market_district, name: "Greenmarket", holds_bazaar: true, neighbors: [thornhollow] }
+    - { id: thornhollow, name: "Thornhollow", neighbors: [market_district, old_wood] }
+    - { id: old_wood, name: "The Old Wood", neighbors: [thornhollow] }

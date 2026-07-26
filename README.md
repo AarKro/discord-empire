@@ -8,8 +8,8 @@ referee. See [`discord-empire-framework-spec.md`](./discord-empire-framework-spe
 
 This repository is **iteration 1**: the framework built against the two
 reference bots from the framework spec §10 validation path — **Merchant** and
-**Builder** — on two dev continents. The four remaining bots are intentionally
-**not** scaffolded yet.
+**Builder** — now joined by the Herald, Exchange, Architect, Secret Merchant and
+Ops bots, running on the framework spec §2.1 three-continent ring.
 
 ## Agent's-choice decisions (tech spec)
 

@@ -11,6 +11,9 @@ personas:
   "${GUILD_CONTINENT_TWO}":
     nickname: "The Wayfarers' Guild"
     locale_flavor: harbor
+  "${GUILD_CONTINENT_THREE}":
+    nickname: "The Wayfarers' Guild"
+    locale_flavor: wildwood
 capabilities:
   - commands
   - wayfare

@@ -6,6 +6,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { fileURLToPath } from "node:url";
+import { readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   loadContentFile,
@@ -25,6 +26,7 @@ const CONTENT = join(dirname(fileURLToPath(import.meta.url)), "../../../content"
 // stand-ins so the files validate without a real .env (as they do at boot).
 process.env.GUILD_CONTINENT_ONE ??= "guild_111111";
 process.env.GUILD_CONTINENT_TWO ??= "guild_222222";
+process.env.GUILD_CONTINENT_THREE ??= "guild_333333";
 
 describe("shipped content validates against schemas", () => {
   it("manifests", () => {
@@ -140,17 +142,46 @@ describe("shipped content validates against schemas", () => {
     expect(playerMove.states.departing!.set).toMatchObject({ district: "event.payload.district" });
   });
 
-  it("continents (two dev guilds) and instances", () => {
+  it("continents (§2.1 three-continent ring) and instances", () => {
     const c = loadContentFile(Continents, join(CONTENT, "continents.yaml"));
-    expect(Object.keys(c.continents).length).toBe(2);
+    const guilds = Object.keys(c.continents);
+    expect(guilds.length).toBe(3);
+    // A true ring: every continent neighbours both others, every neighbour is a
+    // continent that exists, and nobody names themselves. A dangling neighbour
+    // id is invisible to the schema but breaks /travel and the Observer grants.
+    for (const [guildId, meta] of Object.entries(c.continents)) {
+      expect(meta.neighbors).not.toContain(guildId);
+      expect([...meta.neighbors].sort()).toEqual(guilds.filter((g) => g !== guildId).sort());
+    }
+    // Distinct orders — startContinent() picks the minimum, so a tie is ambiguous.
+    const orders = Object.values(c.continents).map((meta) => meta.order);
+    expect(new Set(orders).size).toBe(orders.length);
     expect(loadContentFile(Instances, join(CONTENT, "instances.yaml")).dungeon_pool.length).toBeGreaterThanOrEqual(0);
+  });
+
+  it("every bot wears a persona on every continent", () => {
+    const guilds = Object.keys(loadContentFile(Continents, join(CONTENT, "continents.yaml")).continents);
+    for (const file of readdirSync(join(CONTENT, "manifests"))) {
+      const m = loadContentFile(Manifest, join(CONTENT, "manifests", file));
+      // A bot with no persona for a guild throws at boot the moment it acts
+      // there (PersonaResolver.resolve), so adding a continent means touching
+      // every manifest — this is what catches the one you forgot.
+      expect(Object.keys(m.personas).sort(), `${file} personas`).toEqual([...guilds].sort());
+    }
   });
 
   it("districts (§2.2): each continent has exactly one bazaar district", () => {
     const d = loadContentFile(Districts, join(CONTENT, "districts.yaml"));
+    const guilds = Object.keys(loadContentFile(Continents, join(CONTENT, "continents.yaml")).continents);
+    expect(Object.keys(d.districts).sort()).toEqual([...guilds].sort());
     for (const districts of Object.values(d.districts)) {
       expect(districts.filter((district) => district.holds_bazaar).length).toBe(1);
       expect(districts.length).toBeGreaterThanOrEqual(2);
+      // Neighbours must name siblings on the same continent.
+      const ids = new Set(districts.map((district) => district.id));
+      for (const district of districts) {
+        for (const neighbor of district.neighbors ?? []) expect(ids).toContain(neighbor);
+      }
     }
   });
 });
