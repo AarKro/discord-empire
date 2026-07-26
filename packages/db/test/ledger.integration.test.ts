@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { openDb, type DbHandle } from "../src/client.js";
+import { assertMigrated } from "../src/migration-state.js";
 import { executeTrade } from "../src/trade.js";
 
 // DELIBERATELY not DATABASE_URL: these suites TRUNCATE shared tables, so they
@@ -41,7 +42,7 @@ suite("ledger atomic trade contract", () => {
     h = openDb(url!, { max: 10 });
     // Ensure the schema exists. In CI drizzle-kit migrate runs first; locally we
     // create the minimal tables the suite touches if they are absent.
-    await ensureSchema(h);
+    await assertMigrated(h.sql);
   });
 
   afterAll(async () => {
@@ -154,43 +155,3 @@ suite("ledger atomic trade contract", () => {
     expect(untouched).toBe(1);
   });
 });
-
-/** Create only the tables this suite exercises, if migrations haven't run. */
-async function ensureSchema(handle: DbHandle) {
-  const { sql } = handle;
-  await sql`CREATE TABLE IF NOT EXISTS events (
-    id bigserial PRIMARY KEY,
-    event_id text NOT NULL,
-    type text NOT NULL,
-    ts timestamptz NOT NULL DEFAULT now(),
-    guild_id text,
-    actor_kind text, actor_id text,
-    subject_kind text, subject_id text,
-    payload jsonb NOT NULL DEFAULT '{}',
-    correlation_id text
-  )`;
-  await sql`CREATE UNIQUE INDEX IF NOT EXISTS events_event_id_uq ON events(event_id)`;
-  await sql`CREATE TABLE IF NOT EXISTS ledger (
-    id bigserial PRIMARY KEY,
-    ts timestamptz NOT NULL DEFAULT now(),
-    actor_kind text NOT NULL, actor_id text NOT NULL,
-    counterparty_kind text NOT NULL, counterparty_id text NOT NULL,
-    currency text NOT NULL DEFAULT 'gold',
-    currency_delta bigint NOT NULL,
-    item_deltas jsonb NOT NULL DEFAULT '{}',
-    reason text NOT NULL,
-    cause_event_id bigint
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS balances (
-    owner_kind text NOT NULL, owner_id text NOT NULL,
-    currency text NOT NULL DEFAULT 'gold',
-    amount bigint NOT NULL DEFAULT 0,
-    PRIMARY KEY (owner_kind, owner_id, currency)
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS inventories (
-    owner_kind text NOT NULL, owner_id text NOT NULL,
-    item_id text NOT NULL,
-    qty bigint NOT NULL DEFAULT 0,
-    PRIMARY KEY (owner_kind, owner_id, item_id)
-  )`;
-}

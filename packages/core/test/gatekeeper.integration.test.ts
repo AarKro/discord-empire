@@ -6,7 +6,7 @@
  * + reconciled, and that re-running is idempotent. Opt-in on TEST_DATABASE_URL.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { openDb, type DbHandle } from "@empire/db";
+import { openDb, type DbHandle, assertMigrated } from "@empire/db";
 import { gatekeeperCapability } from "../src/capabilities/gatekeeper.js";
 import type { Capability, CapabilityContext } from "../src/runtime/capability.js";
 import type { Continents } from "@empire/content-schemas";
@@ -72,7 +72,7 @@ async function seedPlayer(id: string, home: string) {
 suite("gatekeeper — continent role reconciliation (§9)", () => {
   beforeAll(async () => {
     h = openDb(url!, { max: 4 });
-    await ensureSchema(h);
+    await assertMigrated(h.sql);
   });
   afterAll(async () => {
     await h.close();
@@ -126,13 +126,3 @@ suite("gatekeeper — continent role reconciliation (§9)", () => {
     expect(count).toBe(3); // g1, g2, g3 — not doubled
   });
 });
-
-async function ensureSchema(handle: DbHandle) {
-  const { sql } = handle;
-  await sql`CREATE TABLE IF NOT EXISTS players (discord_user_id text PRIMARY KEY, home_guild_id text NOT NULL, position_guild_id text, position_district_id text, tier integer NOT NULL DEFAULT 1, notification_prefs jsonb NOT NULL DEFAULT '{}', flags jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now())`;
-  await sql`CREATE TABLE IF NOT EXISTS continent_roles (guild_id text PRIMARY KEY, citizen_role_id text, observer_role_id text)`;
-  await sql`CREATE TABLE IF NOT EXISTS continent_discoveries (player_id text NOT NULL, guild_id text NOT NULL, discovered_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (player_id, guild_id))`;
-  await sql`CREATE TABLE IF NOT EXISTS balances (owner_kind text NOT NULL, owner_id text NOT NULL, currency text NOT NULL DEFAULT 'gold', amount bigint NOT NULL DEFAULT 0, PRIMARY KEY (owner_kind, owner_id, currency))`;
-  await sql`CREATE TABLE IF NOT EXISTS ledger (id bigserial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(), actor_kind text NOT NULL, actor_id text NOT NULL, counterparty_kind text NOT NULL, counterparty_id text NOT NULL, currency text NOT NULL DEFAULT 'gold', currency_delta bigint NOT NULL, item_deltas jsonb NOT NULL DEFAULT '{}', reason text NOT NULL, cause_event_id bigint)`;
-  await sql`CREATE TABLE IF NOT EXISTS locations (id text PRIMARY KEY, guild_id text NOT NULL, channel_id text, district_id text, kind text NOT NULL, requires_presence boolean NOT NULL DEFAULT false)`;
-}

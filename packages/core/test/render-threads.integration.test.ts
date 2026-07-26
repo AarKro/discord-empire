@@ -6,7 +6,7 @@
  * particular) actually works — the gateway wiring is a dev-server concern.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { openDb, type DbHandle } from "@empire/db";
+import { openDb, assertMigrated, type DbHandle } from "@empire/db";
 import { loadThreadId, saveThreadId, removeThreadId } from "../src/capabilities/render.js";
 
 const url = process.env.TEST_DATABASE_URL;
@@ -17,7 +17,7 @@ let h: DbHandle;
 suite("dialogue thread persistence (npcs.state)", () => {
   beforeAll(async () => {
     h = openDb(url!, { max: 4 });
-    await h.sql`CREATE TABLE IF NOT EXISTS npcs (id text PRIMARY KEY, kind text NOT NULL DEFAULT 'merchant', state jsonb NOT NULL DEFAULT '{}')`;
+    await assertMigrated(h.sql);
   });
 
   afterAll(async () => {

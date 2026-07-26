@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { openDb, type DbHandle } from "../src/client.js";
+import { assertMigrated } from "../src/migration-state.js";
 import { ensurePlayer, grantReward } from "../src/grant.js";
 
 // Never DATABASE_URL: this suite truncates shared tables (see ledger suite).
@@ -16,7 +17,7 @@ let h: DbHandle;
 suite("ensurePlayer starting grant", () => {
   beforeAll(async () => {
     h = openDb(url!, { max: 10 });
-    await ensureSchema(h);
+    await assertMigrated(h.sql);
   });
 
   afterAll(async () => {
@@ -76,7 +77,7 @@ suite("ensurePlayer starting grant", () => {
 suite("grantReward", () => {
   beforeAll(async () => {
     h = openDb(url!, { max: 10 });
-    await ensureSchema(h);
+    await assertMigrated(h.sql);
   });
   afterAll(async () => {
     await h.close();
@@ -117,49 +118,3 @@ suite("grantReward", () => {
     expect(led.length).toBe(0); // reputation isn't economy — not ledgered
   });
 });
-
-/** Create only the tables this suite exercises, if migrations haven't run. */
-async function ensureSchema(handle: DbHandle) {
-  const { sql } = handle;
-  await sql`CREATE TABLE IF NOT EXISTS inventories (
-    owner_kind text NOT NULL, owner_id text NOT NULL,
-    item_id text NOT NULL, qty bigint NOT NULL DEFAULT 0,
-    PRIMARY KEY (owner_kind, owner_id, item_id)
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS reputation (
-    player_id text NOT NULL, npc_id text NOT NULL, score integer NOT NULL DEFAULT 0,
-    PRIMARY KEY (player_id, npc_id)
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS players (
-    discord_user_id text PRIMARY KEY,
-    home_guild_id text NOT NULL,
-    position_guild_id text,
-    position_district_id text,
-    tier integer NOT NULL DEFAULT 1,
-    notification_prefs jsonb NOT NULL DEFAULT '{"target":"land","dm":false}',
-    flags jsonb NOT NULL DEFAULT '{}',
-    created_at timestamptz NOT NULL DEFAULT now()
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS balances (
-    owner_kind text NOT NULL, owner_id text NOT NULL,
-    currency text NOT NULL DEFAULT 'gold',
-    amount bigint NOT NULL DEFAULT 0,
-    PRIMARY KEY (owner_kind, owner_id, currency)
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS locations (
-    id text PRIMARY KEY, guild_id text NOT NULL, channel_id text, district_id text,
-    kind text NOT NULL, requires_presence boolean NOT NULL DEFAULT true
-  )`;
-  await sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS district_id text`; // stale test DBs predating districts (§2.2)
-  await sql`CREATE TABLE IF NOT EXISTS ledger (
-    id bigserial PRIMARY KEY,
-    ts timestamptz NOT NULL DEFAULT now(),
-    actor_kind text NOT NULL, actor_id text NOT NULL,
-    counterparty_kind text NOT NULL, counterparty_id text NOT NULL,
-    currency text NOT NULL DEFAULT 'gold',
-    currency_delta bigint NOT NULL,
-    item_deltas jsonb NOT NULL DEFAULT '{}',
-    reason text NOT NULL,
-    cause_event_id bigint
-  )`;
-}

@@ -6,7 +6,7 @@
  * (or returns the item unsold). Opt-in on TEST_DATABASE_URL (mirrors ledger).
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { openDb, type DbHandle } from "@empire/db";
+import { openDb, type DbHandle, assertMigrated } from "@empire/db";
 import { auctionCapability } from "../src/capabilities/auction.js";
 import type { BusEvent } from "../src/events/bus.js";
 import type { ModalSubmitInteraction } from "../src/gateway/index.js";
@@ -59,7 +59,7 @@ async function seedPlayer(id: string, opts: { gold?: number; items?: [string, nu
 }
 
 suite("auction — full lifecycle against Postgres (§5.11)", () => {
-  beforeAll(async () => { h = openDb(url!, { max: 4 }); await ensureSchema(h); });
+  beforeAll(async () => { h = openDb(url!, { max: 4 }); await assertMigrated(h.sql); });
   afterAll(async () => { await h.close(); });
   beforeEach(async () => { await h.sql`TRUNCATE offers, bids, inventories, balances, ledger, events, land_plots, npcs, locations, players RESTART IDENTITY CASCADE`; });
 
@@ -166,18 +166,3 @@ suite("auction — full lifecycle against Postgres (§5.11)", () => {
     expect(offer!.taker_id).toBeNull();
   });
 });
-
-async function ensureSchema(handle: DbHandle) {
-  const { sql } = handle;
-  await sql`CREATE TABLE IF NOT EXISTS events (id bigserial PRIMARY KEY, event_id text NOT NULL, type text NOT NULL, ts timestamptz NOT NULL DEFAULT now(), guild_id text, actor_kind text, actor_id text, subject_kind text, subject_id text, payload jsonb NOT NULL DEFAULT '{}', correlation_id text)`;
-  await sql`CREATE UNIQUE INDEX IF NOT EXISTS events_event_id_uq ON events(event_id)`;
-  await sql`CREATE TABLE IF NOT EXISTS ledger (id bigserial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(), actor_kind text NOT NULL, actor_id text NOT NULL, counterparty_kind text NOT NULL, counterparty_id text NOT NULL, currency text NOT NULL DEFAULT 'gold', currency_delta bigint NOT NULL, item_deltas jsonb NOT NULL DEFAULT '{}', reason text NOT NULL, cause_event_id bigint)`;
-  await sql`CREATE TABLE IF NOT EXISTS balances (owner_kind text NOT NULL, owner_id text NOT NULL, currency text NOT NULL DEFAULT 'gold', amount bigint NOT NULL DEFAULT 0, PRIMARY KEY (owner_kind, owner_id, currency))`;
-  await sql`CREATE TABLE IF NOT EXISTS inventories (owner_kind text NOT NULL, owner_id text NOT NULL, item_id text NOT NULL, qty bigint NOT NULL DEFAULT 0, PRIMARY KEY (owner_kind, owner_id, item_id))`;
-  await sql`CREATE TABLE IF NOT EXISTS offers (id text PRIMARY KEY, kind text NOT NULL, maker_kind text NOT NULL, maker_id text NOT NULL, taker_id text, item_id text NOT NULL, qty integer NOT NULL, price bigint NOT NULL, side text NOT NULL DEFAULT 'sell', status text NOT NULL DEFAULT 'open', guild_id text, expires_at timestamptz)`;
-  await sql`CREATE TABLE IF NOT EXISTS bids (id text PRIMARY KEY, offer_id text NOT NULL, bidder_id text NOT NULL, amount bigint NOT NULL, status text NOT NULL DEFAULT 'held', created_at timestamptz NOT NULL DEFAULT now())`;
-  await sql`CREATE TABLE IF NOT EXISTS players (discord_user_id text PRIMARY KEY, home_guild_id text, position_guild_id text, position_district_id text)`;
-  await sql`CREATE TABLE IF NOT EXISTS land_plots (id text PRIMARY KEY, owner_id text NOT NULL, guild_id text NOT NULL, district_id text, voice_channel_id text, text_channel_id text, pruned boolean NOT NULL DEFAULT false)`;
-  await sql`CREATE TABLE IF NOT EXISTS npcs (id text PRIMARY KEY, kind text NOT NULL, state jsonb NOT NULL DEFAULT '{}')`;
-  await sql`CREATE TABLE IF NOT EXISTS locations (id text PRIMARY KEY, guild_id text NOT NULL, channel_id text, district_id text, kind text NOT NULL, requires_presence boolean NOT NULL DEFAULT false)`;
-}

@@ -15,7 +15,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { openDb, ensurePlayer, jsonParam, type DbHandle } from "@empire/db";
+import { openDb, ensurePlayer, jsonParam, type DbHandle, assertMigrated } from "@empire/db";
 import { parseContent, loadContentFile, Workflow } from "@empire/content-schemas";
 import { WorkflowRuntime } from "../src/workflow/runtime.js";
 import { travelCapability } from "../src/capabilities/travel.js";
@@ -101,7 +101,7 @@ function makeRuntime(workflows: Workflow[], actions: Record<string, ActionHandle
 suite("embedded workflow runtime (§7)", () => {
   beforeAll(async () => {
     h = openDb(url!, { max: 4 });
-    await ensureSchema(h);
+    await assertMigrated(h.sql);
   });
 
   afterAll(async () => {
@@ -820,71 +820,3 @@ states:
     });
   });
 });
-
-/** Create only the tables this suite exercises, if migrations haven't run. */
-async function ensureSchema(handle: DbHandle) {
-  const { sql } = handle;
-  await sql`CREATE TABLE IF NOT EXISTS events (
-    id bigserial PRIMARY KEY,
-    event_id text NOT NULL,
-    type text NOT NULL,
-    ts timestamptz NOT NULL DEFAULT now(),
-    guild_id text,
-    actor_kind text, actor_id text,
-    subject_kind text, subject_id text,
-    payload jsonb NOT NULL DEFAULT '{}',
-    correlation_id text
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS workflow_instances (
-    id text PRIMARY KEY,
-    workflow_id text NOT NULL,
-    scope text NOT NULL,
-    scope_key text NOT NULL,
-    state text NOT NULL,
-    context jsonb NOT NULL DEFAULT '{}',
-    correlation_id text,
-    timer_at timestamptz,
-    status text NOT NULL DEFAULT 'active',
-    updated_at timestamptz NOT NULL DEFAULT now()
-  )`;
-  // Guard-scope reads (loadGuardScope) for player-scoped dialogue workflows.
-  await sql`CREATE TABLE IF NOT EXISTS balances (
-    owner_kind text NOT NULL, owner_id text NOT NULL,
-    currency text NOT NULL DEFAULT 'gold', amount bigint NOT NULL DEFAULT 0,
-    PRIMARY KEY (owner_kind, owner_id, currency)
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS players (
-    discord_user_id text PRIMARY KEY,
-    home_guild_id text, position_guild_id text, position_district_id text,
-    flags jsonb NOT NULL DEFAULT '{}',
-    notification_prefs jsonb NOT NULL DEFAULT '{"target":"land","dm":false}',
-    tier int NOT NULL DEFAULT 1
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS reputation (
-    player_id text NOT NULL, npc_id text NOT NULL, score int NOT NULL DEFAULT 0,
-    PRIMARY KEY (player_id, npc_id)
-  )`;
-  // Traveling-NPC position (npcs.state) + voice-stop resolution (locations), for
-  // the §9 travel suite. IF NOT EXISTS defers to the real migrated schema in CI.
-  await sql`CREATE TABLE IF NOT EXISTS npcs (
-    id text PRIMARY KEY, kind text NOT NULL, state jsonb NOT NULL DEFAULT '{}'
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS locations (
-    id text PRIMARY KEY, guild_id text NOT NULL, channel_id text, district_id text, kind text NOT NULL,
-    requires_presence boolean NOT NULL DEFAULT false
-  )`;
-  await sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS district_id text`; // stale test DBs predating districts (§2.2)
-  // District travel (§2.3): the ring + accumulative discovery + co-presence.
-  await sql`CREATE TABLE IF NOT EXISTS districts (
-    id text PRIMARY KEY, guild_id text NOT NULL, name text NOT NULL,
-    category_id text, view_role_id text, neighbors jsonb NOT NULL DEFAULT '[]'
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS discoveries (
-    player_id text NOT NULL, district_id text NOT NULL,
-    discovered_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (player_id, district_id)
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS contacts (
-    player_a text NOT NULL, player_b text NOT NULL,
-    met_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (player_a, player_b)
-  )`;
-}

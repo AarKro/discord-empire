@@ -97,6 +97,7 @@ Two steps stay explicit — run them when you need them:
 ```bash
 pnpm world:init               # force a re-seed after adding world content (new channels/districts/boards)
 pnpm db:generate              # author a migration after editing packages/db/src/schema.ts
+pnpm db:migrate:test          # bring empire_test up to date (one-off on a fresh machine)
 ```
 
 World bootstrap is idempotent (reruns reuse existing channels and never restock
@@ -120,6 +121,14 @@ against a **dedicated `empire_test` database** (created automatically on first
 `docker compose up`; see `infra/postgres-init/`). They read `TEST_DATABASE_URL`
 and skip when it is unset; they never touch `DATABASE_URL`, so running tests
 cannot wipe your dev world.
+
+**The suites do not create schema — they migrate-or-fail.** Each one asserts via
+`assertMigrated` that `empire_test` is at the latest migration and aborts naming
+the fix if not, so run `pnpm db:migrate:test` once on a fresh machine. Tests
+previously hand-rolled `CREATE TABLE IF NOT EXISTS` blocks per suite; that meant
+the schema was authored by hand in ten places and drifted from `schema.ts`, which
+is exactly how a dev database ends up neither at 0000 nor at HEAD. CI does the
+same thing in the same order (migrate, then test).
 
 Players auto-register on their first stall interaction with `STARTING_GOLD`
 (default 150) granted through a `starting_grant` ledger row.

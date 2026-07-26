@@ -5,57 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1784452418640,
-      "tag": "0000_clean_mister_sinister",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1784492683071,
-      "tag": "0001_great_greymalkin",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1784701411082,
-      "tag": "0002_clumsy_bastion",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1784807462339,
-      "tag": "0003_daily_penance",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1784821023585,
-      "tag": "0004_cynical_runaways",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1784845895267,
-      "tag": "0005_thin_marvel_zombies",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1784881058839,
-      "tag": "0006_fluffy_vision",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1784928505408,
-      "tag": "0007_warm_scream",
+      "when": 1785051474935,
+      "tag": "0000_flawless_betty_ross",
       "breakpoints": true
     }
   ]

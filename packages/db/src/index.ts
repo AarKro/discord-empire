@@ -1,6 +1,7 @@
 export * as schema from "./schema.js";
 export { openDb, jsonParam } from "./client.js";
 export type { Db, Sql, TxSql, DbHandle } from "./client.js";
+export { assertMigrated } from "./migration-state.js";
 export { executeTrade } from "./trade.js";
 export type { TradeRequest, TradeResult, Party } from "./trade.js";
 export { settleAuction } from "./auction.js";

@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { openDb, type DbHandle } from "../src/client.js";
+import { assertMigrated } from "../src/migration-state.js";
 import { executeTrade } from "../src/trade.js";
 import { settleAuction } from "../src/auction.js";
 
@@ -43,7 +44,7 @@ async function seedAuction(
 suite("settleAuction close settlement", () => {
   beforeAll(async () => {
     h = openDb(url!, { max: 10 });
-    await ensureSchema(h);
+    await assertMigrated(h.sql);
   });
   afterAll(async () => {
     await h.close();
@@ -141,42 +142,3 @@ suite("settleAuction close settlement", () => {
     expect(ledgerRows.length).toBe(1); // still ledgered
   });
 });
-
-/** Create only the tables this suite exercises, if migrations haven't run. */
-async function ensureSchema(handle: DbHandle) {
-  const { sql } = handle;
-  await sql`CREATE TABLE IF NOT EXISTS events (
-    id bigserial PRIMARY KEY, event_id text NOT NULL, type text NOT NULL,
-    ts timestamptz NOT NULL DEFAULT now(), guild_id text,
-    actor_kind text, actor_id text, subject_kind text, subject_id text,
-    payload jsonb NOT NULL DEFAULT '{}', correlation_id text
-  )`;
-  await sql`CREATE UNIQUE INDEX IF NOT EXISTS events_event_id_uq ON events(event_id)`;
-  await sql`CREATE TABLE IF NOT EXISTS ledger (
-    id bigserial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(),
-    actor_kind text NOT NULL, actor_id text NOT NULL,
-    counterparty_kind text NOT NULL, counterparty_id text NOT NULL,
-    currency text NOT NULL DEFAULT 'gold', currency_delta bigint NOT NULL,
-    item_deltas jsonb NOT NULL DEFAULT '{}', reason text NOT NULL, cause_event_id bigint
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS balances (
-    owner_kind text NOT NULL, owner_id text NOT NULL,
-    currency text NOT NULL DEFAULT 'gold', amount bigint NOT NULL DEFAULT 0,
-    PRIMARY KEY (owner_kind, owner_id, currency)
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS inventories (
-    owner_kind text NOT NULL, owner_id text NOT NULL, item_id text NOT NULL,
-    qty bigint NOT NULL DEFAULT 0, PRIMARY KEY (owner_kind, owner_id, item_id)
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS offers (
-    id text PRIMARY KEY, kind text NOT NULL, maker_kind text NOT NULL, maker_id text NOT NULL,
-    item_id text NOT NULL, qty integer NOT NULL, price bigint NOT NULL,
-    side text NOT NULL DEFAULT 'sell', status text NOT NULL DEFAULT 'open',
-    expires_at timestamptz, taker_id text, guild_id text
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS bids (
-    id text PRIMARY KEY, offer_id text NOT NULL, bidder_id text NOT NULL,
-    amount bigint NOT NULL, status text NOT NULL DEFAULT 'held',
-    created_at timestamptz NOT NULL DEFAULT now()
-  )`;
-}

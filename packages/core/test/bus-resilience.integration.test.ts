@@ -13,7 +13,7 @@
  * advance regardless.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { openDb, type DbHandle } from "@empire/db";
+import { openDb, type DbHandle, assertMigrated } from "@empire/db";
 import { EventBus } from "../src/events/bus.js";
 import { rootLogger } from "../src/logger.js";
 
@@ -32,31 +32,11 @@ async function eventually(check: () => boolean, timeoutMs = 2000): Promise<void>
   expect(check()).toBe(true);
 }
 
-/** The two tables the bus needs, provisioned like the other integration suites. */
-async function ensureSchema(handle: DbHandle) {
-  const { sql } = handle;
-  await sql`CREATE TABLE IF NOT EXISTS events (
-    id bigserial PRIMARY KEY,
-    event_id text NOT NULL,
-    type text NOT NULL,
-    ts timestamptz NOT NULL DEFAULT now(),
-    guild_id text,
-    actor_kind text, actor_id text,
-    subject_kind text, subject_id text,
-    payload jsonb NOT NULL DEFAULT '{}',
-    correlation_id text
-  )`;
-  await sql`CREATE TABLE IF NOT EXISTS bus_cursors (
-    consumer text PRIMARY KEY,
-    last_processed_id bigint NOT NULL DEFAULT 0,
-    updated_at timestamptz NOT NULL DEFAULT now()
-  )`;
-}
 
 suite("event bus resilience (§3)", () => {
   beforeAll(async () => {
     h = openDb(url!, { max: 4 });
-    await ensureSchema(h);
+    await assertMigrated(h.sql);
   });
   afterAll(async () => {
     await h.close();

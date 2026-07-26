@@ -18,7 +18,8 @@
     "stop": "scripts/compose.sh down",
     "world:init": "pnpm build && scripts/with-env.sh pnpm --filter @empire/core world:init",
     "db:generate": "pnpm --filter @empire/db db:generate",
-    "db:migrate": "pnpm --filter @empire/db db:migrate"
+    "db:migrate": "pnpm --filter @empire/db db:migrate",
+    "db:migrate:test": "pnpm --filter @empire/db db:migrate:test"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

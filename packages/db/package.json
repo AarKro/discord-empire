@@ -10,6 +10,7 @@
   "scripts": {
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:migrate:test": "DATABASE_URL=\"${TEST_DATABASE_URL:-postgres://empire:empire@localhost:5432/empire_test}\" drizzle-kit migrate",
     "typecheck": "tsc -b",
     "test": "vitest run"
   },

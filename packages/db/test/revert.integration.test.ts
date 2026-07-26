@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { openDb, type DbHandle } from "../src/client.js";
+import { assertMigrated } from "../src/migration-state.js";
 import { executeTrade } from "../src/trade.js";
 import { revertLedger } from "../src/revert.js";
 
@@ -21,7 +22,7 @@ const inv = (id: string, item: string, kind = "player") =>
   h.sql<{ qty: number }[]>`SELECT qty FROM inventories WHERE owner_kind=${kind} AND owner_id=${id} AND item_id=${item}`.then((r) => r[0]?.qty ?? 0);
 
 suite("revertLedger — undo a transaction against Postgres (§8/§9)", () => {
-  beforeAll(async () => { h = openDb(url!, { max: 4 }); await ensureSchema(h); });
+  beforeAll(async () => { h = openDb(url!, { max: 4 }); await assertMigrated(h.sql); });
   afterAll(async () => { await h.close(); });
   beforeEach(async () => { await h.sql`TRUNCATE ledger, events, balances, inventories RESTART IDENTITY CASCADE`; });
 
@@ -78,12 +79,3 @@ suite("revertLedger — undo a transaction against Postgres (§8/§9)", () => {
     if (!res.ok) expect(res.reason).toBe("not_found");
   });
 });
-
-async function ensureSchema(handle: DbHandle) {
-  const { sql } = handle;
-  await sql`CREATE TABLE IF NOT EXISTS events (id bigserial PRIMARY KEY, event_id text NOT NULL, type text NOT NULL, ts timestamptz NOT NULL DEFAULT now(), guild_id text, actor_kind text, actor_id text, subject_kind text, subject_id text, payload jsonb NOT NULL DEFAULT '{}', correlation_id text)`;
-  await sql`CREATE UNIQUE INDEX IF NOT EXISTS events_event_id_uq ON events(event_id)`;
-  await sql`CREATE TABLE IF NOT EXISTS ledger (id bigserial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(), actor_kind text NOT NULL, actor_id text NOT NULL, counterparty_kind text NOT NULL, counterparty_id text NOT NULL, currency text NOT NULL DEFAULT 'gold', currency_delta bigint NOT NULL, item_deltas jsonb NOT NULL DEFAULT '{}', reason text NOT NULL, cause_event_id bigint)`;
-  await sql`CREATE TABLE IF NOT EXISTS balances (owner_kind text NOT NULL, owner_id text NOT NULL, currency text NOT NULL DEFAULT 'gold', amount bigint NOT NULL DEFAULT 0, PRIMARY KEY (owner_kind, owner_id, currency))`;
-  await sql`CREATE TABLE IF NOT EXISTS inventories (owner_kind text NOT NULL, owner_id text NOT NULL, item_id text NOT NULL, qty bigint NOT NULL DEFAULT 0, PRIMARY KEY (owner_kind, owner_id, item_id))`;
-}

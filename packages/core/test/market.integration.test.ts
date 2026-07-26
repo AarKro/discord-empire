@@ -5,7 +5,7 @@
  * DIRECTION follows the offer's side. Opt-in on TEST_DATABASE_URL (mirrors ledger).
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { openDb, type DbHandle } from "@empire/db";
+import { openDb, type DbHandle, assertMigrated } from "@empire/db";
 import { marketCapability } from "../src/capabilities/market.js";
 import { buildMarketOverviewEmbed } from "../src/capabilities/market-overview.js";
 import type { Continents } from "@empire/content-schemas";
@@ -51,7 +51,7 @@ async function seedOffer(side: "sell" | "buy") {
 }
 
 suite("market — accepting a direct offer settles atomically (§5.11)", () => {
-  beforeAll(async () => { h = openDb(url!, { max: 4 }); await ensureSchema(h); });
+  beforeAll(async () => { h = openDb(url!, { max: 4 }); await assertMigrated(h.sql); });
   afterAll(async () => { await h.close(); });
   beforeEach(async () => { await h.sql`TRUNCATE offers, contacts, inventories, balances, ledger, events, land_plots, npcs, locations RESTART IDENTITY CASCADE`; });
 
@@ -139,17 +139,3 @@ suite("market — accepting a direct offer settles atomically (§5.11)", () => {
     expect(value("Browse · Continent Two")).toContain("map"); // p3's auction
   });
 });
-
-async function ensureSchema(handle: DbHandle) {
-  const { sql } = handle;
-  await sql`CREATE TABLE IF NOT EXISTS events (id bigserial PRIMARY KEY, event_id text NOT NULL, type text NOT NULL, ts timestamptz NOT NULL DEFAULT now(), guild_id text, actor_kind text, actor_id text, subject_kind text, subject_id text, payload jsonb NOT NULL DEFAULT '{}', correlation_id text)`;
-  await sql`CREATE UNIQUE INDEX IF NOT EXISTS events_event_id_uq ON events(event_id)`;
-  await sql`CREATE TABLE IF NOT EXISTS ledger (id bigserial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(), actor_kind text NOT NULL, actor_id text NOT NULL, counterparty_kind text NOT NULL, counterparty_id text NOT NULL, currency text NOT NULL DEFAULT 'gold', currency_delta bigint NOT NULL, item_deltas jsonb NOT NULL DEFAULT '{}', reason text NOT NULL, cause_event_id bigint)`;
-  await sql`CREATE TABLE IF NOT EXISTS balances (owner_kind text NOT NULL, owner_id text NOT NULL, currency text NOT NULL DEFAULT 'gold', amount bigint NOT NULL DEFAULT 0, PRIMARY KEY (owner_kind, owner_id, currency))`;
-  await sql`CREATE TABLE IF NOT EXISTS inventories (owner_kind text NOT NULL, owner_id text NOT NULL, item_id text NOT NULL, qty bigint NOT NULL DEFAULT 0, PRIMARY KEY (owner_kind, owner_id, item_id))`;
-  await sql`CREATE TABLE IF NOT EXISTS offers (id text PRIMARY KEY, kind text NOT NULL, maker_kind text NOT NULL, maker_id text NOT NULL, taker_id text, item_id text NOT NULL, qty integer NOT NULL, price bigint NOT NULL, side text NOT NULL DEFAULT 'sell', status text NOT NULL DEFAULT 'open', guild_id text, expires_at timestamptz)`;
-  await sql`CREATE TABLE IF NOT EXISTS contacts (player_a text NOT NULL, player_b text NOT NULL, met_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (player_a, player_b))`;
-  await sql`CREATE TABLE IF NOT EXISTS land_plots (id text PRIMARY KEY, owner_id text NOT NULL, guild_id text NOT NULL, district_id text, voice_channel_id text, text_channel_id text, pruned boolean NOT NULL DEFAULT false)`;
-  await sql`CREATE TABLE IF NOT EXISTS npcs (id text PRIMARY KEY, kind text NOT NULL, state jsonb NOT NULL DEFAULT '{}')`;
-  await sql`CREATE TABLE IF NOT EXISTS locations (id text PRIMARY KEY, guild_id text NOT NULL, channel_id text, district_id text, kind text NOT NULL, requires_presence boolean NOT NULL DEFAULT false)`;
-}

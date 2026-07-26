@@ -6,6 +6,22 @@ CREATE TABLE IF NOT EXISTS "balances" (
 	CONSTRAINT "balances_owner_kind_owner_id_currency_pk" PRIMARY KEY("owner_kind","owner_id","currency")
 );
 --> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "bids" (
+	"id" text PRIMARY KEY NOT NULL,
+	"offer_id" text NOT NULL,
+	"bidder_id" text NOT NULL,
+	"amount" bigint NOT NULL,
+	"status" text DEFAULT 'held' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "blueprint_catalog" (
+	"id" text PRIMARY KEY NOT NULL,
+	"name" text NOT NULL,
+	"cost_gold" bigint DEFAULT 0 NOT NULL,
+	"base_ms" bigint DEFAULT 300000 NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "blueprints" (
 	"owner_id" text NOT NULL,
 	"blueprint_id" text NOT NULL,
@@ -20,6 +36,7 @@ CREATE TABLE IF NOT EXISTS "build_queue" (
 	"blueprint_id" text NOT NULL,
 	"thread_id" text,
 	"status" text DEFAULT 'queued' NOT NULL,
+	"correlation_id" text,
 	"started_at" timestamp with time zone,
 	"completes_at" timestamp with time zone
 );
@@ -35,6 +52,19 @@ CREATE TABLE IF NOT EXISTS "contacts" (
 	"player_b" text NOT NULL,
 	"met_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "contacts_player_a_player_b_pk" PRIMARY KEY("player_a","player_b")
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "continent_discoveries" (
+	"player_id" text NOT NULL,
+	"guild_id" text NOT NULL,
+	"discovered_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "continent_discoveries_player_id_guild_id_pk" PRIMARY KEY("player_id","guild_id")
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "continent_roles" (
+	"guild_id" text PRIMARY KEY NOT NULL,
+	"citizen_role_id" text,
+	"observer_role_id" text
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "discoveries" (
@@ -124,7 +154,9 @@ CREATE TABLE IF NOT EXISTS "offers" (
 	"price" bigint NOT NULL,
 	"side" text DEFAULT 'sell' NOT NULL,
 	"status" text DEFAULT 'open' NOT NULL,
-	"expires_at" timestamp with time zone
+	"expires_at" timestamp with time zone,
+	"taker_id" text,
+	"guild_id" text
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "players" (
@@ -149,8 +181,18 @@ CREATE TABLE IF NOT EXISTS "research" (
 	"owner_id" text NOT NULL,
 	"research_id" text NOT NULL,
 	"status" text DEFAULT 'locked' NOT NULL,
+	"correlation_id" text,
 	"completes_at" timestamp with time zone,
 	CONSTRAINT "research_owner_id_research_id_pk" PRIMARY KEY("owner_id","research_id")
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "research_catalog" (
+	"id" text PRIMARY KEY NOT NULL,
+	"name" text NOT NULL,
+	"cost_gold" bigint DEFAULT 0 NOT NULL,
+	"base_ms" bigint DEFAULT 300000 NOT NULL,
+	"prereqs" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"grants_blueprints" jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "workflow_instances" (
@@ -166,11 +208,15 @@ CREATE TABLE IF NOT EXISTS "workflow_instances" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bids_offer_status_idx" ON "bids" USING btree ("offer_id","status");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "build_queue_owner_idx" ON "build_queue" USING btree ("owner_id");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "events_event_id_uq" ON "events" USING btree ("event_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "events_type_idx" ON "events" USING btree ("type");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "events_correlation_idx" ON "events" USING btree ("correlation_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "ledger_actor_idx" ON "ledger" USING btree ("actor_kind","actor_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "ledger_cause_idx" ON "ledger" USING btree ("cause_event_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "ledger_reason_idx" ON "ledger" USING btree ("reason");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "offers_board_idx" ON "offers" USING btree ("kind","status","guild_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "wfi_scope_idx" ON "workflow_instances" USING btree ("workflow_id","scope","scope_key");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "wfi_timer_idx" ON "workflow_instances" USING btree ("timer_at");
+CREATE INDEX IF NOT EXISTS "wfi_timer_idx" ON "workflow_instances" USING btree ("timer_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "wfi_active_idx" ON "workflow_instances" USING btree ("status","workflow_id");
