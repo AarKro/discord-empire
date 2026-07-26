@@ -110,10 +110,15 @@ export type DialogueInput = z.infer<typeof DialogueInput>;
 // button with an optional guard, a goto, and events it emits when chosen. With
 // `kind: modal` the button opens `input`'s text field first and the typed value
 // rides along on the resulting `dialogue.choose` as `payload.input`.
+//
+// `kind` lists only what render.ts actually builds. A "select" member lived here
+// unimplemented for a long time, which reads to an author as a working feature;
+// select menus remain available as a ui.kit primitive (§5.6) for capabilities that
+// build their own components, they are just not a dialogue-option kind.
 export const DialogueOption = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
-  kind: z.enum(["button", "select", "modal"]).default("button"),
+  kind: z.enum(["button", "modal"]).default("button"),
   input: DialogueInput.optional(),
   guard: Guard.optional(),
   goto: z.string().optional(),
