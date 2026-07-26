@@ -21,15 +21,14 @@ describe("buildCapabilities (manifest-driven wiring)", () => {
 
   it("injects code-provided configs by capability name", () => {
     const caps = buildCapabilities(
-      manifest(["commands", "voicelines", "ambient.chatter"]),
+      manifest(["commands", "ambient.chatter"]),
       {
         commands: [{ name: "ping", description: "", route: "" }],
-        voicelines: { triggers: {} },
         "ambient.chatter": { reactions: {} },
       },
       "content",
     );
-    expect(caps.map((c) => c.name)).toEqual(["commands", "voicelines", "ambient.chatter"]);
+    expect(caps.map((c) => c.name)).toEqual(["commands", "ambient.chatter"]);
   });
 
   it("throws on an unknown capability name", () => {

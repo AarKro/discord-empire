@@ -8,8 +8,8 @@
  * a two-line entrypoint; only genuinely new mechanics need new capability code.
  *
  * Content-shaped config (shop, dialogue tree, wander schedule) comes from YAML.
- * Config that can't be data — slash-command SQL resolvers, voiceline/chatter
- * trigger maps — is passed in via `configs`, keyed by capability name.
+ * Config that can't be data — slash-command SQL resolvers, chatter trigger maps
+ * — is passed in via `configs`, keyed by capability name.
  *
  * This is the ONLY place outside a capability that composes the process; it lives
  * in core because it wires core's own pieces (gateway, bus, capabilities).
@@ -27,7 +27,6 @@ import { topologyCapability } from "../capabilities/topology.js";
 import { stallCapability } from "../capabilities/stall.js";
 import { dialogueCapability } from "../capabilities/dialogue.js";
 import { presenceVoiceCapability } from "../capabilities/presence-voice.js";
-import { voicelinesCapability, type VoicelineConfig } from "../capabilities/voicelines.js";
 import { ambientChatterCapability, type ChatterConfig } from "../capabilities/ambient-chatter.js";
 import { landCapability } from "../capabilities/land.js";
 import { researchCapability } from "../capabilities/research.js";
@@ -46,7 +45,6 @@ import { WorkflowRuntime } from "../workflow/runtime.js";
 /** Code-provided capability config that can't live in YAML, keyed by capability name. */
 export interface CapabilityConfigs {
   commands?: CommandDef[];
-  voicelines?: VoicelineConfig;
   "ambient.chatter"?: ChatterConfig;
 }
 
@@ -99,7 +97,6 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
     const stops = rel ? deps.load(Schedule, rel).stops : [];
     return presenceVoiceCapability(stops.map((stop) => ({ guildId: stop.guild_id, channel: stop.channel })));
   },
-  voicelines: (deps) => voicelinesCapability(deps.configs.voicelines ?? { triggers: {} }),
   "ambient.chatter": (deps) => ambientChatterCapability(deps.configs["ambient.chatter"] ?? { reactions: {} }),
   land: () => landCapability(),
   research: () => researchCapability(),

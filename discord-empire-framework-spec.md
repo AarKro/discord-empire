@@ -132,7 +132,6 @@ capabilities:
   - stall
   - dialogue.thread
   - trade
-  - voicelines
   - ambient.chatter
 home:
   guild_111111: { voice_channel: bazaar_vc }
@@ -140,11 +139,10 @@ home:
 content:
   shop: shops/aldric.yaml
   dialogue: dialogue/aldric.yaml
-  voicelines: audio/aldric/
   schedule: schedules/aldric.yaml
 ```
 
-**Persona resolution:** every outward-facing action (message, embed, voice line) resolves through the persona for the current guild. Capabilities never hardcode identity.
+**Persona resolution:** every outward-facing action (message, embed) resolves through the persona for the current guild. Capabilities never hardcode identity.
 
 **Lifecycle:** on boot a bot registers slash commands, applies per-guild nickname/avatar, joins its home voice channel(s) self-muted, announces `bot.ready`, replays missed events, then subscribes to its capability event patterns.
 
@@ -152,11 +150,11 @@ content:
 
 | Bot | Core capabilities | Notes |
 |---|---|---|
-| Merchant | presence.voice, stall, dialogue.thread, trade, voicelines, ambient.chatter | Reference bot #1 |
+| Merchant | presence.voice, stall, dialogue.thread, trade, ambient.chatter | Reference bot #1 |
 | Builder | commands, land, notify, trade, tick integration | Reference bot #2; build queue |
 | Herald | ambient.chatter, commands | Announcements, leaderboards on every continent, cross-guild mirroring, Gatekeeper duty |
 | Architect | commands, dialogue.thread, trade | Research tree + blueprints |
-| Tavern Keeper | presence.voice, dialogue.thread, voicelines, ambient.chatter | Social hub, rumor hook |
+| Tavern Keeper | presence.voice, dialogue.thread, ambient.chatter | Social hub, rumor hook |
 | Secret Merchant | presence.voice, stall, dialogue.thread, trade | Own token; rare timed appearances; first candidate for LLM dialogue |
 
 ---
@@ -183,8 +181,8 @@ The only capability allowed to write to the ledger. Executes atomic, conditional
 ### 5.6 `ui.kit` — interaction primitives (shared toolbox)
 Wrappers for ephemeral responses, button rows, select menus, modals, paginated embeds, confirmation dialogs, and rendered-image embeds. All capabilities build UI through this kit for consistency and a single adoption point for Components V2.
 
-### 5.7 `voicelines` — prerecorded audio
-Plays cached Opus files in the bot's current voice channel on event triggers (`npc.arrived`, `stall.entered`, `trade.completed`), with cooldowns and per-persona line sets. Nearly free to run; the trigger mapping is content, not code.
+### 5.7 `voicelines` — **cut**
+Bot audio is not part of the game. Voice channels exist purely to *visualize* where NPCs stand (§5.1) — players are never assumed to be connected to one, so there is no audience for a spoken line. The capability was removed rather than left as a stub; the number is retained so §5.8–§5.14 keep the identifiers used throughout the code.
 
 ### 5.8 `ambient.chatter` — liveliness
 Scheduled and randomized flavor posts in location chats, plus reactions to world events ("a caravan from Continent Two just docked!"). Throttled; pure flavor.
@@ -311,4 +309,3 @@ The framework is built against two reference bots, in order — nothing enters c
 - Alliances (roles + shared channels)
 - Visual workflow editor on top of the action registry
 - Dungeon presentation design (encounter animations, party voice rules inside instances)
-- Audio beyond prerecorded lines

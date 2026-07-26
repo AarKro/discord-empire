@@ -62,7 +62,7 @@ async function runQuote(quote: QuoteInput, ctx: CapabilityContext): Promise<void
   });
   if (!result.ok) {
     // executeTrade only emits trade.completed on success; emit the failure
-    // here so consumers (voicelines, notify, stall refresh) can react.
+    // here so consumers (notify, stall refresh) can react.
     await publishFailure(ctx, quote, result.reason, result.message);
     ctx.logger.info({ reason: result.reason, item: quote.itemId }, "trade rejected");
   }

@@ -7,9 +7,9 @@
  * channel if it has no route) self-muted. Wandering itself is now driven by a
  * declarative workflow (§7, e.g. merchant_wander): it composes this capability's
  * `npc.move_to` verb on a timer, which connects voice, records the DB position,
- * and announces npc.arrived so the stall re-opens and voicelines fire. The
- * gateway holds the actual @discordjs/voice connection; the DB position + events
- * remain the authoritative, testable core.
+ * and announces npc.arrived so the stall re-opens. The gateway holds the actual
+ * @discordjs/voice connection — presence only, the bot never transmits audio;
+ * the DB position + events remain the authoritative, testable core.
  *
  * Logical stop names (e.g. "bazaar_vc") resolve to real voice channels via the
  * `locations` rows world:init seeds (id = `<name>_<guildId>`, kind='voice').
@@ -35,8 +35,8 @@ export function presenceVoiceCapability(route: WanderStop[] = []): Capability {
 
   /**
    * Move the NPC to a logical stop: connect voice, record the DB position, and
-   * (when announcing) publish npc.arrived so the stall/voicelines react. Boot
-   * uses announce=false because the bot process emits its own arrival ping.
+   * (when announcing) publish npc.arrived so the stall reacts. Boot uses
+   * announce=false because the bot process emits its own arrival ping.
    */
   async function moveTo(ctx: CapabilityContext, guildId: string, channel: string, announce: boolean): Promise<void> {
     const channelId = await voiceStopChannel(ctx.sql, guildId, channel);

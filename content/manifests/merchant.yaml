@@ -17,7 +17,6 @@ capabilities:
   - stall
   - dialogue
   - presence.voice
-  - voicelines
   - ambient.chatter
   - render
 # world:init seeds two voice stops per continent — bazaar_vc and market_square_vc
@@ -27,7 +26,6 @@ home:
   "${GUILD_CONTINENT_TWO}": { voice_channel: bazaar_vc }
 content:
   shop: shops/aldric.yaml
-  voicelines: audio/aldric/
   schedule: schedules/aldric.yaml
   workflows:
     - workflows/merchant_wander.yaml

@@ -59,8 +59,6 @@ export { renderCapability } from "./capabilities/render.js";
 export { dialogueCapability } from "./capabilities/dialogue.js";
 export { presenceVoiceCapability } from "./capabilities/presence-voice.js";
 export type { WanderStop } from "./capabilities/presence-voice.js";
-export { voicelinesCapability } from "./capabilities/voicelines.js";
-export type { VoicelineConfig } from "./capabilities/voicelines.js";
 export { ambientChatterCapability } from "./capabilities/ambient-chatter.js";
 export type { ChatterConfig } from "./capabilities/ambient-chatter.js";
 export { notifyCapability } from "./capabilities/notify.js";
