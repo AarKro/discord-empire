@@ -51,6 +51,12 @@ describe("shipped content validates against schemas", () => {
     // §4/§5 research: the architect bot hosts /research + /techtree via commands + research.
     const architect = loadContentFile(Manifest, join(CONTENT, "manifests/architect.yaml"));
     expect(architect.capabilities).toEqual(expect.arrayContaining(["commands", "research"]));
+    // §2.6/§5.13 combat: the warden bot hosts /muster + /dispatch via commands +
+    // combat, and carries `trade` because it is both the muster cost sink and
+    // the writer that performs combat's loot grants.
+    const warden = loadContentFile(Manifest, join(CONTENT, "manifests/warden.yaml"));
+    expect(warden.capabilities).toEqual(expect.arrayContaining(["commands", "combat", "trade"]));
+    expect(warden.token_env).toBe("WARDEN_TOKEN");
     // §9 ops bot: the hidden admin surface — commands only, its own token, no home.
     const ops = loadContentFile(Manifest, join(CONTENT, "manifests/ops.yaml"));
     expect(ops.capabilities).toEqual(["commands"]);
@@ -140,6 +146,21 @@ describe("shipped content validates against schemas", () => {
     expect(playerMove.scope).toBe("player");
     expect(playerMove.trigger?.event).toBe("district.move.requested");
     expect(playerMove.states.departing!.set).toMatchObject({ district: "event.payload.district" });
+    // Muster (§2.6, §5.13): a structural sibling of player_build — one instance
+    // per /muster, charging → training → done, with the same rejection states.
+    const muster = loadContentFile(Workflow, join(CONTENT, "workflows/warden_muster.yaml"));
+    expect(muster.scope).toBe("player");
+    expect(muster.trigger?.event).toBe("muster.requested");
+    expect(muster.initial).toBe("charging");
+    expect(muster.states.charging!.timer?.goto).toBe("charge_timeout");
+    // Dispatch (§5.13): no charging state — §2.6 prices a fight in sunk prep and
+    // time, not a fee — and both legs are driven by the tick's dispatch events.
+    const dispatch = loadContentFile(Workflow, join(CONTENT, "workflows/warden_dispatch.yaml"));
+    expect(dispatch.scope).toBe("player");
+    expect(dispatch.trigger?.event).toBe("dispatch.requested");
+    expect(Object.keys(dispatch.states)).toEqual(["marching", "resolving", "home", "rejected_pre"]);
+    expect(dispatch.states.marching!.on).toMatchObject({ "dispatch.arrived": "resolving" });
+    expect(dispatch.states.resolving!.on).toMatchObject({ "dispatch.returned": "home" });
   });
 
   it("continents (§2.1 three-continent ring) and instances", () => {

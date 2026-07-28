@@ -11,6 +11,7 @@
     { "path": "apps/bot-secret-merchant" },
     { "path": "apps/bot-herald" },
     { "path": "apps/bot-exchange" },
-    { "path": "apps/bot-ops" }
+    { "path": "apps/bot-ops" },
+    { "path": "apps/bot-warden" }
   ]
 }

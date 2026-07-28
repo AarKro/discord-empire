@@ -19,7 +19,8 @@ import { ChannelType, Client, GatewayIntentBits, type Guild, type GuildBasedChan
 import { loadContentFile, Manifest, Shop, Continents, Districts } from "@empire/content-schemas";
 import { openDb, jsonParam, type Sql } from "@empire/db";
 import { rootLogger, type Logger } from "./logger.js";
-import { BUILD_PERMIT_ITEM, RESEARCH_PERMIT_ITEM } from "./world/items.js";
+import { BUILD_PERMIT_ITEM, RESEARCH_PERMIT_ITEM, MUSTER_PERMIT_ITEM } from "./world/items.js";
+import type { UnitType } from "./combat/types.js";
 
 /** A buildable recipe seeded into blueprint_catalog (§5.12, §10 Builder). */
 interface BlueprintSeed {
@@ -37,9 +38,63 @@ interface BlueprintSeed {
 const DEFAULT_BLUEPRINTS: BlueprintSeed[] = [
   { id: "farm", name: "Wheat Farm", costGold: 50, baseMs: 300_000 }, // ~5m
   { id: "forge", name: "Blacksmith Forge", costGold: 100, baseMs: 600_000 }, // ~10m
+  // The barracks gates /muster (§2.6 "troops … produced by buildings"). Ungated
+  // by research and cheap on purpose: it is the entry point to the whole combat
+  // loop, so a fresh 150-gold player can build it and still afford some troops.
+  { id: "barracks", name: "Barracks", costGold: 60, baseMs: 300_000 }, // ~5m
   // Research-gated recipes (unlocked by DEFAULT_RESEARCH grants below).
   { id: "granary", name: "Granary", costGold: 80, baseMs: 300_000 }, // ~5m, needs masonry
   { id: "trade_post", name: "Trade Post", costGold: 120, baseMs: 600_000 }, // ~10m, needs trade_routes
+];
+
+/** A monster seeded into encounter_catalog (§2.6, §5.13). */
+interface EncounterSeed {
+  id: string;
+  name: string;
+  unitType: UnitType;
+  atk: number;
+  def: number;
+  hp: number;
+  tier: number;
+  travelMs: number;
+  loot: { item: string; qty: number; chance: number }[];
+  rewardGold: number;
+}
+
+/**
+ * The default bestiary for iteration-1 dev. One encounter per type, so the
+ * matchup triangle is exercisable from the very first fight: whichever troops a
+ * player drilled, there is a quarry they counter and one that counters them.
+ * Travel times are short so a dev can watch a dispatch complete both legs.
+ */
+const DEFAULT_ENCOUNTERS: EncounterSeed[] = [
+  {
+    id: "moor_wolves",
+    name: "Moor Wolves",
+    unitType: "cavalry",
+    atk: 14, def: 4, hp: 90, tier: 1,
+    travelMs: 300_000, // ~5m each way
+    loot: [{ item: "wolf_pelt", qty: 2, chance: 0.8 }],
+    rewardGold: 40,
+  },
+  {
+    id: "bandit_camp",
+    name: "Bandit Camp",
+    unitType: "archer",
+    atk: 18, def: 6, hp: 140, tier: 2,
+    travelMs: 600_000, // ~10m each way
+    loot: [{ item: "iron_ore", qty: 3, chance: 0.6 }],
+    rewardGold: 80,
+  },
+  {
+    id: "stone_sentinels",
+    name: "Stone Sentinels",
+    unitType: "infantry",
+    atk: 22, def: 12, hp: 220, tier: 3,
+    travelMs: 900_000, // ~15m each way
+    loot: [{ item: "rune_shard", qty: 1, chance: 0.4 }],
+    rewardGold: 150,
+  },
 ];
 
 /** A research node seeded into research_catalog (§4 Architect, §5). */
@@ -81,6 +136,10 @@ interface BootstrapOptions {
   architectId?: string;
   /** Research nodes to seed; defaults to DEFAULT_RESEARCH. */
   research?: ResearchSeed[];
+  /** The Warden NPC that "sells" muster permits (the cost sink). */
+  wardenId?: string;
+  /** Encounters to seed; defaults to DEFAULT_ENCOUNTERS. */
+  encounters?: EncounterSeed[];
   logger?: Logger;
 }
 
@@ -369,6 +428,38 @@ async function seedCatalogs(opts: BootstrapOptions, log: Logger): Promise<void> 
     `;
     log.info({ architect: opts.architectId }, "architect npc + permit stock seeded");
   }
+
+  // Seed the bestiary idempotently (§2.6, §5.13). Rerunnable: ON CONFLICT DO
+  // NOTHING leaves any hand-tuned rows alone.
+  const encounters = opts.encounters ?? DEFAULT_ENCOUNTERS;
+  let encountersSeeded = 0;
+  for (const enc of encounters) {
+    const rows = await opts.sql`
+      INSERT INTO encounter_catalog (id, name, unit_type, atk, def, hp, tier, travel_ms, loot, reward_gold)
+      VALUES (${enc.id}, ${enc.name}, ${enc.unitType}, ${enc.atk}, ${enc.def}, ${enc.hp},
+              ${enc.tier}, ${enc.travelMs}, ${jsonParam(opts.sql, enc.loot)}, ${enc.rewardGold})
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id
+    `;
+    encountersSeeded += rows.length;
+  }
+  log.info({ seeded: encountersSeeded, total: encounters.length }, "encounter catalog seeded (existing rows untouched)");
+
+  // The Warden NPC "sells" muster permits (the cost sink for /muster),
+  // mirroring the builder and architect permit-sinks so the atomic trade always
+  // has stock; the ledger write still goes through `trade`.
+  if (opts.wardenId) {
+    await opts.sql`
+      INSERT INTO npcs (id, kind) VALUES (${opts.wardenId}, 'warden')
+      ON CONFLICT (id) DO NOTHING
+    `;
+    await opts.sql`
+      INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
+      VALUES ('npc', ${opts.wardenId}, ${MUSTER_PERMIT_ITEM}, 1000000)
+      ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
+    `;
+    log.info({ warden: opts.wardenId }, "warden npc + permit stock seeded");
+  }
 }
 
 async function bootstrapWorld(opts: BootstrapOptions): Promise<void> {
@@ -420,6 +511,8 @@ async function main(): Promise<void> {
   // The Architect trades as its manifest id (like the builder), so seed its
   // cost-sink NPC under that same id — the two can never drift out of sync.
   const architectManifest = loadContentFile(Manifest, join(CONTENT_DIR, "manifests/architect.yaml"));
+  // …and the Warden's muster permit-sink, on the same reasoning (§5.13).
+  const wardenManifest = loadContentFile(Manifest, join(CONTENT_DIR, "manifests/warden.yaml"));
 
   // Bootstrap needs a token with Manage Channels/Roles; the merchant's has them.
   const token = process.env[manifest.token_env];
@@ -444,6 +537,8 @@ async function main(): Promise<void> {
       builderId: builderManifest.id,
       // Same for the Architect's research permit-sink NPC + research catalog (§4).
       architectId: architectManifest.id,
+      // …and the Warden's muster permit-sink NPC + the bestiary (§2.6, §5.13).
+      wardenId: wardenManifest.id,
       logger: rootLogger,
     });
   } finally {

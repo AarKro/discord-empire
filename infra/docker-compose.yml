@@ -170,5 +170,22 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  bot-warden:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        APP: bot-warden
+    environment:
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      CONTENT_DIR: /app/content
+      WARDEN_TOKEN: ${WARDEN_TOKEN}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../content:/app/content:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
 volumes:
   pgdata:

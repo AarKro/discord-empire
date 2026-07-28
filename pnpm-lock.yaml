@@ -111,6 +111,18 @@ importers:
         specifier: workspace:*
         version: link:../../packages/db
 
+  apps/bot-warden:
+    dependencies:
+      '@empire/content-schemas':
+        specifier: workspace:*
+        version: link:../../packages/content-schemas
+      '@empire/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@empire/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+
   apps/tick-service:
     dependencies:
       '@empire/core':

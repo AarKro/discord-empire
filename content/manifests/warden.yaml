@@ -1,0 +1,32 @@
+# The Warden — the combat & dispatch bot (framework spec §2.6, §5.13). Its own
+# bot/token so the muster/dispatch surface doesn't ride on the builder, whose
+# queue it already borrows for the barracks prerequisite. Present in every
+# continent guild to register /muster, /dispatch and /army, but stands in no
+# voice — a garrison command surface, not a wandering NPC.
+#
+# `trade` is here because the Warden is both ends of the economy for combat: it
+# "sells" the muster permit that charges for troops, and it performs the loot
+# grants combat requests via grant.requested. Registration order is dispatch
+# order, so trade precedes combat.
+id: warden
+token_env: WARDEN_TOKEN
+personas:
+  "${GUILD_CONTINENT_ONE}":
+    nickname: "Warden Garrek"
+    locale_flavor: highlands
+  "${GUILD_CONTINENT_TWO}":
+    nickname: "Shorewarden Tanis"
+    locale_flavor: harbor
+  "${GUILD_CONTINENT_THREE}":
+    nickname: "Thornwarden Eshe"
+    locale_flavor: wildwood
+capabilities:
+  - trade
+  - topology
+  - combat
+  - notify
+  - commands
+content:
+  workflows:
+    - workflows/warden_muster.yaml
+    - workflows/warden_dispatch.yaml

@@ -47,9 +47,10 @@ infra/             # docker-compose, Dockerfiles, deploy + backup scripts
 .github/workflows/ # CI (lint/typecheck/unit+integration/docker) and manual deploy
 ```
 
-The four not-yet-built bots (`bot-herald`, `bot-architect`, `bot-tavern`,
-`bot-secret-merchant`) and the not-yet-needed capabilities (`presence.watch`,
-`market`, `combat`) are deliberately absent until a reference bot needs them.
+The one not-yet-built bot (`bot-tavern`) and the not-yet-needed capability
+(`presence.watch`) are deliberately absent until a reference bot needs them.
+`combat` covers the §5.13 solo-PvE loop and the dispatch primitive; dungeons,
+raids and the instance-server pool remain deferred (§11).
 
 ## Architectural invariants (enforced, do not violate)
 
