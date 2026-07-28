@@ -327,6 +327,109 @@ export const bids = pgTable(
   (t) => ({ byOfferStatus: index("bids_offer_status_idx").on(t.offerId, t.status) }),
 );
 
+// ---------------------------------------------------------------------------
+// Combat & dispatch (§2.6, §5.13).
+// ---------------------------------------------------------------------------
+
+// A player's standing force: troop stacks and the single champion. This is also
+// the SUBJECT of the dispatch primitive — a unit carries its own position, so
+// "send someone" is expressible without a second concept (§5.13). PvE takes no
+// losses (§2.6), so the cost of a mission is the unit being tied up in
+// `dispatched` for the round trip, not attrition.
+export const units = pgTable(
+  "units",
+  {
+    id: text("id").primaryKey(), // unit_<ulid>
+    ownerId: text("owner_id").notNull(),
+    kind: text("kind").notNull().default("troop"), // troop | champion
+    unitType: text("unit_type").notNull(), // infantry | cavalry | archer
+    // Stack size. A champion is always qty 1 — it is the player's single hero.
+    qty: integer("qty").notNull().default(1),
+    atk: integer("atk").notNull().default(0),
+    def: integer("def").notNull().default(0),
+    hp: integer("hp").notNull().default(0),
+    status: text("status").notNull().default("training"), // training | idle | dispatched
+    // Muster timer. NULL while the charge is still in flight — the same
+    // "pending across an async trade" carry that research.completes_at uses.
+    readyAt: timestamp("ready_at", { withTimezone: true }),
+    positionGuildId: text("position_guild_id"),
+    positionDistrictId: text("position_district_id"),
+    // The originating workflow instance's correlation, so concurrent musters
+    // settle onto the right row (mirrors build_queue / research).
+    correlationId: text("correlation_id"),
+  },
+  (t) => ({
+    // Every muster guard and force assembly reads a player's roster by status.
+    ownerStatusIdx: index("units_owner_status_idx").on(t.ownerId, t.status),
+  }),
+);
+
+// The dispatch primitive (§5.13): a force with a position, a travel timer and a
+// mission. Deliberately generic — `mission` is the discriminator, and the trade
+// agents / caravans of §11 are meant to arrive as new mission kinds, not a new
+// table. `force` snapshots what was actually sent, so the battle resolves
+// against the force as dispatched even if the roster changes mid-flight.
+export const dispatches = pgTable(
+  "dispatches",
+  {
+    id: text("id").primaryKey(), // dsp_<ulid>
+    ownerId: text("owner_id").notNull(),
+    mission: jsonb("mission").notNull().default({}), // { kind: "battle", encounter_id }
+    force: jsonb("force").notNull().default({}), // { champion, troops: [{ unit_id, unit_type, qty, atk, def, hp }] }
+    originGuildId: text("origin_guild_id"),
+    status: text("status").notNull().default("travelling"), // travelling | resolving | returning | done
+    arrivesAt: timestamp("arrives_at", { withTimezone: true }),
+    returnsAt: timestamp("returns_at", { withTimezone: true }),
+    correlationId: text("correlation_id"),
+  },
+  (t) => ({
+    // The tick sweeps both legs every minute: due arrivals, then due returns.
+    dueIdx: index("dispatches_due_idx").on(t.status, t.arrivesAt),
+  }),
+);
+
+// The resolution record (§5.13 "seeded & logged for auditability"). `seed` plus
+// the force/encounter snapshot is enough to replay the fight exactly, so the
+// stored `rounds` log can always be checked against a re-run.
+export const battles = pgTable(
+  "battles",
+  {
+    id: text("id").primaryKey(), // btl_<ulid>
+    dispatchId: text("dispatch_id").notNull(),
+    ownerId: text("owner_id").notNull(),
+    encounterId: text("encounter_id").notNull(),
+    seed: text("seed").notNull(),
+    outcome: text("outcome").notNull(), // victory | defeat
+    rounds: jsonb("rounds").notNull().default([]), // the replayable round log
+    loot: jsonb("loot").notNull().default([]), // [{ item, qty }] actually awarded
+    // The private thread the resolution log was delivered to (§2.6); NULL when
+    // thread creation failed and the log fell back to the land channel.
+    threadId: text("thread_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    ownerIdx: index("battles_owner_idx").on(t.ownerId),
+    dispatchIdx: index("battles_dispatch_idx").on(t.dispatchId),
+  }),
+);
+
+// The monster catalog (§2.6 world/monster events): what `/dispatch` can be sent
+// against. Mirrors blueprint_catalog / research_catalog — a seeded DB table, not
+// YAML, because it is data the command's autocomplete queries directly.
+export const encounterCatalog = pgTable("encounter_catalog", {
+  id: text("id").primaryKey(), // e.g. "moor_wolves"
+  name: text("name").notNull(), // display name, e.g. "Moor Wolves"
+  unitType: text("unit_type").notNull(), // its type, for the matchup triangle
+  atk: integer("atk").notNull().default(0),
+  def: integer("def").notNull().default(0),
+  hp: integer("hp").notNull().default(0),
+  tier: integer("tier").notNull().default(1),
+  // One-way travel time; the return leg reuses it (§5.13 travel timer).
+  travelMs: bigint("travel_ms", { mode: "number" }).notNull().default(300000),
+  loot: jsonb("loot").notNull().default([]), // [{ item, qty, chance }] rolled on victory
+  rewardGold: bigint("reward_gold", { mode: "number" }).notNull().default(0),
+});
+
 // Persisted workflow instances (§7): survive restarts.
 export const workflowInstances = pgTable(
   "workflow_instances",
