@@ -14,6 +14,12 @@
  *     floor (§5.4) is enforced HERE, not in the dialogue data: the tree only
  *     shapes which offers a player can make; the trade capability decides
  *     which offers the NPC accepts.
+ *
+ * Rewards (world → player) mirror that pair: the `grant.give` ACTION for
+ * workflow-authored rewards, and the `grant.requested` EVENT for rewards a
+ * capability computes at runtime and therefore cannot spell out in YAML — a
+ * combat loot roll being the first (§5.13). Both land on the same grantReward
+ * writer, which is what keeps "only trade writes the ledger" literally true.
  */
 import { executeTrade, grantReward, type Party } from "@empire/db";
 import type { Shop, ShopItem } from "@empire/content-schemas";
@@ -84,11 +90,44 @@ async function publishFailure(
   });
 }
 
+/** What a reward hands over — the shared shape of `grant.give` and `grant.requested`. */
+export interface RewardSpec {
+  gold?: number;
+  item?: string;
+  qty?: number;
+  reputation?: number;
+}
+
+/**
+ * Hand a player a reward (gold / item / reputation), ledger-safe via grantReward
+ * (world → player). Shared by the `grant.give` action and the `grant.requested`
+ * event so both paths ledger and announce identically. Reputation is scored
+ * against this bot's NPC.
+ */
+async function giveReward(
+  ctx: CapabilityContext,
+  player: string,
+  spec: RewardSpec,
+  evt: BusEvent | null | undefined,
+): Promise<void> {
+  await grantReward(ctx.sql, { player, npc: ctx.bot, ...spec });
+  ctx.logger.info({ player, ...spec }, "reward granted");
+  await ctx.bus.publish({
+    type: "reward.granted",
+    guildId: evt?.guildId ?? null,
+    actor: { kind: "player", id: player },
+    subject: { kind: "npc", id: ctx.bot },
+    payload: { ...spec },
+    correlationId: evt?.correlationId ?? null,
+  });
+}
+
 export function tradeCapability(shop?: Shop): Capability {
   return {
     name: "trade",
-    // trade.request is the dialogue-emitted purchase intent (§5.4 → §5.5).
-    consumes: ["trade.request"],
+    // trade.request is the dialogue-emitted purchase intent (§5.4 → §5.5);
+    // grant.requested is a runtime-computed reward (§5.13 loot).
+    consumes: ["trade.request", "grant.requested"],
     actions: {
       /**
        * `trade.execute` — the verb workflows and commands call. Never mutates
@@ -108,23 +147,26 @@ export function tradeCapability(shop?: Shop): Capability {
       "grant.give": async (args, evt, ctx: CapabilityContext) => {
         const player = evt?.actor?.id;
         if (!player) return;
-        const a = args as { gold?: number; item?: string; qty?: number; reputation?: number };
         // Spread only the keys the workflow actually set (no explicit undefineds).
-        await grantReward(ctx.sql, { player, npc: ctx.bot, ...a });
-        ctx.logger.info({ player, ...a }, "reward granted");
-        await ctx.bus.publish({
-          type: "reward.granted",
-          guildId: evt?.guildId ?? null,
-          actor: { kind: "player", id: player },
-          subject: { kind: "npc", id: ctx.bot },
-          payload: { ...a },
-          correlationId: evt?.correlationId ?? null,
-        });
+        await giveReward(ctx, player, args as RewardSpec, evt);
       },
     },
 
     /** Consume `trade.request` events emitted by dialogue options. */
     async handle(evt: BusEvent, ctx: CapabilityContext): Promise<void> {
+      // A runtime-computed reward (§5.13 loot rolls): the requesting capability
+      // knows WHAT to give but must not write the ledger itself, so it addresses
+      // this event to its own bot and `trade` performs the grant.
+      if (evt.type === "grant.requested") {
+        if (notForMe(evt, ctx.bot)) return;
+        const player = evt.actor?.id;
+        if (!player) {
+          ctx.logger.warn({ evt: evt.eventId }, "malformed grant.requested ignored");
+          return;
+        }
+        await giveReward(ctx, player, evt.payload as RewardSpec, evt);
+        return;
+      }
       if (evt.type !== "trade.request") return;
       // The bus is broadcast: every bot's trade capability sees this event.
       // Only the addressed NPC executes, or the trade would run once per bot.

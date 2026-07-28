@@ -1,0 +1,37 @@
+# The /dispatch flow as a declarative workflow (§7, §5.13). One instance per
+# dispatch, scoped to the player. Unlike warden_muster there is no charging
+# state: §2.6 prices a fight in sunk prep and time, not a fee, so the force goes
+# out the moment the guards pass.
+#
+# The two timers are the tick service's, not the workflow's — dispatch rows carry
+# arrives_at / returns_at and the tick fires dispatch.arrived / dispatch.returned
+# against them, the same way build_queue drives build.completed. That keeps the
+# out-and-back legs durable across a bot restart.
+id: warden_dispatch
+trigger: { event: dispatch.requested }
+scope: player
+initial: marching
+states:
+  # Assemble the force, snapshot it, send it with a travel timer. A bad
+  # encounter or an already-afield champion replies and throws → rejected_pre.
+  marching:
+    actions:
+      - { "dispatch.request": {} }
+    on:
+      dispatch.arrived: resolving
+    on_error: rejected_pre
+  # Arrived: run the seeded fight, deliver the resolution log to a private
+  # thread, request the spoils through `trade`, and start the journey home.
+  resolving:
+    actions:
+      - { "combat.resolve": {} }
+    on:
+      dispatch.returned: home
+  # The force is back and free to be sent again (§2.6 — no PvE losses).
+  home:
+    actions:
+      - { "dispatch.return": {} }
+    final: true
+  # Guard rejection already replied inside dispatch.request; nothing to undo.
+  rejected_pre:
+    final: true

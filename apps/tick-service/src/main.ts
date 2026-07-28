@@ -36,6 +36,9 @@ async function main(): Promise<void> {
   const buildBackoff = new Backoff();
   const researchBackoff = new Backoff();
   const auctionBackoff = new Backoff();
+  const musterBackoff = new Backoff();
+  const arrivalBackoff = new Backoff();
+  const returnBackoff = new Backoff();
 
   let minutes = 0;
 
@@ -49,6 +52,9 @@ async function main(): Promise<void> {
     await fireDueBuilds();
     await fireDueResearch();
     await fireDueAuctions();
+    await fireDueMusters();
+    await fireDueArrivals();
+    await fireDueReturns();
   }
 
   /**
@@ -121,6 +127,66 @@ async function main(): Promise<void> {
     for (const a of due) {
       if (!firing.has(a.id)) continue;
       await bus.publish({ type: "auction.closed", payload: { offer_id: a.id } });
+    }
+  }
+
+  /** muster.completed for any stack whose drill timer has elapsed (§2.6, §5.13). */
+  async function fireDueMusters(): Promise<void> {
+    const due = await sql<{ id: string; owner_id: string; correlation_id: string | null }[]>`
+      SELECT id, owner_id, correlation_id FROM units
+      WHERE status = 'training' AND ready_at IS NOT NULL AND ready_at <= now()
+    `;
+    const firing = filterDue(musterBackoff, due.map((u) => u.id), "muster");
+    for (const u of due) {
+      if (!firing.has(u.id)) continue;
+      await bus.publish({
+        type: "muster.completed",
+        actor: { kind: "player", id: u.owner_id },
+        // Thread the stack's correlation so the completion routes back to the
+        // originating warden_muster instance among a player's concurrent drills.
+        correlationId: u.correlation_id,
+        payload: { unit_id: u.id },
+      });
+    }
+  }
+
+  /**
+   * The dispatch primitive's two legs (§5.13). Both sweep the same table on
+   * different columns: the outbound timer flips travelling → the fight, the
+   * return timer brings the force home. Kept as separate streams (and separate
+   * backoffs) because a wedged resolution must not stall unrelated returns.
+   */
+  async function fireDueArrivals(): Promise<void> {
+    const due = await sql<{ id: string; owner_id: string; correlation_id: string | null }[]>`
+      SELECT id, owner_id, correlation_id FROM dispatches
+      WHERE status = 'travelling' AND arrives_at IS NOT NULL AND arrives_at <= now()
+    `;
+    const firing = filterDue(arrivalBackoff, due.map((d) => d.id), "dispatch-arrival");
+    for (const d of due) {
+      if (!firing.has(d.id)) continue;
+      await bus.publish({
+        type: "dispatch.arrived",
+        actor: { kind: "player", id: d.owner_id },
+        correlationId: d.correlation_id,
+        payload: { dispatch_id: d.id },
+      });
+    }
+  }
+
+  async function fireDueReturns(): Promise<void> {
+    const due = await sql<{ id: string; owner_id: string; correlation_id: string | null }[]>`
+      SELECT id, owner_id, correlation_id FROM dispatches
+      WHERE status = 'returning' AND returns_at IS NOT NULL AND returns_at <= now()
+    `;
+    const firing = filterDue(returnBackoff, due.map((d) => d.id), "dispatch-return");
+    for (const d of due) {
+      if (!firing.has(d.id)) continue;
+      await bus.publish({
+        type: "dispatch.returned",
+        actor: { kind: "player", id: d.owner_id },
+        correlationId: d.correlation_id,
+        payload: { dispatch_id: d.id },
+      });
     }
   }
 

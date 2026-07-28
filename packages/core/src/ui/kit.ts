@@ -121,6 +121,44 @@ export function marketOverviewEmbed(o: MarketOverview): EmbedBuilder {
   return embed;
 }
 
+export interface BattleLogEmbed {
+  /** The encounter's display name. */
+  encounter: string;
+  outcome: "victory" | "defeat";
+  /** What was sent, pre-formatted (e.g. "6× infantry", "Champion (lvl 3)"). */
+  force: string[];
+  /** One pre-formatted line per round, in order. */
+  rounds: string[];
+  /** What the loot roll actually awarded, pre-formatted; empty on a loss. */
+  loot: string[];
+  /** The battle's seed — printed so a player can audit the fight (§5.13). */
+  seed: string;
+}
+
+/**
+ * The solo-fight resolution log (§2.6): the whole delivery surface of a combat.
+ * §2.6 makes the fight auto-resolve while the player is away, so this embed is
+ * the *only* thing they see of it — hence the round-by-round log rather than a
+ * verdict, and hence the seed in the footer: the fight is replayable, and
+ * saying so in the UI is what makes "auditable" a player-facing promise rather
+ * than an internal one.
+ */
+export function battleLogEmbed(b: BattleLogEmbed): EmbedBuilder {
+  const won = b.outcome === "victory";
+  const embed = new EmbedBuilder()
+    .setTitle(`${won ? "Victory" : "Defeat"} — ${b.encounter}`)
+    .setColor(won ? 0x4c9f70 : 0x9f4c4c)
+    .addFields(
+      { name: "Force dispatched", value: fieldValue(b.force) },
+      { name: "Resolution", value: fieldValue(b.rounds) },
+      // A loss costs only the loot chance (§2.6) — say so plainly rather than
+      // showing an empty field the player has to interpret.
+      { name: "Spoils", value: won ? fieldValue(b.loot) : "_The field was lost; no spoils taken._" },
+    )
+    .setFooter({ text: `seed ${b.seed}` });
+  return embed;
+}
+
 export interface ModalFieldSpec {
   id: string;
   label: string;
@@ -144,4 +182,4 @@ export function modal(id: string, title: string, fields: ModalFieldSpec[]): Moda
   return builder;
 }
 
-export const ui = { buttonRow, selectMenu, stallEmbed, auctionEmbed, modal };
+export const ui = { buttonRow, selectMenu, stallEmbed, auctionEmbed, battleLogEmbed, modal };

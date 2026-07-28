@@ -27,7 +27,7 @@ export type {
   CommandRegistration,
 } from "./gateway/index.js";
 export { PersonaResolver } from "./runtime/persona.js";
-export { ui, buttonRow, selectMenu, stallEmbed, marketOverviewEmbed, modal } from "./ui/kit.js";
+export { ui, buttonRow, selectMenu, stallEmbed, marketOverviewEmbed, battleLogEmbed, modal } from "./ui/kit.js";
 export {
   CapabilityRegistry,
 } from "./runtime/capability.js";
@@ -99,6 +99,12 @@ export { marketCapability } from "./capabilities/market.js";
 export { buildMarketOverviewEmbed } from "./capabilities/market-overview.js";
 export { auctionCapability } from "./capabilities/auction.js";
 export { worldMirrorCapability } from "./capabilities/world-mirror.js";
+export {
+  combatCapability,
+  MUSTER_MS_PER_TROOP,
+  MAX_MUSTER,
+  BARRACKS_BLUEPRINT,
+} from "./capabilities/combat.js";
 
 // Internal (non-diegetic) item tokens — never show these in player-facing lists
 export {
@@ -107,6 +113,7 @@ export {
   BUILD_PERMIT_ITEM,
   RESEARCH_PERMIT_ITEM,
   AUCTION_HOLD_ITEM,
+  MUSTER_PERMIT_ITEM,
 } from "./world/items.js";
 export {
   buildLeaderboardEmbed,

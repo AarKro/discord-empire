@@ -27,11 +27,15 @@ export const RESEARCH_PERMIT_ITEM = "research_permit";
 /** The token whose "sale" escrows a bidder's gold for the life of a bid. */
 export const AUCTION_HOLD_ITEM = "auction_bid";
 
+/** The Warden's equivalent, "sold" once per muster to charge for troops (§5.13). */
+export const MUSTER_PERMIT_ITEM = "muster_permit";
+
 /** Every internal token, for `item_id <> ALL(${HIDDEN_ITEMS})` filters. */
 export const HIDDEN_ITEMS: readonly string[] = [
   BUILD_PERMIT_ITEM,
   RESEARCH_PERMIT_ITEM,
   AUCTION_HOLD_ITEM,
+  MUSTER_PERMIT_ITEM,
 ];
 
 /** True when `itemId` is internal plumbing and must stay out of player-facing UI. */

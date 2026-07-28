@@ -38,6 +38,7 @@ import { wayfareCapability } from "../capabilities/wayfare.js";
 import { gatekeeperCapability } from "../capabilities/gatekeeper.js";
 import { marketCapability } from "../capabilities/market.js";
 import { auctionCapability } from "../capabilities/auction.js";
+import { combatCapability } from "../capabilities/combat.js";
 import { riddleCapability } from "../capabilities/riddle.js";
 import { worldMirrorCapability } from "../capabilities/world-mirror.js";
 import { WorkflowRuntime } from "../workflow/runtime.js";
@@ -108,6 +109,7 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
   gatekeeper: (deps) => gatekeeperCapability(required(deps, Continents, "continents", "gatekeeper")),
   market: () => marketCapability(),
   auction: () => auctionCapability(),
+  combat: () => combatCapability(),
   riddle: (deps) => riddleCapability(required(deps, Riddles, "riddles", "riddle")),
   "world.mirror": () => worldMirrorCapability(),
 };

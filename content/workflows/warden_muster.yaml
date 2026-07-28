@@ -1,0 +1,48 @@
+# The /muster flow as a declarative workflow (§7). One instance per /muster,
+# scoped to the player; a player may drill several stacks at once — each instance
+# is told apart by the correlation threaded through its events (§7 correlation
+# routing). Composes the combat + trade verbs. Mirrors architect_research.yaml.
+id: warden_muster
+trigger: { event: muster.requested }
+scope: player
+initial: charging
+states:
+  # Guard the request and charge the muster cost via `trade`. muster.request
+  # emits trade.request and records a 'training' unit row with ready_at NULL (the
+  # carry across the async charge); a bad type/count or a missing barracks emits
+  # its own reply and throws → on_error routes to rejected_pre. A charge that
+  # never settles times out.
+  charging:
+    actions:
+      - { "muster.request": {} }
+    on:
+      trade.completed: training
+      trade.failed: rejected
+    timer: { after: 30s, goto: charge_timeout }
+    on_error: rejected_pre
+  # Cost settled: give the pending stack a tier-scaled timer and announce it.
+  training:
+    actions:
+      - { "muster.enqueue": {} }
+    on:
+      muster.completed: done
+  # Tick fired muster.completed: the stack joins the standing army, notify once.
+  done:
+    actions:
+      - { "muster.complete": {} }
+    final: true
+  # Charge failed (insufficient funds): discard the pending stack, reply in-fiction.
+  rejected:
+    actions:
+      - { "muster.reject": { message: "Your purse won't cover their wages just yet." } }
+    final: true
+  # Charge never settled within the window: clean up the pending stack. The timer
+  # transition carries the instance's player + correlation (synthetic event), so
+  # muster.reject drops the right row even without a triggering bus event.
+  charge_timeout:
+    actions:
+      - { "muster.reject": { message: "…the coin never cleared. Try again in a moment." } }
+    final: true
+  # Pre-charge rejection already replied inside muster.request; nothing to undo.
+  rejected_pre:
+    final: true
