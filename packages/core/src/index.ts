@@ -37,6 +37,30 @@ export type { Capability, CapabilityContext, ActionHandler } from "./runtime/cap
 export { runBot, buildCapabilities } from "./runtime/bot-runtime.js";
 export type { RunBotOptions, CapabilityConfigs } from "./runtime/bot-runtime.js";
 
+// Combat resolution (§2.6, §5.13): pure, seeded, replayable — no DB, no Discord
+export { resolveBattle, rollLoot, MAX_ROUNDS } from "./combat/resolve.js";
+export type {
+  Force,
+  ForceTroop,
+  ForceChampion,
+  Encounter,
+  RoundLog,
+  BattleResult,
+  ResolveInput,
+  LootEntry,
+} from "./combat/resolve.js";
+export {
+  UNIT_TYPES,
+  isUnitType,
+  matchupMultiplier,
+  championStats,
+  BASE_STATS,
+  MUSTER_COST,
+  ADVANTAGE,
+  DISADVANTAGE,
+} from "./combat/types.js";
+export type { UnitType, StatBlock } from "./combat/types.js";
+
 // Guard evaluation + player scope (unit-tested)
 export { evalGuard, resolveSource, interpolate, loadGuardScope, DIALOGUE_OPTION_PREFIX } from "./dialogue/guards.js";
 export type { GuardScope } from "./dialogue/guards.js";
