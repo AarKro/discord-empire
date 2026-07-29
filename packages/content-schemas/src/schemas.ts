@@ -48,6 +48,12 @@ export const ShopItem = z.object({
   // Optional hidden floor for haggling (§5.4), and reputation price scaling.
   floor_price: z.number().int().nonnegative().optional(),
   reputation_discount: z.number().min(0).max(1).optional(),
+  // §2.5 local trade goods: the region that PRODUCES this ware, matching a
+  // continent's `resource_bias` in continents.yaml. Where it matches, the
+  // merchant sells it deep and at base price; elsewhere it is an expensive,
+  // scarce curio from their own travels. Untagged wares are ubiquitous — bread
+  // and the internal permit tokens are sold the same everywhere on purpose.
+  origin: z.string().min(1).optional(),
 });
 export type ShopItem = z.infer<typeof ShopItem>;
 

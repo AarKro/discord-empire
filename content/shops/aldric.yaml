@@ -1,3 +1,16 @@
+# The merchant's wares (§5.3), shared by every continent's persona — Aldric in
+# the Highlands, Mei Lin in the harbour, Hazel in the Thornwild.
+#
+# `origin` is §2.5's local trade good, named by the continent's `resource_bias`
+# in continents.yaml (highlands / harbor / wildwood). On its home continent a
+# ware is stocked deep at `base_price`; everywhere else the merchant carries a
+# couple at a steep markup as a curio from their own travels — a shop window on
+# what a caravan or a voyage would actually get you (see core's world/goods.ts).
+#
+# UNTAGGED WARES ARE UBIQUITOUS, DELIBERATELY. Bread is bread. Keep anything
+# progression-critical untagged too, or players on the wrong continent end up
+# gated behind a caravan they may not be able to afford yet — which is why the
+# arcane forge blueprint carries no origin.
 id: aldric_wares
 currency: gold
 items:
@@ -9,6 +22,17 @@ items:
     name: "Iron Ore"
     base_price: 25
     stock: 40
+    origin: highlands
+  - item_id: salt_fish
+    name: "Barrel of Salt Fish"
+    base_price: 18
+    stock: 60
+    origin: harbor
+  - item_id: heartwood
+    name: "Heartwood Timber"
+    base_price: 30
+    stock: 35
+    origin: wildwood
   - item_id: blueprint_arcane_forge
     name: "Blueprint: Arcane Forge"
     base_price: 120

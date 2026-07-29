@@ -74,6 +74,21 @@ describe("shipped content validates against schemas", () => {
     expect(loadContentFile(Schedule, join(CONTENT, "schedules/aldric.yaml")).stops.length).toBeGreaterThan(0);
   });
 
+  it("every shop item's §2.5 origin names a real continent's resource_bias", () => {
+    // The schema can only say `origin` is a string. A typo ("harbour", "wildwoods")
+    // would be invisible: the ware would simply be imported EVERYWHERE, sold to
+    // nobody at its home price, and no test or boot check would notice.
+    const shop = loadContentFile(Shop, join(CONTENT, "shops/aldric.yaml"));
+    const c = loadContentFile(Continents, join(CONTENT, "continents.yaml"));
+    const biases = new Set(Object.values(c.continents).flatMap((cont) => (cont.resource_bias ? [cont.resource_bias] : [])));
+    for (const item of shop.items) {
+      if (item.origin) expect([item.item_id, biases.has(item.origin)]).toEqual([item.item_id, true]);
+    }
+    // And at least one ware stays untagged — ubiquitous goods are what keep a
+    // player on the "wrong" continent from being gated behind a caravan.
+    expect(shop.items.some((i) => !i.origin)).toBe(true);
+  });
+
   it("the riddle workflow wires modal options to the states that capture them", () => {
     const wf = loadContentFile(Workflow, join(CONTENT, "workflows/secret_merchant_riddle.yaml"));
     expect(wf.scope).toBe("player");
