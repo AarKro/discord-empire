@@ -30,6 +30,24 @@ export const IMPORT_PRICE_MULTIPLIER = 3;
 /** How many units of a foreign curio a merchant carries. */
 export const IMPORT_STOCK = 2;
 
+/**
+ * The level an `unlimited` ware is held at, and the level it is topped back up
+ * from.
+ *
+ * THIS IS A HIGH-WATER MARK, NOT INFINITY, and the distinction is deliberate.
+ * `executeTrade`'s stock guard is `WHERE qty >= :qty` against a real row, so a
+ * genuinely infinite ware would mean special-casing the atomic contract — the one
+ * thing this codebase protects hardest. What actually changed versus the old
+ * hardcoded 1,000,000 seeds is not the number: it is that a REPLENISH PATH now
+ * exists, so a permit token can no longer be drained to zero and take every
+ * build, research and muster in the realm down with it.
+ *
+ * The floor exists to keep the ledger quiet: topping up only below it means one
+ * audited row per ~990k units sold rather than one per sale.
+ */
+export const UNLIMITED_STOCK = 1_000_000;
+export const UNLIMITED_FLOOR = 10_000;
+
 /** A shop item as one continent sees it. */
 export interface RegionalItem {
   price: number;
@@ -68,4 +86,33 @@ export function regionalItem(item: ShopItem, region: string | null): RegionalIte
     stock: IMPORT_STOCK,
     imported: true,
   };
+}
+
+export interface RestockInput {
+  /** What the shelf holds right now. */
+  currentQty: number;
+  /** The ceiling — this ware's REGIONAL stock, so a curio refills toward 2. */
+  cap: number;
+  /** Whole restock intervals elapsed since the last pass (catch-up after downtime). */
+  intervals: number;
+}
+
+/**
+ * How many units to add to a shelf, or 0 to leave it alone (§2.5, §3
+ * `stock.restocked`).
+ *
+ * Pure, and the single place the policy lives — the sweep only decides WHEN to
+ * ask. Three rules:
+ *   - `unlimited` wares are held near their high-water mark and ignore the rate.
+ *   - a ware with NO rate never returns. That is what keeps a one-of-a-kind rare
+ *     genuinely gone once bought, rather than respawning on the hour.
+ *   - otherwise the rate accrues per elapsed interval but is clamped to the cap,
+ *     so a week of downtime refills a shelf exactly full and never past it.
+ */
+export function restockAmount(item: ShopItem, { currentQty, cap, intervals }: RestockInput): number {
+  if (item.unlimited) return currentQty < UNLIMITED_FLOOR ? UNLIMITED_STOCK - currentQty : 0;
+  if (!item.restock || intervals <= 0) return 0;
+  // A shelf already at or over its cap is left alone — never a negative "restock",
+  // which would turn a sweep into a silent confiscation.
+  return Math.max(0, Math.min(item.restock * intervals, cap - currentQty));
 }

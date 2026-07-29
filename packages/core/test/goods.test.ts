@@ -9,7 +9,15 @@
  * capability test.
  */
 import { describe, it, expect } from "vitest";
-import { regionOf, regionalItem, IMPORT_PRICE_MULTIPLIER, IMPORT_STOCK } from "../src/world/goods.js";
+import {
+  regionOf,
+  regionalItem,
+  restockAmount,
+  IMPORT_PRICE_MULTIPLIER,
+  IMPORT_STOCK,
+  UNLIMITED_STOCK,
+  UNLIMITED_FLOOR,
+} from "../src/world/goods.js";
 import { npcAt } from "../src/world/npc-identity.js";
 import type { Continents, ShopItem } from "@empire/content-schemas";
 
@@ -87,6 +95,59 @@ describe("regionalItem (§2.5 supply is not global)", () => {
     const abroad = regionalItem(ORE, "wildwood");
     expect(abroad.price).toBeGreaterThan(home.price);
     expect(abroad.stock).toBeLessThan(home.stock);
+  });
+});
+
+describe("restockAmount (§3 stock.restocked)", () => {
+  const ORE_R = { ...ORE, restock: 10 };
+  const STAPLE = { item_id: "bread", name: "Loaf of Bread", base_price: 5, stock: 100, unlimited: true };
+
+  it("adds the rate once per elapsed interval", () => {
+    expect(restockAmount(ORE_R, { currentQty: 0, cap: 40, intervals: 1 })).toBe(10);
+    expect(restockAmount(ORE_R, { currentQty: 0, cap: 40, intervals: 3 })).toBe(30);
+  });
+
+  it("never fills past the cap, however long the outage", () => {
+    // A week of downtime refills a shelf exactly full, not 1680 deep.
+    expect(restockAmount(ORE_R, { currentQty: 0, cap: 40, intervals: 168 })).toBe(40);
+    expect(restockAmount(ORE_R, { currentQty: 35, cap: 40, intervals: 5 })).toBe(5);
+  });
+
+  it("leaves a full shelf alone", () => {
+    expect(restockAmount(ORE_R, { currentQty: 40, cap: 40, intervals: 1 })).toBe(0);
+  });
+
+  it("never returns a negative — an over-full shelf is not confiscated", () => {
+    // Reachable if a cap is tuned DOWN in content after a shelf was seeded deeper.
+    expect(restockAmount(ORE_R, { currentQty: 80, cap: 40, intervals: 1 })).toBe(0);
+  });
+
+  it("caps an imported curio at the import stock, not its home depth", () => {
+    expect(restockAmount(ORE_R, { currentQty: 0, cap: IMPORT_STOCK, intervals: 5 })).toBe(IMPORT_STOCK);
+  });
+
+  it("never brings back a ware with no rate — a rare stays gone", () => {
+    // The whole reason the arcane forge blueprint is left bare in content.
+    expect(restockAmount(ORE, { currentQty: 0, cap: 40, intervals: 999 })).toBe(0);
+    expect(restockAmount(FORGE, { currentQty: 0, cap: 1, intervals: 999 })).toBe(0);
+  });
+
+  it("does nothing when no interval has elapsed", () => {
+    expect(restockAmount(ORE_R, { currentQty: 0, cap: 40, intervals: 0 })).toBe(0);
+  });
+
+  it("tops an unlimited ware only once it dips below the floor", () => {
+    // Above the floor it writes nothing, which is what keeps the ledger quiet:
+    // one audited row per ~990k units sold rather than one per sale.
+    expect(restockAmount(STAPLE, { currentQty: UNLIMITED_FLOOR, cap: 100, intervals: 1 })).toBe(0);
+    expect(restockAmount(STAPLE, { currentQty: UNLIMITED_FLOOR - 1, cap: 100, intervals: 1 })).toBe(
+      UNLIMITED_STOCK - (UNLIMITED_FLOOR - 1),
+    );
+  });
+
+  it("restores an emptied unlimited ware even with no intervals elapsed", () => {
+    // A permit token at zero fails every build in the realm; it must not wait.
+    expect(restockAmount(STAPLE, { currentQty: 0, cap: 100, intervals: 0 })).toBe(UNLIMITED_STOCK);
   });
 });
 

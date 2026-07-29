@@ -27,6 +27,33 @@ items:
     }
   });
 
+  it("rejects a shop item that is both unlimited and rate-restocked", () => {
+    // Accepting both and silently ignoring one is a content trap: the author
+    // would think they had tuned a rate that never runs.
+    expect(() =>
+      parseContent(
+        Shop,
+        `id: s\nitems:\n  - { item_id: bread, name: Bread, base_price: 5, stock: 100, unlimited: true, restock: 10 }`,
+        "shop.yaml",
+      ),
+    ).toThrowError(ContentValidationError);
+  });
+
+  it("accepts each of unlimited and restock on their own", () => {
+    const shop = parseContent(
+      Shop,
+      `
+id: s
+items:
+  - { item_id: bread, name: Bread, base_price: 5, stock: 100, unlimited: true }
+  - { item_id: ore, name: Ore, base_price: 25, stock: 40, restock: 10 }
+`,
+      "shop.yaml",
+    );
+    expect(shop.items[0]!.unlimited).toBe(true);
+    expect(shop.items[1]!.restock).toBe(10);
+  });
+
   it("validates a manifest with per-guild personas", () => {
     const m = parseContent(
       Manifest,

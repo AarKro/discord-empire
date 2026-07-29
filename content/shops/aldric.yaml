@@ -13,26 +13,36 @@
 # arcane forge blueprint carries no origin.
 id: aldric_wares
 currency: gold
+#
+# `restock` is units per interval, capped at the ware's REGIONAL stock — so an
+# imported curio climbs back to 2, not to its home continent's shelf depth. A ware
+# with NO rate never returns, which is the only thing keeping a one-of-a-kind rare
+# genuinely rare; leave the blueprint bare on purpose.
 items:
   - item_id: bread
     name: "Loaf of Bread"
     base_price: 5
     stock: 100
+    # A staple should never be the reason someone can't eat.
+    unlimited: true
   - item_id: iron_ore
     name: "Iron Ore"
     base_price: 25
     stock: 40
     origin: highlands
+    restock: 10
   - item_id: salt_fish
     name: "Barrel of Salt Fish"
     base_price: 18
     stock: 60
     origin: harbor
+    restock: 12
   - item_id: heartwood
     name: "Heartwood Timber"
     base_price: 30
     stock: 35
     origin: wildwood
+    restock: 8
   - item_id: blueprint_arcane_forge
     name: "Blueprint: Arcane Forge"
     base_price: 120

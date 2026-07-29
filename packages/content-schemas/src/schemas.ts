@@ -54,7 +54,20 @@ export const ShopItem = z.object({
   // scarce curio from their own travels. Untagged wares are ubiquitous — bread
   // and the internal permit tokens are sold the same everywhere on purpose.
   origin: z.string().min(1).optional(),
-});
+  // Units replenished per restock interval, capped at this ware's REGIONAL stock.
+  // Omitting it means the ware never comes back — that is how a one-of-a-kind
+  // stays one-of-a-kind once someone buys it.
+  restock: z.number().int().positive().optional(),
+  // A ware that must never sell out: staples, and the internal permit tokens whose
+  // exhaustion would fail every build/research/muster in the realm. Held at a high
+  // water mark rather than being truly infinite — see core's world/goods.ts.
+  unlimited: z.boolean().optional(),
+})
+  // An unlimited ware has no meaningful rate. Accepting both and silently ignoring
+  // one would be a content trap: the author would think they had tuned something.
+  .refine((item) => !(item.unlimited && item.restock !== undefined), {
+    message: "an `unlimited` item cannot also carry a `restock` rate",
+  });
 export type ShopItem = z.infer<typeof ShopItem>;
 
 export const Shop = z.object({
