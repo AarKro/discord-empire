@@ -105,6 +105,11 @@ export {
   MAX_MUSTER,
   BARRACKS_BLUEPRINT,
 } from "./capabilities/combat.js";
+export { caravanCapability, CARAVAN_MISSION, CARAVAN_TRAVEL_MS } from "./capabilities/caravan.js";
+
+// The dispatch primitive's shared legs (§5.13), ridden by combat and caravan
+export { returnDispatch, forceUnitIds } from "./world/dispatch.js";
+export type { DispatchForceUnits } from "./world/dispatch.js";
 
 // Internal (non-diegetic) item tokens — never show these in player-facing lists
 export {

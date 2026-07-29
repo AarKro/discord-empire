@@ -17,3 +17,11 @@ capabilities:
   - commands
   - market
   - auction
+  - caravan
+content:
+  # The caravan sources from the merchant's wares (names + base prices) and needs
+  # the continent ring to name and validate destinations.
+  shop: shops/aldric.yaml
+  continents: continents.yaml
+  workflows:
+    - workflows/caravan.yaml

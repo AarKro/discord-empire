@@ -1,0 +1,38 @@
+# The /caravan flow as a declarative workflow (§7, §11). One instance per
+# caravan, scoped to the player.
+#
+# Like warden_dispatch, the two timers belong to the tick service, not the
+# workflow: the dispatch row carries arrives_at / returns_at and the tick fires
+# dispatch.arrived / dispatch.returned against them, so both legs survive a
+# restart. Unlike a battle there is NO timer on the middle state — a posting ends
+# only when the player recalls it (§2.3: the agent on site is a standing
+# investment, and the escort stays tied up for as long as it stands there).
+id: caravan
+trigger: { event: caravan.requested }
+scope: player
+initial: travelling
+states:
+  # Guards (§2.3 research + Trade Post), pick an escort, send it with a travel
+  # timer. A rejection replies inside caravan.send and throws → rejected.
+  travelling:
+    actions:
+      - { "caravan.send": {} }
+    on:
+      dispatch.arrived: posted
+    on_error: rejected
+  # Stationed abroad: the caravan's stall stands in the player's home land plot
+  # and that continent's market is open to them. `/caravan recall` flips the row
+  # to returning, which is what eventually produces dispatch.returned.
+  posted:
+    actions:
+      - { "caravan.arrive": {} }
+    on:
+      dispatch.returned: home
+  # The escort is home and free to be sent again.
+  home:
+    actions:
+      - { "caravan.return": {} }
+    final: true
+  # Guard rejection already replied inside caravan.send; nothing to undo.
+  rejected:
+    final: true

@@ -38,6 +38,8 @@ const RESULT_EVENT_TYPES = [
   "muster.rejected",
   "dispatch.sent",
   "dispatch.rejected",
+  "caravan.sent",
+  "caravan.rejected",
   "command.reply",
 ];
 

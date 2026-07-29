@@ -43,6 +43,24 @@ export async function landChannel(sql: Sql, playerId: string): Promise<string | 
 }
 
 /**
+ * The text channel of a player's land plot ON A SPECIFIC CONTINENT (§2.4: "land
+ * can be held on any continent the player has unlocked").
+ *
+ * `landChannel` takes whichever plot comes first, which is right for a receipt —
+ * any land channel of theirs will do. It is wrong when the surface belongs to a
+ * particular continent: a caravan's stall is posted in the player's HOME plot
+ * precisely because the wares are elsewhere, and picking an arbitrary plot could
+ * put it on the very continent the caravan was sent to.
+ */
+export async function landChannelIn(sql: Sql, playerId: string, guildId: string): Promise<string | null> {
+  const [plot] = await sql<{ text_channel_id: string | null }[]>`
+    SELECT text_channel_id FROM land_plots
+    WHERE owner_id = ${playerId} AND guild_id = ${guildId} AND pruned = false LIMIT 1
+  `;
+  return plot?.text_channel_id ?? null;
+}
+
+/**
  * The Discord voice-channel id for a logical wander/travel stop in a guild, or
  * null when unmapped (run world:init). world:init keys voice stops by
  * `<stop>_<guildId>` (kind='voice'), so a schedule/workflow stop name like

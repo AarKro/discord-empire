@@ -35,6 +35,7 @@ import { payloadString } from "../events/helpers.js";
 import { publishReply } from "../events/reply.js";
 import { playerTier, tierScaledMs } from "../world/players.js";
 import { landChannel } from "../world/locations.js";
+import { returnDispatch } from "../world/dispatch.js";
 import { MUSTER_PERMIT_ITEM } from "../world/items.js";
 import { battleLogEmbed } from "../ui/kit.js";
 import { resolveBattle, rollLoot, type Force, type ForceTroop, type LootEntry } from "../combat/resolve.js";
@@ -492,26 +493,15 @@ export function combatCapability(): Capability {
       "dispatch.return": async (_args, evt, ctx: CapabilityContext) => {
         const dispatchId = payloadString(evt, "dispatch_id");
         if (!dispatchId) return;
-        const [row] = await ctx.sql<{ owner_id: string; force: Force }[]>`
-          UPDATE dispatches SET status = 'done' WHERE id = ${dispatchId} AND status = 'returning'
-          RETURNING owner_id, force
-        `;
-        if (!row) return;
-        // Release exactly the units this dispatch took, by id — never a blanket
-        // "all this player's dispatched units", which would free a concurrent
-        // mission's force too.
-        const ids = [
-          ...(row.force?.champion?.unitId ? [row.force.champion.unitId] : []),
-          ...(row.force?.troops ?? []).flatMap((t) => (t.unitId ? [t.unitId] : [])),
-        ];
-        if (ids.length > 0) {
-          await ctx.sql`UPDATE units SET status = 'idle' WHERE id = ANY(${ids}) AND status = 'dispatched'`;
-        }
-        ctx.logger.info({ dispatchId, units: ids.length }, "force returned");
+        // Shared with `caravan`, which rides the same table: the claim frees only
+        // this mission's own units, and only if the row is a battle at all.
+        const returned = await returnDispatch(ctx.sql, dispatchId, "battle");
+        if (!returned) return;
+        ctx.logger.info({ dispatchId, units: returned.unitIds.length }, "force returned");
         await ctx.bus.publish({
           type: "notify.requested",
           guildId: evt?.guildId ?? null,
-          actor: { kind: "player", id: row.owner_id },
+          actor: { kind: "player", id: returned.ownerId },
           subject: { kind: "npc", id: ctx.bot },
           payload: { message: "Your force has returned and stands ready." },
         });

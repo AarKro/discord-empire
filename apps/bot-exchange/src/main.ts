@@ -4,9 +4,11 @@
  *   /trade @player <side> <item> <qty> <price>  — a contact-gated direct offer
  *   /stall <item> <qty> <price>                 — list a ware on the board
  *   /unstall <item>                             — pull your listing
- * The generic runner owns the lifecycle; the `market` capability (in @empire/core)
- * does the work. Item autocomplete is live SQL over the caller's inventory, so
- * it's code, not YAML.
+ *   /caravan <destination>                      — post an agent on another continent
+ *   /recall <destination>                       — call that caravan home
+ * The generic runner owns the lifecycle; the `market` and `caravan` capabilities
+ * (in @empire/core) do the work. Autocomplete is live SQL over the caller's
+ * inventory / discoveries / postings, so it's code, not YAML.
  */
 import { join } from "node:path";
 import { runBot, rootLogger, buildMarketOverviewEmbed, HIDDEN_ITEMS, type CommandDef } from "@empire/core";
@@ -27,6 +29,37 @@ const itemAutocomplete: CommandDef["autocomplete"] = async (ctx, typed, userId) 
     ORDER BY item_id ASC LIMIT 25
   `;
   return rows.map((r) => ({ name: `${r.item_id} (${r.qty})`, value: r.item_id }));
+};
+
+/**
+ * Continents a caravan may be posted to: everywhere the player has DISCOVERED
+ * except where they already stand — you don't need an agent in the market you're
+ * in. Suggesting only discovered shores keeps the command from spoiling the map.
+ */
+const continentAutocomplete: CommandDef["autocomplete"] = async (ctx, typed, userId) => {
+  const rows = await ctx.sql<{ guild_id: string }[]>`
+    SELECT d.guild_id FROM continent_discoveries d
+    JOIN players p ON p.discord_user_id = d.player_id
+    WHERE d.player_id = ${userId} AND d.guild_id <> p.home_guild_id
+    ORDER BY d.guild_id ASC LIMIT 25
+  `;
+  // Names live in content, not the DB, so the typed filter is applied here.
+  const needle = typed.toLowerCase();
+  return rows
+    .map((r) => ({ name: continents.continents[r.guild_id]?.name ?? r.guild_id, value: r.guild_id }))
+    .filter((c) => c.name.toLowerCase().includes(needle));
+};
+
+/** Only the continents this player actually has a caravan standing on. */
+const postedCaravanAutocomplete: CommandDef["autocomplete"] = async (ctx, _typed, userId) => {
+  const rows = await ctx.sql<{ destination: string }[]>`
+    SELECT mission->>'destination_guild_id' AS destination FROM dispatches
+    WHERE owner_id = ${userId} AND status = 'stationed' AND mission->>'kind' = 'caravan'
+    LIMIT 25
+  `;
+  return rows
+    .filter((r) => r.destination)
+    .map((r) => ({ name: continents.continents[r.destination]?.name ?? r.destination, value: r.destination }));
 };
 
 const commands: CommandDef[] = [
@@ -72,6 +105,20 @@ const commands: CommandDef[] = [
       { name: "duration", description: "Minutes until it closes", required: true },
     ],
     autocomplete: itemAutocomplete,
+  },
+  {
+    name: "caravan",
+    description: "Post a caravan on another continent to trade there (§2.3 an agent on site)",
+    route: "caravan.requested",
+    options: [{ name: "destination", description: "Which continent to post it to", autocomplete: true, required: true }],
+    autocomplete: continentAutocomplete,
+  },
+  {
+    name: "recall",
+    description: "Call a posted caravan home",
+    route: "caravan.recall.requested",
+    options: [{ name: "destination", description: "Which caravan to recall", autocomplete: true, required: true }],
+    autocomplete: postedCaravanAutocomplete,
   },
   {
     name: "market",

@@ -46,8 +46,13 @@ describe("shipped content validates against schemas", () => {
     expect(herald.capabilities).toEqual(expect.arrayContaining(["commands", "wayfare", "topology"]));
     expect(herald.content?.continents).toBe("continents.yaml");
     // §5.11 player market: the exchange bot hosts /trade, /stall via commands + market.
+    // It also carries §11's `caravan`, which needs the merchant's wares for prices
+    // and the continent ring to name destinations.
     const exchange = loadContentFile(Manifest, join(CONTENT, "manifests/exchange.yaml"));
-    expect(exchange.capabilities).toEqual(expect.arrayContaining(["commands", "market"]));
+    expect(exchange.capabilities).toEqual(expect.arrayContaining(["commands", "market", "caravan"]));
+    expect(exchange.content?.shop).toBe("shops/aldric.yaml");
+    expect(exchange.content?.continents).toBe("continents.yaml");
+    expect(exchange.content?.workflows).toContain("workflows/caravan.yaml");
     // §4/§5 research: the architect bot hosts /research + /techtree via commands + research.
     const architect = loadContentFile(Manifest, join(CONTENT, "manifests/architect.yaml"));
     expect(architect.capabilities).toEqual(expect.arrayContaining(["commands", "research"]));
@@ -161,6 +166,16 @@ describe("shipped content validates against schemas", () => {
     expect(Object.keys(dispatch.states)).toEqual(["marching", "resolving", "home", "rejected_pre"]);
     expect(dispatch.states.marching!.on).toMatchObject({ "dispatch.arrived": "resolving" });
     expect(dispatch.states.resolving!.on).toMatchObject({ "dispatch.returned": "home" });
+    // Caravan (§11): the same out-and-back skeleton on the same tick events, but
+    // the middle state carries NO timer — a posting ends only on /recall, which
+    // is what makes the escort a standing investment (§2.3 an agent on site).
+    const caravan = loadContentFile(Workflow, join(CONTENT, "workflows/caravan.yaml"));
+    expect(caravan.scope).toBe("player");
+    expect(caravan.trigger?.event).toBe("caravan.requested");
+    expect(Object.keys(caravan.states)).toEqual(["travelling", "posted", "home", "rejected"]);
+    expect(caravan.states.travelling!.on).toMatchObject({ "dispatch.arrived": "posted" });
+    expect(caravan.states.posted!.on).toMatchObject({ "dispatch.returned": "home" });
+    expect(caravan.states.posted!.timer).toBeUndefined();
   });
 
   it("continents (§2.1 three-continent ring) and instances", () => {
