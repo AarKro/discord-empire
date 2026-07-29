@@ -390,6 +390,12 @@ export function combatCapability(): Capability {
        * a redelivered tick finds no row and no-ops. That guard is doing real
        * work here: without it a re-fire would re-roll the battle and re-grant
        * the loot.
+       *
+       * The same UPDATE also pins `mission->>'kind' = 'battle'`. The tick sweeps
+       * every travelling dispatch regardless of mission, so once a second kind
+       * exists (§11 caravans) an unguarded claim would seize one in flight and
+       * try to fight with it. The kind check keeps this verb's reach to its own
+       * missions — dispatch rows are a shared primitive, not combat's alone.
        */
       "combat.resolve": async (_args, evt, ctx: CapabilityContext) => {
         const dispatchId = payloadString(evt, "dispatch_id");
@@ -397,7 +403,8 @@ export function combatCapability(): Capability {
         const [row] = await ctx.sql<
           { owner_id: string; mission: { encounter_id?: string }; force: Force; origin_guild_id: string | null }[]
         >`
-          UPDATE dispatches SET status = 'resolving' WHERE id = ${dispatchId} AND status = 'travelling'
+          UPDATE dispatches SET status = 'resolving'
+          WHERE id = ${dispatchId} AND status = 'travelling' AND mission->>'kind' = 'battle'
           RETURNING owner_id, mission, force, origin_guild_id
         `;
         if (!row) return;

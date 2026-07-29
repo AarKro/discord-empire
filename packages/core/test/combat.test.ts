@@ -82,8 +82,14 @@ function makeCtx(world: World): CapabilityContext {
             : [],
       );
     if (q.includes("kind = 'troop'") && q.includes("status = 'idle'")) return Promise.resolve(world.troops);
-    if (q.includes("UPDATE dispatches SET status = 'resolving'"))
+    if (q.includes("UPDATE dispatches SET status = 'resolving'")) {
+      // Stand in for Postgres applying the WHERE clause: the claim only lands if
+      // the statement's own mission-kind predicate matches the row's kind. That
+      // makes the guard testable instead of merely asserting on query text.
+      const missionKind = (world.resolveRow?.mission as { kind?: string } | undefined)?.kind ?? "battle";
+      if (q.includes("mission->>'kind' = 'battle'") && missionKind !== "battle") return Promise.resolve([]);
       return Promise.resolve(world.resolveRow ? [world.resolveRow] : []);
+    }
     if (q.includes("UPDATE dispatches SET status = 'done'"))
       return Promise.resolve(world.returnRow ? [world.returnRow] : []);
     if (q.includes("SELECT tier FROM players")) return Promise.resolve([{ tier: 1 }]);
@@ -344,6 +350,23 @@ describe("combat.resolve", () => {
     expect(world.published.some((p) => p.type === "grant.requested")).toBe(false);
     // The log is still delivered — a loss is still a report.
     expect(world.posted).toHaveLength(1);
+  });
+
+  it("leaves another mission kind's dispatch alone (§5.13 the primitive is shared)", async () => {
+    // The tick sweeps every travelling dispatch, so a §11 caravan in flight is
+    // offered to this verb too. Claiming it would march a trade mission into a
+    // battle it never packed for.
+    const world = baseWorld({
+      encounter: WOLVES,
+      resolveRow: { ...arrived(), mission: { kind: "caravan", destination_guild_id: "g2" } },
+    });
+    const ctx = makeCtx(world);
+    await verb("combat.resolve", {}, evt({ type: "dispatch.arrived", payload: { dispatch_id: "dsp_1" } }), ctx);
+
+    expect(world.published).toEqual([]);
+    expect(world.queries.some((q) => q.includes("INSERT INTO battles"))).toBe(false);
+    // Nor is it recalled — the caravan stays travelling for its own verb to claim.
+    expect(world.queries.some((q) => q.includes("UPDATE dispatches SET status = 'returning'"))).toBe(false);
   });
 
   it("cannot be re-run by a redelivered tick", async () => {
