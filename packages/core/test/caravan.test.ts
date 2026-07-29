@@ -26,14 +26,15 @@ const SHOP: Shop = {
   currency: "gold",
   items: [
     { item_id: "bread", name: "Loaf of Bread", base_price: 5, stock: 100 },
-    { item_id: "iron_ore", name: "Iron Ore", base_price: 38, stock: 4 },
+    { item_id: "iron_ore", name: "Iron Ore", base_price: 38, stock: 4, origin: "highlands" },
+    { item_id: "heartwood", name: "Heartwood Timber", base_price: 30, stock: 35, origin: "wildwood" },
   ],
 };
 
 const CONTINENTS: Continents = {
   continents: {
-    g1: { name: "Continent One", order: 1, neighbors: ["g2"] },
-    g2: { name: "The Thornwild", order: 2, neighbors: ["g1"] },
+    g1: { name: "Continent One", order: 1, neighbors: ["g2"], resource_bias: "highlands" },
+    g2: { name: "The Thornwild", order: 2, neighbors: ["g1"], resource_bias: "wildwood" },
   },
 };
 
@@ -61,6 +62,8 @@ interface World {
   /** What loadDispatch finds for a Buy click. */
   dispatch?: Record<string, unknown> | null;
   npcSeeded: boolean;
+  /** The inventory owner the wares read asked for — which continent's purse. */
+  askedOwner?: string | null;
   landChannel: string | null;
   published: Published[];
   queries: string[];
@@ -93,9 +96,13 @@ const STATIONED = {
 };
 
 function makeCtx(world: World): CapabilityContext {
-  const sql = (strings: TemplateStringsArray): Promise<unknown[]> => {
+  const sql = (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> => {
     const q = strings.join("?");
     world.queries.push(q);
+    if (q.includes("FROM inventories")) {
+      world.askedOwner = String(values[0]);
+      return Promise.resolve([{ item_id: "bread", qty: 7 }, { item_id: "iron_ore", qty: 0 }]);
+    }
     // Order matters: the narrower dispatch statements are matched before the
     // generic SELECT that shares their prefix.
     if (q.includes("UPDATE dispatches SET status = 'stationed'")) return Promise.resolve(world.arriveRow ? [world.arriveRow] : []);
@@ -105,7 +112,6 @@ function makeCtx(world: World): CapabilityContext {
     if (q.includes("FROM dispatches") && q.includes("WHERE id = ")) return Promise.resolve(world.dispatch ? [world.dispatch] : []);
     if (q.includes("FROM dispatches") && q.includes("status = 'stationed'")) return Promise.resolve(world.dispatch ? [world.dispatch] : []);
     if (q.includes("FROM npcs")) return Promise.resolve(world.npcSeeded ? [{ id: "merchant" }] : []);
-    if (q.includes("FROM inventories")) return Promise.resolve([{ item_id: "bread", qty: 7 }, { item_id: "iron_ore", qty: 0 }]);
     if (q.includes("FROM land_plots")) return Promise.resolve(world.landChannel ? [{ text_channel_id: world.landChannel }] : []);
     if (q.includes("FROM players")) return Promise.resolve([{ home_guild_id: world.home }]);
     if (q.includes("FROM research")) return Promise.resolve(world.researched ? [{ one: 1 }] : []);
@@ -277,9 +283,37 @@ describe("caravan.arrive (§2.3 the agent takes up its post)", () => {
 
     const rendered = JSON.parse(world.upserts[0]!.json) as { components: { components: { custom_id: string; disabled: boolean }[] }[] };
     const buttons = rendered.components.flatMap((row) => row.components);
-    expect(buttons.map((b) => b.custom_id)).toEqual(["crv:buy:dsp_1:bread", "crv:buy:dsp_1:iron_ore"]);
-    // iron_ore is at qty 0 in the fake inventory.
-    expect(buttons.map((b) => b.disabled)).toEqual([false, true]);
+    expect(buttons.map((b) => b.custom_id)).toEqual([
+      "crv:buy:dsp_1:bread",
+      "crv:buy:dsp_1:iron_ore",
+      "crv:buy:dsp_1:heartwood",
+    ]);
+    // iron_ore is at qty 0 in the fake inventory; heartwood has no row, so it
+    // falls back to its regional seed stock.
+    expect(buttons.map((b) => b.disabled)).toEqual([false, true, false]);
+  });
+
+  it("sources the DESTINATION's purse, not the home continent's (§2.5)", async () => {
+    // The entire point of posting one. Reading the home shelf would mean the
+    // caravan sold you what you could already walk to.
+    const world = baseWorld({ arriveRow: STATIONED });
+    const ctx = makeCtx(world);
+    await verb("caravan.arrive", arrived(), ctx);
+
+    expect(world.askedOwner).toBe("merchant@g2");
+  });
+
+  it("offers the destination's local goods at LOCAL prices", async () => {
+    const world = baseWorld({ arriveRow: STATIONED });
+    const ctx = makeCtx(world);
+    await verb("caravan.arrive", arrived(), ctx);
+
+    const rendered = world.upserts[0]!.json;
+    // Heartwood is native to the Thornwild: base price, deep stock, no curio mark.
+    expect(rendered).toContain("Heartwood Timber (30g)");
+    // Iron ore is foreign THERE, so even the caravan pays the import premium —
+    // geography is a property of the market, not of who is shopping.
+    expect(rendered).toContain("Iron Ore (114g)");
   });
 
   it("cannot be posted twice by a redelivered tick", async () => {

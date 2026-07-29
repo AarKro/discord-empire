@@ -52,6 +52,15 @@ The one not-yet-built bot (`bot-tavern`) and the not-yet-needed capability
 `combat` covers the §5.13 solo-PvE loop and the dispatch primitive; dungeons,
 raids and the instance-server pool remain deferred (§11).
 
+**Trade goods are continent-local (§2.5).** Shop items carry an `origin` naming a
+continent's `resource_bias`; each continent's persona keeps its own purse under
+`npcAt(bot, guild)` — `merchant@<guild>` — stocked deep in its own region's wares
+and holding just two of everyone else's at triple price, shown as a ✦ curio "from
+my own travels". Because `executeTrade` takes one party for stock, ledger and
+reputation, that also makes Aldric and Mei Lin genuinely separate traders with
+separate standing. Untagged wares (bread, permits, blueprints) stay ubiquitous so
+nobody is gated behind a caravan they can't afford.
+
 `caravan` is §11's trade agent, and the first proof that the dispatch primitive
 is genuinely shared: it rides the same `dispatches` table as a second
 `mission.kind`, so it needed no migration, no new table and no tick-service
@@ -59,7 +68,9 @@ change. Post one to another continent and it runs a stall in your home land plot
 (wearing the **caravan's** persona, not the merchant's) and satisfies the third
 §2.3 gate — **cross-continent market and auction deals now require a caravan
 standing there**, alongside `trade_routes` research and a Trade Post. Recall it
-and that market closes again.
+and that market closes again. Its stall sells the *destination's* local goods at
+the destination's prices, which is what the posting actually buys you: the deep
+cheap shelf your home merchant only teases two units of.
 
 ## Architectural invariants (enforced, do not violate)
 

@@ -34,7 +34,8 @@ import { notForMe, payloadString } from "../events/helpers.js";
 import { publishReply, replyToCommand } from "../events/reply.js";
 import { landChannelIn } from "../world/locations.js";
 import { returnDispatch } from "../world/dispatch.js";
-import { isOwnNpc } from "../world/npc-identity.js";
+import { isOwnNpc, npcAt } from "../world/npc-identity.js";
+import { regionOf, regionalItem } from "../world/goods.js";
 import { tradeRoutesAndPostBlock } from "../world/commerce.js";
 import { executeTrade, ensurePlayer, jsonParam, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
 import { ulid } from "ulid";
@@ -76,21 +77,31 @@ export function caravanCapability(shop: Shop, continents: Continents): Capabilit
   }
 
   /**
-   * The wares a caravan can offer: shop content for names and prices, live NPC
-   * inventory for stock — the same pairing `stall` uses, so the caravan can
-   * never advertise something the merchant has already sold.
+   * The wares a caravan can offer: shop content for names, the DESTINATION's
+   * purse for stock, and the DESTINATION's region for prices (§2.5).
    *
-   * Note that NPC inventory is not per-continent today (§2.5's `origin_continent`
-   * local goods are unimplemented), so the fiction of "wares out of Thornwild" is
-   * ahead of the model. When local goods land, this is the query that changes.
+   * This is the whole payoff of posting one. At home the merchant teases two
+   * units of a foreign ware at triple price; the caravan stands where that ware
+   * is made, so it offers the deep local shelf at the local price — the trip is
+   * what buys you the difference.
    */
-  async function wares(sql: Sql, npcId: string) {
+  async function wares(sql: Sql, botId: string, destinationGuildId: string) {
     const rows = await sql<{ item_id: string; qty: number }[]>`
-      SELECT item_id, qty FROM inventories WHERE owner_kind = 'npc' AND owner_id = ${npcId}
+      SELECT item_id, qty FROM inventories WHERE owner_kind = 'npc' AND owner_id = ${npcAt(botId, destinationGuildId)}
     `;
     const stockById = new Map(rows.map((r) => [r.item_id, r.qty]));
+    const region = regionOf(continents, destinationGuildId);
     return shop.items
-      .map((item) => ({ itemId: item.item_id, name: item.name, price: item.base_price, stock: stockById.get(item.item_id) ?? item.stock }))
+      .map((item) => {
+        const regional = regionalItem(item, region);
+        return {
+          itemId: item.item_id,
+          name: item.name,
+          price: regional.price,
+          stock: stockById.get(item.item_id) ?? regional.stock,
+          imported: regional.imported,
+        };
+      })
       .slice(0, MAX_WARES);
   }
 
@@ -113,7 +124,7 @@ export function caravanCapability(shop: Shop, continents: Continents): Capabilit
       ctx.logger.warn({ dispatch: dispatch.id }, "no source merchant seeded — run world:init");
       return;
     }
-    const items = await wares(ctx.sql, npcId);
+    const items = await wares(ctx.sql, npcId, destination);
     // The caravan's OWN face: the source merchant's persona and nickname are
     // never read here, so nothing of Aldric can leak into the player's land.
     const embed = stallEmbed(`🐪 Your Caravan — wares out of ${continentName(destination)}`, items)
@@ -186,19 +197,24 @@ export function caravanCapability(shop: Shop, continents: Continents): Capabilit
       return;
     }
     const npcId = await sourceNpc(ctx.sql);
-    if (!npcId) {
+    const destination = dispatch.mission?.destination_guild_id;
+    if (!npcId || !destination) {
       await interaction.reply("*No trade is moving out there today.*");
       return;
     }
+    // Buy at the DESTINATION's price, out of the DESTINATION's purse (§2.5) —
+    // the same numbers the stall above was drawn from, so what was advertised is
+    // what is charged.
+    const regional = regionalItem(item, regionOf(continents, destination));
     // No claim row to take: the goods are NPC stock, and executeTrade's
     // conditional `WHERE qty >= :qty` is itself the race-safe stock guard.
     const result = await executeTrade(ctx.sql, {
       eventId: `evt_${ulid()}`,
       buyer: { kind: "player", id: buyer },
-      seller: { kind: "npc", id: npcId },
+      seller: { kind: "npc", id: npcAt(npcId, destination) },
       itemId,
       qty: 1,
-      price: item.base_price,
+      price: regional.price,
       guildId: dispatch.origin_guild_id,
       reason: "caravan_purchase",
     });
@@ -206,7 +222,7 @@ export function caravanCapability(shop: Shop, continents: Continents): Capabilit
       await interaction.reply(`*Your caravan returns empty-handed: ${result.message ?? result.reason}.*`);
       return;
     }
-    await interaction.reply(`Your caravan brings back **1× ${item.name}** for **${item.base_price} gold**.`);
+    await interaction.reply(`Your caravan brings back **1× ${item.name}** for **${regional.price} gold**.`);
     await renderStall(ctx, dispatch);
   }
 
