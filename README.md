@@ -52,6 +52,15 @@ The one not-yet-built bot (`bot-tavern`) and the not-yet-needed capability
 `combat` covers the §5.13 solo-PvE loop and the dispatch primitive; dungeons,
 raids and the instance-server pool remain deferred (§11).
 
+`caravan` is §11's trade agent, and the first proof that the dispatch primitive
+is genuinely shared: it rides the same `dispatches` table as a second
+`mission.kind`, so it needed no migration, no new table and no tick-service
+change. Post one to another continent and it runs a stall in your home land plot
+(wearing the **caravan's** persona, not the merchant's) and satisfies the third
+§2.3 gate — **cross-continent market and auction deals now require a caravan
+standing there**, alongside `trade_routes` research and a Trade Post. Recall it
+and that market closes again.
+
 ## Architectural invariants (enforced, do not violate)
 
 - Bots depend on `@empire/core` (+ `@empire/db` types) only; **bots never import

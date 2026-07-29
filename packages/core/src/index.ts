@@ -66,7 +66,12 @@ export { evalGuard, resolveSource, interpolate, loadGuardScope, DIALOGUE_OPTION_
 export type { GuardScope } from "./dialogue/guards.js";
 
 // Cross-continent commerce guard (§2.3)
-export { crossContinentCommerceBlock, TRADE_ROUTES_RESEARCH, TRADE_POST_BLUEPRINT } from "./world/commerce.js";
+export {
+  crossContinentCommerceBlock,
+  tradeRoutesAndPostBlock,
+  TRADE_ROUTES_RESEARCH,
+  TRADE_POST_BLUEPRINT,
+} from "./world/commerce.js";
 
 // Workflow engine (§7): pure transition core + embedded runtime
 export { decide, entry, guardsPass, parseOnError, scopeMatches } from "./workflow/engine.js";

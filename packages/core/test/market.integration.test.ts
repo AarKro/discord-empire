@@ -53,7 +53,9 @@ async function seedOffer(side: "sell" | "buy") {
 suite("market — accepting a direct offer settles atomically (§5.11)", () => {
   beforeAll(async () => { h = openDb(url!, { max: 4 }); await assertMigrated(h.sql); });
   afterAll(async () => { await h.close(); });
-  beforeEach(async () => { await h.sql`TRUNCATE offers, contacts, inventories, balances, ledger, events, land_plots, npcs, locations RESTART IDENTITY CASCADE`; });
+  // players/research/build_queue/dispatches join the sweep for the §2.3 gate case:
+  // a leaked `players` row would silently arm the guard for every later test.
+  beforeEach(async () => { await h.sql`TRUNCATE offers, contacts, inventories, balances, ledger, events, land_plots, npcs, locations, players, research, build_queue, dispatches RESTART IDENTITY CASCADE`; });
 
   it("sell offer: the recipient accepts, pays gold, receives the goods", async () => {
     await seedOffer("sell");
@@ -97,6 +99,37 @@ suite("market — accepting a direct offer settles atomically (§5.11)", () => {
     expect((await inv("p2"))[0]!.qty).toBe(3); // buyer got the iron
     expect((await bal("p2"))[0]!.amount).toBe(60); // paid 40
     expect((await bal("p1"))[0]!.amount).toBe(40); // seller was paid
+  });
+
+  it("cross-continent stall buy needs an agent on site, and a caravan is one (§2.3)", async () => {
+    // The other suites never seed `players`, so the guard short-circuits on "no
+    // home on record". Here the home IS on record and the listing is abroad, so
+    // all three §2.3 gates are live against the real call site.
+    await h.sql`INSERT INTO players (discord_user_id, home_guild_id) VALUES ('p2', 'g1')
+                ON CONFLICT (discord_user_id) DO UPDATE SET home_guild_id = 'g1'`;
+    await h.sql`INSERT INTO research (owner_id, research_id, status) VALUES ('p2', 'trade_routes', 'done')`;
+    await h.sql`INSERT INTO build_queue (owner_id, plot_id, blueprint_id, status) VALUES ('p2', 'plot1', 'trade_post', 'completed')`;
+    await h.sql`INSERT INTO inventories (owner_kind, owner_id, item_id, qty) VALUES ('player', 'p1', 'iron', 3)`;
+    await h.sql`INSERT INTO balances (owner_kind, owner_id, currency, amount) VALUES ('player', 'p2', 'gold', 100)`;
+    // The listing is on g2 — a continent p2 is not home to.
+    await h.sql`INSERT INTO offers (id, kind, maker_kind, maker_id, item_id, qty, price, side, status, guild_id)
+      VALUES ('far1', 'order', 'player', 'p1', 'iron', 3, 40, 'sell', 'open', 'g2')`;
+
+    // Research + Trade Post alone are no longer enough: nothing is claimed, and
+    // the listing must survive the refusal for someone else to buy.
+    await setup()(clickBtn("mkt:buy:far1", "p2"));
+    expect((await h.sql<{ status: string }[]>`SELECT status FROM offers WHERE id='far1'`)[0]!.status).toBe("open");
+    expect((await h.sql`SELECT id FROM ledger`).length).toBe(0);
+    expect((await bal("p2"))[0]!.amount).toBe(100);
+
+    // Post a caravan on g2 and the same click goes through.
+    await h.sql`INSERT INTO dispatches (id, owner_id, mission, force, origin_guild_id, status)
+      VALUES ('dsp_far', 'p2', '{"kind":"caravan","destination_guild_id":"g2"}'::jsonb, '{}'::jsonb, 'g1', 'stationed')`;
+    await setup()(clickBtn("mkt:buy:far1", "p2"));
+
+    expect((await h.sql<{ status: string }[]>`SELECT status FROM offers WHERE id='far1'`)[0]!.status).toBe("filled");
+    expect((await inv("p2"))[0]!.qty).toBe(3);
+    expect((await bal("p2"))[0]!.amount).toBe(60);
   });
 
   it("/market overview: own positions + cross-continent browse, own listings excluded from browse", async () => {

@@ -34,7 +34,7 @@ import { notForMe, payloadString } from "../events/helpers.js";
 import { publishReply, replyToCommand } from "../events/reply.js";
 import { landChannelIn } from "../world/locations.js";
 import { returnDispatch } from "../world/dispatch.js";
-import { crossContinentCommerceBlock } from "../world/commerce.js";
+import { tradeRoutesAndPostBlock } from "../world/commerce.js";
 import { executeTrade, ensurePlayer, jsonParam, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
 import { ulid } from "ulid";
 
@@ -257,10 +257,10 @@ export function caravanCapability(shop: Shop, continents: Continents): Capabilit
           await publishReply(ctx, "caravan.rejected", evt, player, "You're standing in that market already — no caravan needed.");
           throw new Error("destination is home");
         }
-        // §2.3's first two gates. In commit order this still reads the pre-agent
-        // form of the guard; once the third gate lands it moves to the split
-        // helper so sending never depends on already having sent.
-        const block = await crossContinentCommerceBlock(ctx.sql, player, destination);
+        // §2.3's first two gates ONLY. The full guard also demands an agent on
+        // site, which a caravan is — asking for one here would mean no player
+        // could ever send their first.
+        const block = await tradeRoutesAndPostBlock(ctx.sql, player, destination);
         if (block) {
           await publishReply(ctx, "caravan.rejected", evt, player, block);
           throw new Error("cross-continent commerce blocked");
