@@ -34,6 +34,7 @@ import { notForMe, payloadString } from "../events/helpers.js";
 import { publishReply, replyToCommand } from "../events/reply.js";
 import { landChannelIn } from "../world/locations.js";
 import { returnDispatch } from "../world/dispatch.js";
+import { isOwnNpc } from "../world/npc-identity.js";
 import { tradeRoutesAndPostBlock } from "../world/commerce.js";
 import { executeTrade, ensurePlayer, jsonParam, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
 import { ulid } from "ulid";
@@ -367,9 +368,12 @@ export function caravanCapability(shop: Shop, continents: Continents): Capabilit
       // A sale moved the source merchant's stock, so every posted stall showing
       // it is now stale. Not addressed to this bot (the merchant sold it), so
       // notForMe deliberately does NOT gate here.
+      //
+      // Since §2.5 the seller is continent-qualified (`merchant@<guild>`), so
+      // match any of the merchant's faces rather than its bare id.
       if (evt.type === "trade.completed") {
         const npcId = await sourceNpc(ctx.sql);
-        if (!npcId || evt.subject?.id !== npcId) return;
+        if (!npcId || !isOwnNpc(evt.subject?.id, npcId)) return;
         const posted = await ctx.sql<DispatchRow[]>`
           SELECT id, owner_id, mission, origin_guild_id, status FROM dispatches
           WHERE status = 'stationed' AND mission->>'kind' = ${CARAVAN_MISSION}

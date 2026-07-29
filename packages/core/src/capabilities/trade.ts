@@ -22,10 +22,12 @@
  * writer, which is what keeps "only trade writes the ledger" literally true.
  */
 import { executeTrade, grantReward, type Party } from "@empire/db";
-import type { Shop, ShopItem } from "@empire/content-schemas";
+import type { Continents, Shop, ShopItem } from "@empire/content-schemas";
 import type { Capability, CapabilityContext } from "../runtime/capability.js";
 import type { BusEvent } from "../events/bus.js";
 import { notForMe } from "../events/helpers.js";
+import { npcAt } from "../world/npc-identity.js";
+import { regionOf, regionalItem } from "../world/goods.js";
 import { ulid } from "ulid";
 
 export interface QuoteInput {
@@ -122,7 +124,19 @@ async function giveReward(
   });
 }
 
-export function tradeCapability(shop?: Shop): Capability {
+/** A shop item restated at one continent's prices, for `effectiveFloor` (§2.5). */
+function regionallyPriced(item: ShopItem, region: string | null): ShopItem {
+  const regional = regionalItem(item, region);
+  return { ...item, base_price: regional.price, floor_price: regional.floorPrice };
+}
+
+/**
+ * `continents` is required whenever `shop` is given: a shop's prices are regional
+ * (§2.5), and without the ring every ware would read as imported and be charged
+ * at the premium. Bots that carry `trade` purely as a cost sink (the Builder's
+ * permits, the Warden's loot grants) pass neither.
+ */
+export function tradeCapability(shop?: Shop, continents?: Continents): Capability {
   return {
     name: "trade",
     // trade.request is the dialogue-emitted purchase intent (§5.4 → §5.5);
@@ -177,7 +191,16 @@ export function tradeCapability(shop?: Shop): Capability {
         ctx.logger.warn({ evt: evt.eventId }, "malformed trade.request ignored");
         return;
       }
-      const seller: Party = { kind: "npc", id: evt.subject?.id ?? ctx.bot };
+      // The seller is this bot's persona ON THIS CONTINENT (§2.5). One party
+      // carries three things — whose stock is decremented, who stands as the
+      // ledger counterparty, and whose reputation is read — so qualifying it by
+      // guild is what makes Aldric and Mei Lin genuinely different traders,
+      // with separate purses and separate standing.
+      // `notForMe` above already guarantees the subject IS this bot, so the
+      // regional id is derived rather than read off the event — the event only
+      // ever carries the bare bot id.
+      const shopGuildId = evt.guildId ?? ctx.personas.homeGuild(null);
+      const seller: Party = { kind: "npc", id: npcAt(ctx.bot, shopGuildId) };
       const quote: QuoteInput = {
         buyer: { kind: buyer.kind as Party["kind"], id: buyer.id },
         seller,
@@ -194,7 +217,16 @@ export function tradeCapability(shop?: Shop): Capability {
         const [reputationRow] = await ctx.sql<{ score: number }[]>`
           SELECT score FROM reputation WHERE player_id = ${quote.buyer.id} AND npc_id = ${seller.id}
         `;
-        const floor = effectiveFloor(item, reputationRow?.score ?? 0);
+        // Haggle against THIS continent's price (§2.5). Passing the raw item
+        // would let a player talk an import down to its home floor, quietly
+        // undoing the premium and making the curio the cheap way to buy it.
+        //
+        // With no ring configured, fall back to the raw item rather than to
+        // `regionOf`'s null — a null region reads as "nothing is local", which
+        // would charge every ware the import premium. The factory makes this
+        // unreachable; the fallback just picks the harmless direction.
+        const priced = continents ? regionallyPriced(item, regionOf(continents, shopGuildId)) : item;
+        const floor = effectiveFloor(priced, reputationRow?.score ?? 0);
         // quote.price is the TOTAL offer (db contract); floor is per unit.
         if (quote.price < floor * quote.qty) {
           await publishFailure(ctx, quote, "lowball", "I can't part with it for that, friend.");

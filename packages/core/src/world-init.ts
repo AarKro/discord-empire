@@ -20,6 +20,8 @@ import { loadContentFile, Manifest, Shop, Continents, Districts } from "@empire/
 import { openDb, jsonParam, type Sql } from "@empire/db";
 import { rootLogger, type Logger } from "./logger.js";
 import { BUILD_PERMIT_ITEM, RESEARCH_PERMIT_ITEM, MUSTER_PERMIT_ITEM } from "./world/items.js";
+import { npcAt } from "./world/npc-identity.js";
+import { regionOf, regionalItem } from "./world/goods.js";
 import type { UnitType } from "./combat/types.js";
 
 /** A buildable recipe seeded into blueprint_catalog (§5.12, §10 Builder). */
@@ -341,30 +343,40 @@ async function seedGuildSurfaces(client: Client, opts: BootstrapOptions, log: Lo
 }
 
 /**
- * Phase 2 — the world's CONTENT catalogs, which are guild-independent: the
- * merchant NPC and its stock, the buildable and research catalogs, and the two
- * permit-sink NPCs whose "sales" model build and research costs as trades.
+ * Phase 2 — the world's catalogs: the merchant NPC and its stock, the buildable
+ * and research catalogs, and the permit-sink NPCs whose "sales" model build,
+ * research and muster costs as trades.
  *
  * ON CONFLICT DO NOTHING throughout, so a re-run never restocks a shop or
  * overwrites hand-tuned catalog rows.
+ *
+ * The catalogs proper are guild-independent, but SHOP STOCK is not (§2.5): each
+ * continent's persona keeps its own purse under `npcAt`, stocked deep in its own
+ * region's wares and thin in everyone else's. The permit sinks stay global —
+ * they are cost sinks, not geography.
  */
 async function seedCatalogs(opts: BootstrapOptions, log: Logger): Promise<void> {
+  // ONE npcs row per bot: `npcs` is bookkeeping identity (state, pins, wander
+  // position), which does not fork per continent. Only the purse does.
   await opts.sql`
     INSERT INTO npcs (id, kind) VALUES (${opts.npcId}, 'merchant')
     ON CONFLICT (id) DO NOTHING
   `;
 
   let seeded = 0;
-  for (const item of opts.shop.items) {
-    const rows = await opts.sql`
-      INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
-      VALUES ('npc', ${opts.npcId}, ${item.item_id}, ${item.stock})
-      ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
-      RETURNING item_id
-    `;
-    seeded += rows.length;
+  for (const guildId of Object.keys(opts.continents.continents)) {
+    const region = regionOf(opts.continents, guildId);
+    for (const item of opts.shop.items) {
+      const rows = await opts.sql`
+        INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
+        VALUES ('npc', ${npcAt(opts.npcId, guildId)}, ${item.item_id}, ${regionalItem(item, region).stock})
+        ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
+        RETURNING item_id
+      `;
+      seeded += rows.length;
+    }
   }
-  log.info({ npc: opts.npcId, seeded, items: opts.shop.items.length }, "npc + stock seeded (existing rows untouched)");
+  log.info({ npc: opts.npcId, seeded, items: opts.shop.items.length }, "npc + per-continent stock seeded (existing rows untouched)");
 
   // Seed the buildable catalog idempotently (§5.12, §10 Builder). Rerunnable:
   // ON CONFLICT DO NOTHING leaves any hand-tuned rows alone.

@@ -88,11 +88,14 @@ function required<S extends Parameters<typeof loadContentFile>[0]>(
 /** Manifest capability name → factory. The registry of what a bot can be made of. */
 const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
   trade: (deps) => {
+    // A shop's prices are regional (§2.5), so a shop-backed trade also needs the
+    // continent ring. Cost-sink bots (permits, loot grants) pass neither.
     const shop = deps.manifest.content?.shop;
-    return tradeCapability(shop ? deps.load(Shop, shop) : undefined);
+    if (!shop) return tradeCapability();
+    return tradeCapability(deps.load(Shop, shop), required(deps, Continents, "continents", "trade"));
   },
   topology: () => topologyCapability(),
-  stall: (deps) => stallCapability(required(deps, Shop, "shop", "stall")),
+  stall: (deps) => stallCapability(required(deps, Shop, "shop", "stall"), required(deps, Continents, "continents", "stall")),
   dialogue: () => dialogueCapability(),
   "presence.voice": (deps) => {
     const rel = deps.manifest.content?.schedule;

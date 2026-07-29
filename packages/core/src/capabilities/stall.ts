@@ -7,29 +7,40 @@
  * Stock/prices are content (validated Shop schema) + ledger-derived inventory;
  * this capability only renders and routes the Enter button into dialogue.
  */
-import type { Shop } from "@empire/content-schemas";
+import type { Continents, Shop } from "@empire/content-schemas";
 import type { Capability, CapabilityContext } from "../runtime/capability.js";
 import { stallEmbed, buttonRow } from "../ui/kit.js";
-import { notForMe } from "../events/helpers.js";
 import { requiresPresence } from "./topology.js";
+import { npcAt, isOwnNpc } from "../world/npc-identity.js";
+import { regionOf, regionalItem } from "../world/goods.js";
 import { ensurePlayer, type Sql } from "@empire/db";
 
 export const ENTER_STALL_BUTTON = "stall:enter";
 
-/** Live stock for an NPC's shop, from the ledger-derived inventory cache. */
-async function liveItems(sql: Sql, npcId: string, shop: Shop) {
+/**
+ * Live stock for an NPC's shop ON ONE CONTINENT, from the ledger-derived
+ * inventory cache. Both halves are regional (§2.5): the purse is `npcAt`'s, and
+ * prices come from `regionalItem`, so what a player is shown here is exactly
+ * what `trade` will charge them.
+ */
+async function liveItems(sql: Sql, botId: string, guildId: string, shop: Shop, continents: Continents) {
   const rows = await sql<{ item_id: string; qty: number }[]>`
-    SELECT item_id, qty FROM inventories WHERE owner_kind = 'npc' AND owner_id = ${npcId}
+    SELECT item_id, qty FROM inventories WHERE owner_kind = 'npc' AND owner_id = ${npcAt(botId, guildId)}
   `;
   const stockById = new Map(rows.map((row) => [row.item_id, row.qty]));
-  return shop.items.map((item) => ({
-    name: item.name,
-    price: item.base_price,
-    stock: stockById.get(item.item_id) ?? item.stock,
-  }));
+  const region = regionOf(continents, guildId);
+  return shop.items.map((item) => {
+    const regional = regionalItem(item, region);
+    return {
+      name: item.name,
+      price: regional.price,
+      stock: stockById.get(item.item_id) ?? regional.stock,
+      imported: regional.imported,
+    };
+  });
 }
 
-export function stallCapability(shop: Shop): Capability {
+export function stallCapability(shop: Shop, continents: Continents): Capability {
   return {
     name: "stall",
     // Re-render on a purchase (stock changed). Opening/closing the stall is
@@ -46,7 +57,7 @@ export function stallCapability(shop: Shop): Capability {
           return;
         }
         const persona = ctx.personas.resolve(guildId);
-        const items = await liveItems(ctx.sql, ctx.bot, shop);
+        const items = await liveItems(ctx.sql, ctx.bot, guildId, shop, continents);
         const embed = stallEmbed(`${persona.nickname}'s Stall`, items);
         const row = buttonRow([{ id: ENTER_STALL_BUTTON, label: "Enter the stall" }]);
         ctx.logger.info({ guildId, items: items.length }, "stall opened");
@@ -99,9 +110,14 @@ export function stallCapability(shop: Shop): Capability {
      * charge must not drag the pinned embed through a needless Discord edit.
      */
     async handle(evt, ctx) {
-      if (evt.type === "trade.completed" && !notForMe(evt, ctx.bot)) {
-        await this.actions["stall.open"]!({}, evt, ctx);
-      }
+      if (evt.type !== "trade.completed") return;
+      // Since §2.5, a stall sale's seller — and so this event's subject — is the
+      // CONTINENT-QUALIFIED identity (`merchant@<guild>`), not the bare bot id.
+      // A plain notForMe(evt, ctx.bot) would no longer recognise the shop's own
+      // sales and the pinned embed would quietly stop refreshing its stock.
+      // An unaddressed trade still renders, as before.
+      if (evt.subject != null && !isOwnNpc(evt.subject.id, ctx.bot)) return;
+      await this.actions["stall.open"]!({}, evt, ctx);
     },
   };
 }

@@ -47,6 +47,8 @@ export interface StallEmbedItem {
   name: string;
   price: number;
   stock: number;
+  /** A ware from another continent (§2.5) — marked so the premium reads as fiction. */
+  imported?: boolean;
 }
 
 /** The stall's pinned embed (§5.3): wares, prices, an Enter-the-stall button. */
@@ -57,7 +59,13 @@ export function stallEmbed(title: string, items: StallEmbedItem[]): EmbedBuilder
   } else {
     embed.setDescription(
       items
-        .map((item) => `**${item.name}** — ${item.price} gold ${item.stock <= 2 ? `(only ${item.stock} left!)` : ""}`)
+        .map((item) => {
+          // An import is dear and scarce by design (§2.5). Saying WHY on the line
+          // keeps it reading as a curio the merchant hauled back rather than a
+          // pricing bug — and it advertises what a caravan would actually get you.
+          if (item.imported) return `✦ **${item.name}** — ${item.price} gold _(from my own travels — only ${item.stock} left)_`;
+          return `**${item.name}** — ${item.price} gold ${item.stock <= 2 ? `(only ${item.stock} left!)` : ""}`;
+        })
         .join("\n"),
     );
   }

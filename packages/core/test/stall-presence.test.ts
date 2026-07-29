@@ -11,6 +11,7 @@ import type { ComponentInteraction } from "../src/gateway/index.js";
 import type { CapabilityContext } from "../src/runtime/capability.js";
 
 const SHOP = { id: "aldric", currency: "gold", items: [{ item_id: "x", name: "Trinket", base_price: 5, stock: 3 }] };
+const CONTINENTS = { continents: { g1: { name: "Continent One", order: 1, neighbors: [], resource_bias: "highlands" } } };
 
 interface World {
   /** the player's current continent (players.position_guild_id) */
@@ -63,7 +64,7 @@ describe("stall presence gate (§9)", () => {
   it("opens the stall when the player stands on this continent", async () => {
     const world: World = { position: "g1", entered: [], replies: [] };
     const { ctx, getHandler } = makeCtx(world);
-    stallCapability(SHOP).init!(ctx);
+    stallCapability(SHOP, CONTINENTS).init!(ctx);
     await getHandler()(enterClick(world));
     expect(world.entered).toEqual([{ guildId: "g1" }]);
     expect(world.replies).toHaveLength(0);
@@ -72,7 +73,7 @@ describe("stall presence gate (§9)", () => {
   it("refuses (ephemerally) when the player has travelled to another continent", async () => {
     const world: World = { position: "g2", entered: [], replies: [] };
     const { ctx, getHandler } = makeCtx(world);
-    stallCapability(SHOP).init!(ctx);
+    stallCapability(SHOP, CONTINENTS).init!(ctx);
     await getHandler()(enterClick(world));
     expect(world.entered).toHaveLength(0);
     expect(world.replies).toHaveLength(1);
@@ -82,7 +83,7 @@ describe("stall presence gate (§9)", () => {
   it("ignores clicks on other buttons", async () => {
     const world: World = { position: "g1", entered: [], replies: [] };
     const { ctx, getHandler } = makeCtx(world);
-    stallCapability(SHOP).init!(ctx);
+    stallCapability(SHOP, CONTINENTS).init!(ctx);
     await getHandler()({ ...enterClick(world), customId: "something:else" });
     expect(world.entered).toHaveLength(0);
     expect(world.replies).toHaveLength(0);

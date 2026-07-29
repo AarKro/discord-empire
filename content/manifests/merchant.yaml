@@ -31,6 +31,9 @@ home:
   "${GUILD_CONTINENT_THREE}": { voice_channel: bazaar_vc }
 content:
   shop: shops/aldric.yaml
+  # §2.5 local trade goods: `stall` and `trade` read each continent's
+  # `resource_bias` from the ring to stock and price this shop regionally.
+  continents: continents.yaml
   schedule: schedules/aldric.yaml
   workflows:
     - workflows/merchant_wander.yaml

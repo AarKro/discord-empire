@@ -38,3 +38,17 @@
 export function npcAt(botId: string, guildId: string): string {
   return `${botId}@${guildId}`;
 }
+
+/**
+ * True when `npcId` is `botId` in any of its faces — the bare bot id or any
+ * continent-qualified one.
+ *
+ * Needed because a trade's subject is now the SELLER's commerce identity, so a
+ * merchant's own sale arrives on the broadcast bus addressed `merchant@<guild>`,
+ * not `merchant`. Any consumer that used to ask "was this my sale?" with a bare
+ * `notForMe(evt, ctx.bot)` would silently answer no and stop reacting — the
+ * stall would stop refreshing its own stock.
+ */
+export function isOwnNpc(npcId: string | null | undefined, botId: string): boolean {
+  return npcId === botId || (npcId != null && npcId.startsWith(`${botId}@`));
+}
