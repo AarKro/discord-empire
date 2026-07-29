@@ -21,7 +21,7 @@ import { openDb, jsonParam, type Sql } from "@empire/db";
 import { rootLogger, type Logger } from "./logger.js";
 import { BUILD_PERMIT_ITEM, RESEARCH_PERMIT_ITEM, MUSTER_PERMIT_ITEM } from "./world/items.js";
 import { npcAt } from "./world/npc-identity.js";
-import { regionOf, regionalItem } from "./world/goods.js";
+import { regionOf, regionalItem, UNLIMITED_STOCK } from "./world/goods.js";
 import type { UnitType } from "./combat/types.js";
 
 /** A buildable recipe seeded into blueprint_catalog (§5.12, §10 Builder). */
@@ -419,7 +419,7 @@ async function seedCatalogs(opts: BootstrapOptions, log: Logger): Promise<void> 
     `;
     await opts.sql`
       INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
-      VALUES ('npc', ${opts.builderId}, ${BUILD_PERMIT_ITEM}, 1000000)
+      VALUES ('npc', ${opts.builderId}, ${BUILD_PERMIT_ITEM}, ${UNLIMITED_STOCK})
       ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
     `;
     log.info({ builder: opts.builderId }, "builder npc + permit stock seeded");
@@ -435,7 +435,7 @@ async function seedCatalogs(opts: BootstrapOptions, log: Logger): Promise<void> 
     `;
     await opts.sql`
       INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
-      VALUES ('npc', ${opts.architectId}, ${RESEARCH_PERMIT_ITEM}, 1000000)
+      VALUES ('npc', ${opts.architectId}, ${RESEARCH_PERMIT_ITEM}, ${UNLIMITED_STOCK})
       ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
     `;
     log.info({ architect: opts.architectId }, "architect npc + permit stock seeded");
@@ -467,7 +467,7 @@ async function seedCatalogs(opts: BootstrapOptions, log: Logger): Promise<void> 
     `;
     await opts.sql`
       INSERT INTO inventories (owner_kind, owner_id, item_id, qty)
-      VALUES ('npc', ${opts.wardenId}, ${MUSTER_PERMIT_ITEM}, 1000000)
+      VALUES ('npc', ${opts.wardenId}, ${MUSTER_PERMIT_ITEM}, ${UNLIMITED_STOCK})
       ON CONFLICT (owner_kind, owner_id, item_id) DO NOTHING
     `;
     log.info({ warden: opts.wardenId }, "warden npc + permit stock seeded");

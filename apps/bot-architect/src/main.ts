@@ -13,7 +13,7 @@
  * supplies the manifest and the slash-command defs, whose autocomplete/resolve
  * bodies are live SQL and so are inherently code, not YAML.
  */
-import { runBot, rootLogger, type CommandDef } from "@empire/core";
+import { runBot, rootLogger, RESEARCH_PERMIT_ITEM, type CommandDef } from "@empire/core";
 
 interface CatalogRow {
   id: string;
@@ -85,7 +85,12 @@ const commands: CommandDef[] = [
   },
 ];
 
-runBot({ manifest: "manifests/architect.yaml", configs: { commands } }).catch((err) => {
+runBot({
+  manifest: "manifests/architect.yaml",
+  // An empty research permit sink would refuse every /research realm-wide with
+  // an out-of-stock message; `restock` keeps it topped (§5.12).
+  configs: { commands, restock: { unlimitedItems: [RESEARCH_PERMIT_ITEM] } },
+}).catch((err) => {
   rootLogger.error({ err }, "architect crashed");
   process.exit(1);
 });

@@ -10,7 +10,7 @@
  * supplies the manifest and the slash-command defs, whose autocomplete/resolve
  * bodies are live SQL and so are inherently code, not YAML.
  */
-import { runBot, rootLogger, HIDDEN_ITEMS, type CommandDef } from "@empire/core";
+import { runBot, rootLogger, HIDDEN_ITEMS, BUILD_PERMIT_ITEM, type CommandDef } from "@empire/core";
 
 // §5.10, §10 Builder. /build is a round-trip (guards → trade → queue → ephemeral
 // reply); /balance and /inventory answer directly from the DB.
@@ -73,7 +73,13 @@ const commands: CommandDef[] = [
   },
 ];
 
-runBot({ manifest: "manifests/builder.yaml", configs: { commands } }).catch((err) => {
+runBot({
+  manifest: "manifests/builder.yaml",
+  // The build permit is an accounting token, not a ware. If its stock ever hit
+  // zero, executeTrade's guard would refuse every /build in the realm with
+  // "sorry, just sold out!" — so `restock` keeps it topped (§5.12).
+  configs: { commands, restock: { unlimitedItems: [BUILD_PERMIT_ITEM] } },
+}).catch((err) => {
   rootLogger.error({ err }, "builder crashed");
   process.exit(1);
 });

@@ -1,8 +1,8 @@
-# The Warden — the combat & dispatch bot (framework spec §2.6, §5.13). Its own
+# The Warden â the combat & dispatch bot (framework spec Â§2.6, Â§5.13). Its own
 # bot/token so the muster/dispatch surface doesn't ride on the builder, whose
 # queue it already borrows for the barracks prerequisite. Present in every
 # continent guild to register /muster, /dispatch and /army, but stands in no
-# voice — a garrison command surface, not a wandering NPC.
+# voice â a garrison command surface, not a wandering NPC.
 #
 # `trade` is here because the Warden is both ends of the economy for combat: it
 # "sells" the muster permit that charges for troops, and it performs the loot
@@ -26,6 +26,9 @@ capabilities:
   - combat
   - notify
   - commands
+  # §5.12: keeps this bot's permit token from ever running dry. An empty
+  # sink would fail every action it gates, realm-wide.
+  - restock
 content:
   workflows:
     - workflows/warden_muster.yaml

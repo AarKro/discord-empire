@@ -20,6 +20,9 @@ capabilities:
   - land
   - notify
   - commands
+  # §5.12: keeps this bot's permit token from ever running dry. An empty
+  # sink would fail every action it gates, realm-wide.
+  - restock
 content:
   workflows:
     - workflows/player_build.yaml

@@ -61,6 +61,15 @@ reputation, that also makes Aldric and Mei Lin genuinely separate traders with
 separate standing. Untagged wares (bread, permits, blueprints) stay ubiquitous so
 nobody is gated behind a caravan they can't afford.
 
+**Shelves replenish themselves (§3 `stock.restocked`).** A ware declares a
+`restock` rate in the shop YAML and refills toward its regional cap; a ware with
+no rate never returns, which is what keeps a one-of-a-kind rare rare. `unlimited`
+wares (staples, and the permit tokens whose exhaustion would refuse every build,
+research and muster realm-wide) are held at a high-water mark — not truly
+infinite, since `executeTrade` guards stock with `WHERE qty >= :qty` against a
+real row, but they can no longer be drained permanently. Every top-up is a
+`shop_restock` ledger row, so stock stays derivable from the ledger.
+
 `caravan` is §11's trade agent, and the first proof that the dispatch primitive
 is genuinely shared: it rides the same `dispatches` table as a second
 `mission.kind`, so it needed no migration, no new table and no tick-service

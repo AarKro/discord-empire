@@ -62,6 +62,13 @@ describe("shipped content validates against schemas", () => {
     const warden = loadContentFile(Manifest, join(CONTENT, "manifests/warden.yaml"));
     expect(warden.capabilities).toEqual(expect.arrayContaining(["commands", "combat", "trade"]));
     expect(warden.token_env).toBe("WARDEN_TOKEN");
+    // §5.12: every permit-sink bot carries `restock`. Dropping it would leave that
+    // bot's token draining with no replenish path, and an empty sink refuses the
+    // action it gates for the whole realm.
+    for (const id of ["builder", "architect", "warden"]) {
+      const m = loadContentFile(Manifest, join(CONTENT, `manifests/${id}.yaml`));
+      expect([id, m.capabilities.includes("restock")]).toEqual([id, true]);
+    }
     // §9 ops bot: the hidden admin surface — commands only, its own token, no home.
     const ops = loadContentFile(Manifest, join(CONTENT, "manifests/ops.yaml"));
     expect(ops.capabilities).toEqual(["commands"]);

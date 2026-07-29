@@ -11,7 +11,7 @@
  * supplies the manifest and the slash-command defs, whose autocomplete/resolve
  * bodies are live SQL and so are inherently code, not YAML.
  */
-import { runBot, rootLogger, UNIT_TYPES, MUSTER_COST, MAX_MUSTER, type CommandDef } from "@empire/core";
+import { runBot, rootLogger, UNIT_TYPES, MUSTER_COST, MAX_MUSTER, MUSTER_PERMIT_ITEM, type CommandDef } from "@empire/core";
 
 // §5.10, §5.13. /muster and /dispatch are round-trips (guards → queue/send →
 // ephemeral reply); /army answers directly from the DB.
@@ -91,7 +91,12 @@ const commands: CommandDef[] = [
   },
 ];
 
-runBot({ manifest: "manifests/warden.yaml", configs: { commands } }).catch((err) => {
+runBot({
+  manifest: "manifests/warden.yaml",
+  // An empty muster permit sink would refuse every /muster realm-wide with an
+  // out-of-stock message; `restock` keeps it topped (§5.12).
+  configs: { commands, restock: { unlimitedItems: [MUSTER_PERMIT_ITEM] } },
+}).catch((err) => {
   rootLogger.error({ err }, "warden crashed");
   process.exit(1);
 });
