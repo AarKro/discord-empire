@@ -40,6 +40,7 @@ import { marketCapability } from "../capabilities/market.js";
 import { auctionCapability } from "../capabilities/auction.js";
 import { combatCapability } from "../capabilities/combat.js";
 import { caravanCapability } from "../capabilities/caravan.js";
+import { restockCapability, type RestockConfig } from "../capabilities/restock.js";
 import { riddleCapability } from "../capabilities/riddle.js";
 import { worldMirrorCapability } from "../capabilities/world-mirror.js";
 import { WorkflowRuntime } from "../workflow/runtime.js";
@@ -48,6 +49,7 @@ import { WorkflowRuntime } from "../workflow/runtime.js";
 export interface CapabilityConfigs {
   commands?: CommandDef[];
   "ambient.chatter"?: ChatterConfig;
+  restock?: RestockConfig;
 }
 
 /** The manifest `content` keys that name a single loadable file. */
@@ -96,6 +98,14 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
   },
   topology: () => topologyCapability(),
   stall: (deps) => stallCapability(required(deps, Shop, "shop", "stall"), required(deps, Continents, "continents", "stall")),
+  // A shop-less bot may still carry `restock` purely to keep its permit token
+  // topped up (§5.12), so the shop half is optional here.
+  restock: (deps) => {
+    const shop = deps.manifest.content?.shop;
+    const config = (deps.configs.restock ?? {}) as RestockConfig;
+    if (!shop) return restockCapability(config);
+    return restockCapability(config, deps.load(Shop, shop), required(deps, Continents, "continents", "restock"));
+  },
   dialogue: () => dialogueCapability(),
   "presence.voice": (deps) => {
     const rel = deps.manifest.content?.schedule;

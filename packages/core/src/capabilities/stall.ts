@@ -45,7 +45,7 @@ export function stallCapability(shop: Shop, continents: Continents): Capability 
     name: "stall",
     // Re-render on a purchase (stock changed). Opening/closing the stall is
     // driven by the NPC's workflow (merchant_wander composes stall.open/close).
-    consumes: ["trade.completed"],
+    consumes: ["trade.completed", "shop.restocked"],
     actions: {
       "stall.open": async (_args, evt, ctx: CapabilityContext) => {
         const guildId = ctx.personas.homeGuild(evt?.guildId);
@@ -110,7 +110,9 @@ export function stallCapability(shop: Shop, continents: Continents): Capability 
      * charge must not drag the pinned embed through a needless Discord edit.
      */
     async handle(evt, ctx) {
-      if (evt.type !== "trade.completed") return;
+      // §3's stock.restocked: a background top-up changed the shelf with nobody
+      // trading, so the pinned embed is stale until we redraw it.
+      if (evt.type !== "trade.completed" && evt.type !== "shop.restocked") return;
       // Since §2.5, a stall sale's seller — and so this event's subject — is the
       // CONTINENT-QUALIFIED identity (`merchant@<guild>`), not the bare bot id.
       // A plain notForMe(evt, ctx.bot) would no longer recognise the shop's own

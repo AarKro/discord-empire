@@ -23,6 +23,8 @@ capabilities:
   - presence.voice
   - ambient.chatter
   - render
+  # §3 stock.restocked — shelves recover on their own, per continent.
+  - restock
 # world:init seeds two voice stops per continent — bazaar_vc and market_square_vc
 # — so a home must name one of those for it to resolve to a real channel.
 home:

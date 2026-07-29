@@ -94,6 +94,23 @@ describe("stall re-render addressing (§3 broadcast bus)", () => {
     expect(rendered).toEqual(["stall.rendered"]);
   });
 
+  it("redraws on its own shop.restocked (§3), with nobody having traded", async () => {
+    // A background top-up changes the shelf with no trade.completed anywhere, so
+    // without this the pinned embed advertises the pre-restock stock until the
+    // next sale.
+    const { ctx, rendered } = makeCtx();
+    const cap = stallCapability(SHOP, CONTINENTS);
+    await cap.handle!({ ...tradeEvt("merchant"), type: "shop.restocked" } as BusEvent, ctx);
+    expect(rendered).toEqual(["stall.rendered"]);
+  });
+
+  it("ignores another NPC's shop.restocked", async () => {
+    const { ctx, rendered } = makeCtx();
+    const cap = stallCapability(SHOP, CONTINENTS);
+    await cap.handle!({ ...tradeEvt("builder"), type: "shop.restocked" } as BusEvent, ctx);
+    expect(rendered).toEqual([]);
+  });
+
   it("skips the render on a continent where this NPC has no persona", async () => {
     const { ctx, rendered } = makeCtx();
     (ctx.personas as unknown as { has: () => boolean }).has = () => false;

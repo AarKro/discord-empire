@@ -118,8 +118,18 @@ export type { DispatchForceUnits } from "./world/dispatch.js";
 
 // §2.5 local trade goods: per-continent commerce identity + the regional view
 export { npcAt, isOwnNpc } from "./world/npc-identity.js";
-export { regionOf, regionalItem, IMPORT_PRICE_MULTIPLIER, IMPORT_STOCK } from "./world/goods.js";
-export type { RegionalItem } from "./world/goods.js";
+export {
+  regionOf,
+  regionalItem,
+  restockAmount,
+  IMPORT_PRICE_MULTIPLIER,
+  IMPORT_STOCK,
+  UNLIMITED_STOCK,
+  UNLIMITED_FLOOR,
+} from "./world/goods.js";
+export type { RegionalItem, RestockInput } from "./world/goods.js";
+export { restockCapability, RESTOCK_INTERVAL_MS } from "./capabilities/restock.js";
+export type { RestockConfig } from "./capabilities/restock.js";
 
 // Internal (non-diegetic) item tokens — never show these in player-facing lists
 export {
