@@ -11,7 +11,7 @@
  * outstanding row is re-fired on an exponential backoff (see core's Backoff) and
  * warned about once it has clearly stopped making progress.
  */
-import { Backoff, EventBus, rootLogger, type Logger } from "@empire/core";
+import { Backoff, EventBus, installCrashHandlers, rootLogger, type Logger } from "@empire/core";
 import { openDb, type Sql } from "@empire/db";
 
 /** Attempts after which an outstanding row is almost certainly stuck, not slow. */
@@ -22,6 +22,7 @@ const INSTANCE_RETENTION_DAYS = Number(process.env.WORKFLOW_RETENTION_DAYS ?? 7)
 
 async function main(): Promise<void> {
   const log = rootLogger.child({ service: "tick-service" });
+  installCrashHandlers(log);
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is required");
 
@@ -41,12 +42,25 @@ async function main(): Promise<void> {
   const returnBackoff = new Backoff();
 
   let minutes = 0;
+  /**
+   * The UTC hour the last tick.hour was emitted for. tick.hour is WALL-CLOCK: it
+   * fires when the hour changes, not every 60th minute since boot — a counter
+   * that restarts at zero never reaches 60 on a service redeployed more often
+   * than hourly, and everything riding it (workflow pruning) would never run.
+   * Null at boot, so the first pass also prunes.
+   */
+  let lastHour: number | null = null;
+  /** True while a pass runs; a pass slower than the interval must not overlap
+   *  the next one (both would read the same due rows and double-publish). */
+  let inFlight = false;
 
   async function emitMinute(): Promise<void> {
     minutes += 1;
     await bus.publish({ type: "tick.minute", payload: { minute: minutes } });
-    if (minutes % 60 === 0) {
-      await bus.publish({ type: "tick.hour", payload: { hour: minutes / 60 } });
+    const hour = Math.floor(Date.now() / 3_600_000);
+    if (hour !== lastHour) {
+      if (lastHour !== null) await bus.publish({ type: "tick.hour", payload: { hour: new Date(hour * 3_600_000).toISOString() } });
+      lastHour = hour;
       await pruneSettledWorkflows(sql, log);
     }
     await fireDueBuilds();
@@ -55,6 +69,27 @@ async function main(): Promise<void> {
     await fireDueMusters();
     await fireDueArrivals();
     await fireDueReturns();
+  }
+
+  /**
+   * One interval's pass. A failure (a DB blip, a dropped connection) is logged
+   * and the pass is skipped — the next minute simply tries again, and every due
+   * row is still due. Only an error that escapes this, by construction none,
+   * reaches the crash handler.
+   */
+  async function pass(): Promise<void> {
+    if (inFlight) {
+      log.warn("previous tick pass still running; skipping this one");
+      return;
+    }
+    inFlight = true;
+    try {
+      await emitMinute();
+    } catch (err) {
+      log.warn({ err }, "tick pass failed; retrying next interval");
+    } finally {
+      inFlight = false;
+    }
   }
 
   /**
@@ -191,7 +226,7 @@ async function main(): Promise<void> {
   }
 
   const intervalMs = Number(process.env.TICK_INTERVAL_MS ?? 60_000);
-  const timer = setInterval(() => void emitMinute(), intervalMs);
+  const timer = setInterval(() => void pass(), intervalMs);
   timer.unref?.();
   log.info({ intervalMs, retentionDays: INSTANCE_RETENTION_DAYS }, "tick service ready");
 }

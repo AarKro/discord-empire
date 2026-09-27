@@ -22,6 +22,7 @@ import { CapabilityRegistry, type Capability, type CapabilityContext } from "./c
 import { Gateway } from "../gateway/index.js";
 import { EventBus } from "../events/bus.js";
 import { PersonaResolver } from "./persona.js";
+import { installCrashHandlers } from "./process.js";
 import { tradeCapability } from "../capabilities/trade.js";
 import { topologyCapability } from "../capabilities/topology.js";
 import { stallCapability } from "../capabilities/stall.js";
@@ -177,6 +178,7 @@ export async function runBot(opts: RunBotOptions): Promise<void> {
   const manifestPath = isAbsolute(opts.manifest) ? opts.manifest : join(contentDir, opts.manifest);
   const manifest = loadContentFile(Manifest, manifestPath);
   const log = (opts.logger ?? rootLogger).child({ bot: manifest.id });
+  installCrashHandlers(log);
 
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is required");

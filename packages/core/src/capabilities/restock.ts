@@ -10,13 +10,13 @@
  * "sorry, just sold out!".
  *
  * WHY THIS RIDES tick.minute RATHER THAN tick.hour, which would read better:
- * `tick.hour` fires on `minutes % 60` where `minutes` counts up from 0 at every
- * BOOT (tick-service/src/main.ts). A service redeployed more often than hourly
- * would restock never. So the clock is elapsed wall-time held in `npcs.state`
- * (the same per-guild jsonb map the stall's pinned message id uses), and the
- * minute tick is only a prompt to go and look. That also makes catch-up after
- * downtime automatic: `restockAmount` accrues the missed intervals and clamps to
- * the cap.
+ * the permit sinks must be checked every minute (an empty one refuses that
+ * action realm-wide), and an hourly prompt would still lose up to an hour of
+ * accrual to every tick-service restart. So the clock is elapsed wall-time held
+ * in `npcs.state` (the same per-guild jsonb map the stall's pinned message id
+ * uses), and the minute tick is only a prompt to go and look. That also makes
+ * catch-up after downtime automatic: `restockAmount` accrues the missed
+ * intervals and clamps to the cap.
  *
  * The policy itself lives in `world/goods.ts` and is pure. This capability only
  * decides WHEN to ask and performs the write, and it writes nothing at all when

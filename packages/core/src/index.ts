@@ -35,6 +35,7 @@ export type { Capability, CapabilityContext, ActionHandler } from "./runtime/cap
 
 // Manifest-driven bot runner (§4 lifecycle)
 export { runBot, buildCapabilities } from "./runtime/bot-runtime.js";
+export { installCrashHandlers } from "./runtime/process.js";
 export type { RunBotOptions, CapabilityConfigs } from "./runtime/bot-runtime.js";
 
 // Combat resolution (§2.6, §5.13): pure, seeded, replayable — no DB, no Discord
