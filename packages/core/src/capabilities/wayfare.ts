@@ -53,10 +53,18 @@ export function wayfareCapability(continents: Continents): Capability {
           throw new Error("invalid destination");
         }
 
-        await ctx.sql`
+        // Leave only from where we just checked we stand. Two /travel commands
+        // racing both pass the read above; the conditional UPDATE lets exactly
+        // one of them set out, and the loser gets the one-journey refusal.
+        const [left] = await ctx.sql<{ discord_user_id: string }[]>`
           UPDATE players SET position_guild_id = ${null}, position_district_id = ${null}
-          WHERE discord_user_id = ${player}
+          WHERE discord_user_id = ${player} AND position_guild_id = ${current}
+          RETURNING discord_user_id
         `;
+        if (!left) {
+          await replyToCommand(ctx, evt, player, "You're already on the road, friend — one journey at a time.");
+          throw new Error("already travelling");
+        }
         const name = continents.continents[destination]?.name ?? "distant shores";
         await replyToCommand(ctx, evt, player, `You set out for ${name} — you'll arrive in a few minutes.`);
         ctx.logger.info({ player, from: current, to: destination }, "player departed");

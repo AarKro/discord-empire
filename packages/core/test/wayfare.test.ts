@@ -24,6 +24,8 @@ interface World {
   bazaars: Record<string, string>;
   replies: { message: string; correlationId: string | null }[];
   posts: { channelId: string; content: string }[];
+  /** Another /travel moves the player between depart's read and its UPDATE. */
+  raceLost?: boolean;
 }
 
 function makeCtx(world: World): CapabilityContext {
@@ -31,6 +33,13 @@ function makeCtx(world: World): CapabilityContext {
     const q = strings.join("?");
     if (q.includes("INSERT INTO players")) return Promise.resolve(world.playerExists ? [] : [{ discord_user_id: "p1" }]);
     if (q.includes("SELECT position_guild_id FROM players")) return Promise.resolve([{ position_guild_id: world.position }]);
+    if (q.includes("UPDATE players SET position_guild_id") && q.includes("AND position_guild_id =")) {
+      // depart's conditional leave: only lands if the player is still where
+      // the read found them (vals: new guild, new district, player, expected).
+      if (world.raceLost || world.position !== vals[3]) return Promise.resolve([]);
+      world.position = null;
+      return Promise.resolve([{ discord_user_id: vals[2] }]);
+    }
     if (q.includes("UPDATE players SET position_guild_id")) {
       world.position = (vals[0] as string | null) ?? null;
       return Promise.resolve([]);
@@ -69,6 +78,16 @@ const departEvt = (): BusEvent => ({
 });
 
 describe("wayfare — player travel (§9)", () => {
+
+  it("lets only one of two racing departures set out", async () => {
+    // Both commands read the player as standing on g1; the loser's conditional
+    // UPDATE finds no row, so it refuses rather than starting a second journey.
+    const world: World = { position: "g1", playerExists: true, bazaars: {}, replies: [], posts: [], raceLost: true };
+    await expect(
+      wayfareCapability(TWO).actions["wayfare.depart"]!({ destination: "g2" }, departEvt(), makeCtx(world)),
+    ).rejects.toThrow("already travelling");
+    expect(world.replies[0]!.message).toContain("one journey at a time");
+  });
   it("depart clears position and confirms the journey for a valid neighbour", async () => {
     const world: World = { position: "g1", playerExists: true, bazaars: {}, replies: [], posts: [] };
     await wayfareCapability(TWO).actions["wayfare.depart"]!({ destination: "g2" }, departEvt(), makeCtx(world));
