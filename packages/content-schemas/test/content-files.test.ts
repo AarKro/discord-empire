@@ -38,6 +38,15 @@ describe("shipped content validates against schemas", () => {
     const research = loadContentFile(ResearchTree, join(CONTENT, "catalog/research.yaml"));
     const encounters = loadContentFile(Encounters, join(CONTENT, "catalog/encounters.yaml"));
     const blueprintIds = new Set(blueprints.blueprints.map((b) => b.id));
+    // A findable recipe's unlock item must be something a player can actually get.
+    const shop = loadContentFile(Shop, join(CONTENT, "shops/aldric.yaml"));
+    for (const b of blueprints.blueprints.filter((bp) => bp.unlock_item)) {
+      expect(shop.items.map((i) => i.item_id)).toContain(b.unlock_item);
+    }
+    // Everything a building produces has a buyer, or production is a dead end.
+    for (const b of blueprints.blueprints.filter((bp) => bp.produces)) {
+      expect(shop.buys.map((g) => g.item_id)).toContain(b.produces!.item);
+    }
     // The barracks gates /muster, so the combat loop depends on it existing.
     expect(blueprintIds.has("barracks")).toBe(true);
     // Every blueprint a research node grants must be a real recipe.
@@ -56,9 +65,10 @@ describe("shipped content validates against schemas", () => {
     const tiers = loadContentFile(Tiers, join(CONTENT, "tiers.yaml"));
     const blueprints = loadContentFile(Blueprints, join(CONTENT, "catalog/blueprints.yaml"));
     const research = loadContentFile(ResearchTree, join(CONTENT, "catalog/research.yaml"));
-    // Every recipe a player can hold, at its `max` — a tier asking for more
-    // buildings than exist could never be reached.
-    const buildable = blueprints.blueprints.reduce((sum, b) => sum + b.max, 0);
+    // Every recipe EVERY player can hold, at its `max` — a tier asking for more
+    // buildings than exist could never be reached. A findable recipe (an
+    // `unlock_item`) doesn't count: there may be only one of it in the realm.
+    const buildable = blueprints.blueprints.filter((b) => !b.unlock_item).reduce((sum, b) => sum + b.max, 0);
     const top = tiers.tiers[tiers.tiers.length - 1]!;
     expect(top.buildings).toBeLessThanOrEqual(buildable);
     expect(top.research).toBeLessThanOrEqual(research.research.length);

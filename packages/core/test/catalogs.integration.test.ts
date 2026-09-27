@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { openDb, type DbHandle, assertMigrated } from "@empire/db";
 import { syncBlueprints, syncEncounters, syncResearch } from "../src/world/catalogs.js";
+import { buildableBlueprints } from "../src/capabilities/land.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const suite = url ? describe : describe.skip;
@@ -21,7 +22,7 @@ suite("catalog sync (§1.3)", () => {
     await h.close();
   });
   beforeEach(async () => {
-    await h.sql`TRUNCATE blueprint_catalog, research_catalog, encounter_catalog`;
+    await h.sql`TRUNCATE blueprint_catalog, research_catalog, encounter_catalog, blueprints, inventories`;
   });
 
   it("inserts new rows and overwrites retuned ones, deleting nothing", async () => {
@@ -53,5 +54,34 @@ suite("catalog sync (§1.3)", () => {
     const [enc] = await h.sql<{ loot: unknown }[]>`SELECT loot FROM encounter_catalog`;
     expect(node!.grants_blueprints).toEqual(["granary"]);
     expect(enc!.loot).toEqual([{ item: "wolf_pelt", qty: 2, chance: 0.8 }]);
+  });
+
+  it("gates recipes by research and by a held unlock item (§2.5), in one query", async () => {
+    await syncBlueprints(h.sql, {
+      blueprints: [
+        { id: "farm", name: "Farm", cost_gold: 50, base_ms: 1, max: 3 },
+        { id: "granary", name: "Granary", cost_gold: 80, base_ms: 1, max: 1 },
+        { id: "arcane_forge", name: "Arcane Forge", cost_gold: 150, base_ms: 1, max: 1, unlock_item: "blueprint_arcane_forge" },
+      ],
+    });
+    await syncResearch(h.sql, {
+      research: [{ id: "masonry", name: "Masonry", cost_gold: 1, base_ms: 1, prereqs: [], grants_blueprints: ["granary"] }],
+    });
+    const ids = async () => (await buildableBlueprints(h.sql, "p1")).map((b) => b.id);
+
+    // A newcomer: only the ungated starter.
+    expect(await ids()).toEqual(["farm"]);
+    // Research unlocks the granary.
+    await h.sql`INSERT INTO blueprints (owner_id, blueprint_id, source) VALUES ('p1', 'granary', 'research')`;
+    expect(await ids()).toEqual(["farm", "granary"]);
+    // Holding the found blueprint unlocks the forge; an emptied stack does not.
+    await h.sql`INSERT INTO inventories (owner_kind, owner_id, item_id, qty) VALUES ('player', 'p1', 'blueprint_arcane_forge', 0)`;
+    expect(await ids()).not.toContain("arcane_forge");
+    await h.sql`UPDATE inventories SET qty = 1 WHERE item_id = 'blueprint_arcane_forge'`;
+    expect(await ids()).toEqual(["farm", "granary", "arcane_forge"]);
+    // …and it is one player's find, not everyone's.
+    expect((await buildableBlueprints(h.sql, "p2")).map((b) => b.id)).toEqual(["farm"]);
+    // The single-recipe form is what /build's guard asks.
+    expect(await buildableBlueprints(h.sql, "p2", "arcane_forge")).toEqual([]);
   });
 });

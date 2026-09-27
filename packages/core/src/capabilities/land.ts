@@ -55,22 +55,42 @@ async function loadBlueprint(sql: Sql, id: string): Promise<BlueprintRow | null>
   return row ?? null;
 }
 
+export interface BuildableBlueprint {
+  id: string;
+  name: string;
+  cost_gold: number;
+}
+
 /**
- * A blueprint is buildable iff it is NOT gated behind research — i.e. no research
- * node grants it — OR the player already owns it (granted by completed research,
- * §4 Architect, or found). Starter recipes like farm/forge are granted by nothing,
- * so they always build; research-gated ones stay hidden until unlocked.
+ * The recipes `playerId` may build, cheapest first. A recipe is GATED when a
+ * research node grants it (§4 Architect) or it names an `unlock_item` (a rare,
+ * findable blueprint — §2.5); a gated recipe is buildable once the player owns
+ * it (a `blueprints` row, from research) or HOLDS its unlock item. The item is
+ * a recipe, not a consumable: holding it is enough, and it is never spent.
+ * Ungated starters (farm, forge) always build.
+ *
+ * ONE query for both /build's guard and its autocomplete, so what the menu
+ * offers and what the command accepts can't drift apart.
  */
+export async function buildableBlueprints(sql: Sql, playerId: string, onlyId?: string): Promise<BuildableBlueprint[]> {
+  return sql<BuildableBlueprint[]>`
+    SELECT bc.id, bc.name, bc.cost_gold FROM blueprint_catalog bc
+    WHERE (${onlyId ?? null}::text IS NULL OR bc.id = ${onlyId ?? null})
+      AND (
+        (bc.unlock_item IS NULL
+          AND NOT EXISTS (SELECT 1 FROM research_catalog rc WHERE rc.grants_blueprints @> jsonb_build_array(bc.id)))
+        OR EXISTS (SELECT 1 FROM blueprints b WHERE b.owner_id = ${playerId} AND b.blueprint_id = bc.id)
+        OR EXISTS (
+          SELECT 1 FROM inventories i
+          WHERE i.owner_kind = 'player' AND i.owner_id = ${playerId} AND i.item_id = bc.unlock_item AND i.qty > 0
+        )
+      )
+    ORDER BY bc.cost_gold ASC, bc.id ASC
+  `;
+}
+
 async function isBuildable(sql: Sql, playerId: string, blueprintId: string): Promise<boolean> {
-  const [gated] = await sql<{ one: number }[]>`
-    SELECT 1 AS one FROM research_catalog
-    WHERE grants_blueprints @> ${JSON.stringify([blueprintId])} LIMIT 1
-  `;
-  if (!gated) return true;
-  const [owned] = await sql<{ one: number }[]>`
-    SELECT 1 AS one FROM blueprints WHERE owner_id = ${playerId} AND blueprint_id = ${blueprintId} LIMIT 1
-  `;
-  return Boolean(owned);
+  return (await buildableBlueprints(sql, playerId, blueprintId)).length > 0;
 }
 
 /**
@@ -197,7 +217,7 @@ export function landCapability(catalog?: Blueprints): Capability {
         // Guard: research-gated recipes require the unlock (§4 Architect). Checked
         // before staking a plot so a locked request costs nothing.
         if (!(await isBuildable(ctx.sql, player, blueprint.id))) {
-          await publishReply(ctx, "build.rejected", { guildId, correlationId }, player, "You haven't the blueprints for that yet — see the Architect.");
+          await publishReply(ctx, "build.rejected", { guildId, correlationId }, player, "You haven't the blueprints for that yet — see the Architect, or find the plans.");
           throw new Error("blueprint locked");
         }
 

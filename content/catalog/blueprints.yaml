@@ -35,3 +35,12 @@ blueprints:
     base_ms: 300000 # ~5m
     produces: { item: grain, per_hour: 8, cap: 48 }
   - { id: trade_post, name: "Trade Post", cost_gold: 120, base_ms: 600000 }  # ~10m, needs trade_routes
+  # A rare, findable recipe (§2.5): buildable by whoever HOLDS the blueprint —
+  # there is exactly one, on the merchant's shelf, and it never restocks. The
+  # item isn't spent by building; it can still be sold or traded on after.
+  - id: arcane_forge
+    name: "Arcane Forge"
+    cost_gold: 150
+    base_ms: 900000 # ~15m
+    unlock_item: blueprint_arcane_forge
+    produces: { item: arcane_ingot, per_hour: 0.5, cap: 4 }

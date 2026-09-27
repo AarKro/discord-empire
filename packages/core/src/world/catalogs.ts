@@ -19,12 +19,12 @@ import { jsonParam, type Sql } from "@empire/db";
 export async function syncBlueprints(sql: Sql, catalog: Blueprints): Promise<void> {
   for (const b of catalog.blueprints) {
     await sql`
-      INSERT INTO blueprint_catalog (id, name, cost_gold, base_ms, produces, max_count)
+      INSERT INTO blueprint_catalog (id, name, cost_gold, base_ms, produces, max_count, unlock_item)
       VALUES (${b.id}, ${b.name}, ${b.cost_gold}, ${b.base_ms},
-              ${b.produces ? jsonParam(sql, b.produces) : null}, ${b.max})
+              ${b.produces ? jsonParam(sql, b.produces) : null}, ${b.max}, ${b.unlock_item ?? null})
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name, cost_gold = EXCLUDED.cost_gold, base_ms = EXCLUDED.base_ms,
-        produces = EXCLUDED.produces, max_count = EXCLUDED.max_count
+        produces = EXCLUDED.produces, max_count = EXCLUDED.max_count, unlock_item = EXCLUDED.unlock_item
     `;
   }
 }

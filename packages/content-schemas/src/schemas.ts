@@ -290,6 +290,9 @@ export const Blueprint = z.object({
     .optional(),
   // How many of this recipe one player may hold at once.
   max: z.number().int().positive().default(1),
+  // A findable recipe (§2.5 "rare findable blueprints"): holding this item
+  // unlocks the build. The item is a recipe, never spent.
+  unlock_item: z.string().min(1).optional(),
 });
 export type Blueprint = z.infer<typeof Blueprint>;
 

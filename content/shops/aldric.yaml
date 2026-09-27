@@ -59,6 +59,7 @@ buys:
   # Produce (content/catalog/blueprints.yaml `produces`).
   - { item_id: grain, name: "Sack of Grain", base_price: 8 }
   - { item_id: iron_tools, name: "Iron Tools", base_price: 40 }
+  - { item_id: arcane_ingot, name: "Arcane Ingot", base_price: 120 }
   # Loot (content/catalog/encounters.yaml).
   - { item_id: wolf_pelt, name: "Wolf Pelt", base_price: 12 }
   - { item_id: rune_shard, name: "Rune Shard", base_price: 80 }

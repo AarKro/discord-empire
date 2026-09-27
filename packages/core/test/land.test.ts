@@ -30,18 +30,21 @@ interface World {
   channelUpdates?: number;
   /** row the guarded build_queue completion UPDATE returns (null = already done). */
   completeRow?: { owner_id: string; blueprint_id: string } | null;
-  /** true = some research node gates this blueprint (isBuildable's first probe). */
+  /** true = the blueprint is gated (a research node grants it, or it has an unlock item). */
   gated?: boolean;
-  /** true = the player owns the (gated) blueprint via research/found. */
+  /** true = the player has unlocked it (research, or holding its unlock item). */
   owned?: boolean;
 }
 
 function makeCtx(world: World): CapabilityContext {
   const sql = (strings: TemplateStringsArray): Promise<unknown[]> => {
     const q = strings.join("?");
+    // buildableBlueprints: the recipe comes back only when it's ungated or the
+    // player owns it (research or a held unlock item) — Postgres applies that
+    // WHERE; the fake applies the same rule from the world's flags.
+    if (q.includes("FROM blueprint_catalog bc"))
+      return Promise.resolve(world.blueprint && (!world.gated || world.owned) ? [world.blueprint] : []);
     if (q.includes("FROM blueprint_catalog")) return Promise.resolve(world.blueprint ? [world.blueprint] : []);
-    if (q.includes("FROM research_catalog")) return Promise.resolve(world.gated ? [{ one: 1 }] : []);
-    if (q.includes("FROM blueprints")) return Promise.resolve(world.owned ? [{ one: 1 }] : []);
     if (q.includes("FROM locations"))
       return Promise.resolve(world.landCategoryId ? [{ channel_id: world.landCategoryId }] : []);
     if (q.includes("FROM land_plots"))

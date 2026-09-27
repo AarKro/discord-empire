@@ -11,7 +11,7 @@
  * bodies are live SQL and so are inherently code, not YAML.
  */
 import { join } from "node:path";
-import { runBot, rootLogger, HIDDEN_ITEMS, BUILD_PERMIT_ITEM, collectProductionFor, progressReport, type CommandDef } from "@empire/core";
+import { runBot, rootLogger, HIDDEN_ITEMS, BUILD_PERMIT_ITEM, collectProductionFor, progressReport, buildableBlueprints, type CommandDef } from "@empire/core";
 import { loadContentFile, Tiers } from "@empire/content-schemas";
 
 /** Tier milestones (§2.5), for /progress. The same file `progression` promotes by. */
@@ -25,22 +25,13 @@ const commands: CommandDef[] = [
     description: "Queue a building on your land",
     route: "build.requested",
     options: [{ name: "blueprint", description: "What to build", autocomplete: true, required: true }],
+    // The same query /build's guard uses (core's buildableBlueprints), so the
+    // menu offers exactly what the command will accept: ungated starters, plus
+    // research-unlocked and found (item-unlocked) recipes the player has.
     autocomplete: async (ctx, typed, userId) => {
-      const like = `%${typed.toLowerCase()}%`;
-      const rows = await ctx.sql<{ id: string; name: string; cost_gold: number }[]>`
-        SELECT id, name, cost_gold FROM blueprint_catalog
-        WHERE lower(name) LIKE ${like} OR lower(id) LIKE ${like}
-        ORDER BY cost_gold ASC
-      `;
-      // Gate research-locked recipes (§4 Architect): a blueprint granted by some
-      // research node only appears once the player owns it (via /research).
-      // Ungated recipes (farm/forge) always show. Filter then cap at 25.
-      const gatedRows = await ctx.sql<{ grants_blueprints: string[] }[]>`SELECT grants_blueprints FROM research_catalog`;
-      const gated = new Set(gatedRows.flatMap((r) => r.grants_blueprints));
-      const ownedRows = await ctx.sql<{ blueprint_id: string }[]>`SELECT blueprint_id FROM blueprints WHERE owner_id = ${userId}`;
-      const owned = new Set(ownedRows.map((r) => r.blueprint_id));
-      return rows
-        .filter((r) => !gated.has(r.id) || owned.has(r.id))
+      const needle = typed.toLowerCase();
+      return (await buildableBlueprints(ctx.sql, userId))
+        .filter((r) => r.name.toLowerCase().includes(needle) || r.id.includes(needle))
         .slice(0, 25)
         .map((r) => ({ name: `${r.name} (${r.cost_gold}g)`, value: r.id }));
     },
