@@ -1,0 +1,38 @@
+# The bestiary (§2.6, §5.13) — what /dispatch can be sent against. Synced into
+# encounter_catalog on the warden's boot.
+#
+# One encounter per unit type, so the matchup triangle is exercisable from the
+# very first fight: whichever troops a player drilled, there is a quarry they
+# counter and one that counters them. `travel_ms` is each way. Loot rolls only
+# on a victory (§2.6: losing costs only the loot chance).
+encounters:
+  - id: moor_wolves
+    name: "Moor Wolves"
+    unit_type: cavalry
+    atk: 14
+    def: 4
+    hp: 90
+    tier: 1
+    travel_ms: 300000 # ~5m
+    loot: [{ item: wolf_pelt, qty: 2, chance: 0.8 }]
+    reward_gold: 40
+  - id: bandit_camp
+    name: "Bandit Camp"
+    unit_type: archer
+    atk: 18
+    def: 6
+    hp: 140
+    tier: 2
+    travel_ms: 600000 # ~10m
+    loot: [{ item: iron_ore, qty: 3, chance: 0.6 }]
+    reward_gold: 80
+  - id: stone_sentinels
+    name: "Stone Sentinels"
+    unit_type: infantry
+    atk: 22
+    def: 12
+    hp: 220
+    tier: 3
+    travel_ms: 900000 # ~15m
+    loot: [{ item: rune_shard, qty: 1, chance: 0.4 }]
+    reward_gold: 150

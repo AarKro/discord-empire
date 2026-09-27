@@ -23,6 +23,8 @@ import { playerTier, tierScaledMs } from "../world/players.js";
 import { publishReply } from "../events/reply.js";
 import { RESEARCH_PERMIT_ITEM } from "../world/items.js";
 import { ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
+import type { ResearchTree } from "@empire/content-schemas";
+import { syncResearch } from "../world/catalogs.js";
 
 /** Research pacing (§2.5). Named re-export of the shared curve — see tierScaledMs. */
 export const scaledResearchMs = tierScaledMs;
@@ -52,9 +54,15 @@ async function doneResearch(sql: Sql, playerId: string): Promise<Set<string>> {
   return new Set(rows.map((r) => r.research_id));
 }
 
-export function researchCapability(): Capability {
+/** `tree` is the research YAML (§1.3); when given, it is synced on boot. */
+export function researchCapability(tree?: ResearchTree): Capability {
   return {
     name: "research",
+    async init(ctx: CapabilityContext): Promise<void> {
+      if (!tree) return;
+      await syncResearch(ctx.sql, tree);
+      ctx.logger.info({ nodes: tree.research.length }, "research catalog synced from content");
+    },
     // Nothing imperative to consume — the architect_research workflow (§7) drives
     // the flow by composing the verbs below; the runtime dispatches them.
     consumes: [],

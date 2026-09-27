@@ -33,6 +33,8 @@ import { playerTier, tierScaledMs } from "../world/players.js";
 import { publishReply } from "../events/reply.js";
 import { BUILD_PERMIT_ITEM } from "../world/items.js";
 import { ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
+import type { Blueprints } from "@empire/content-schemas";
+import { syncBlueprints } from "../world/catalogs.js";
 
 /** Build pacing (§2.5). Named re-export of the shared curve — see tierScaledMs. */
 export const scaledBuildMs = tierScaledMs;
@@ -126,9 +128,15 @@ async function ensurePlot(ctx: CapabilityContext, playerId: string, guildId: str
   return id;
 }
 
-export function landCapability(): Capability {
+/** `catalog` is the blueprint YAML (§1.3); when given, it is synced on boot. */
+export function landCapability(catalog?: Blueprints): Capability {
   return {
     name: "land",
+    async init(ctx: CapabilityContext): Promise<void> {
+      if (!catalog) return;
+      await syncBlueprints(ctx.sql, catalog);
+      ctx.logger.info({ blueprints: catalog.blueprints.length }, "blueprint catalog synced from content");
+    },
     // Nothing imperative to consume — the player_build workflow (§7) drives the
     // flow by composing the verbs below; the runtime dispatches them.
     consumes: [],

@@ -15,8 +15,8 @@ function manifest(caps: string[]): Manifest {
 
 describe("buildCapabilities (manifest-driven wiring)", () => {
   it("builds the declared capabilities in manifest order", () => {
-    const caps = buildCapabilities(manifest(["trade", "topology", "land", "notify"]), {}, "content");
-    expect(caps.map((c) => c.name)).toEqual(["trade", "topology", "land", "notify"]);
+    const caps = buildCapabilities(manifest(["trade", "topology", "notify", "commands"]), {}, "content");
+    expect(caps.map((c) => c.name)).toEqual(["trade", "topology", "notify", "commands"]);
   });
 
   it("injects code-provided configs by capability name", () => {
@@ -37,5 +37,11 @@ describe("buildCapabilities (manifest-driven wiring)", () => {
 
   it("throws when a content-backed capability lacks its content (stall without a shop)", () => {
     expect(() => buildCapabilities(manifest(["stall"]), {}, "content")).toThrow(/content\.shop/);
+  });
+
+  it("throws when a catalog owner lacks its catalog (§1.3 land without blueprints)", () => {
+    expect(() => buildCapabilities(manifest(["land"]), {}, "content")).toThrow(/content\.blueprints/);
+    expect(() => buildCapabilities(manifest(["research"]), {}, "content")).toThrow(/content\.research/);
+    expect(() => buildCapabilities(manifest(["combat"]), {}, "content")).toThrow(/content\.encounters/);
   });
 });

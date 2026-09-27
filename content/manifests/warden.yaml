@@ -30,6 +30,8 @@ capabilities:
   # sink would fail every action it gates, realm-wide.
   - restock
 content:
+  # §1.3 content as data: synced into its catalog table on boot.
+  encounters: catalog/encounters.yaml
   workflows:
     - workflows/warden_muster.yaml
     - workflows/warden_dispatch.yaml

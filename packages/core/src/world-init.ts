@@ -7,7 +7,7 @@
  * Contains the whole bootstrap (it's the only caller): for every continent guild
  * it ensures the public bazaar/marketplace channels + NPC voice stops exist, maps
  * them in `locations` (the DB is the position truth; Discord only reflects it),
- * seeds districts (categories + view-roles), and seeds the NPC/shop/blueprint rows.
+ * seeds districts (categories + view-roles), and seeds the NPC/shop rows.
  * It talks to discord.js, which is allowed here (world-init lives in @empire/core).
  *
  * Idempotent — safe to rerun (reuses channels, never restocks). By default it
@@ -22,104 +22,6 @@ import { rootLogger, type Logger } from "./logger.js";
 import { BUILD_PERMIT_ITEM, RESEARCH_PERMIT_ITEM, MUSTER_PERMIT_ITEM } from "./world/items.js";
 import { npcAt } from "./world/npc-identity.js";
 import { regionOf, regionalItem, UNLIMITED_STOCK } from "./world/goods.js";
-import type { UnitType } from "./combat/types.js";
-
-/** A buildable recipe seeded into blueprint_catalog (§5.12, §10 Builder). */
-interface BlueprintSeed {
-  id: string;
-  name: string;
-  costGold: number;
-  baseMs: number;
-}
-
-/**
- * The default buildable catalog for iteration-1 dev. Costs are ≤100 so a fresh
- * 150-gold player can afford one. Build times are short so a dev can watch the
- * tick service complete them.
- */
-const DEFAULT_BLUEPRINTS: BlueprintSeed[] = [
-  { id: "farm", name: "Wheat Farm", costGold: 50, baseMs: 300_000 }, // ~5m
-  { id: "forge", name: "Blacksmith Forge", costGold: 100, baseMs: 600_000 }, // ~10m
-  // The barracks gates /muster (§2.6 "troops … produced by buildings"). Ungated
-  // by research and cheap on purpose: it is the entry point to the whole combat
-  // loop, so a fresh 150-gold player can build it and still afford some troops.
-  { id: "barracks", name: "Barracks", costGold: 60, baseMs: 300_000 }, // ~5m
-  // Research-gated recipes (unlocked by DEFAULT_RESEARCH grants below).
-  { id: "granary", name: "Granary", costGold: 80, baseMs: 300_000 }, // ~5m, needs masonry
-  { id: "trade_post", name: "Trade Post", costGold: 120, baseMs: 600_000 }, // ~10m, needs trade_routes
-];
-
-/** A monster seeded into encounter_catalog (§2.6, §5.13). */
-interface EncounterSeed {
-  id: string;
-  name: string;
-  unitType: UnitType;
-  atk: number;
-  def: number;
-  hp: number;
-  tier: number;
-  travelMs: number;
-  loot: { item: string; qty: number; chance: number }[];
-  rewardGold: number;
-}
-
-/**
- * The default bestiary for iteration-1 dev. One encounter per type, so the
- * matchup triangle is exercisable from the very first fight: whichever troops a
- * player drilled, there is a quarry they counter and one that counters them.
- * Travel times are short so a dev can watch a dispatch complete both legs.
- */
-const DEFAULT_ENCOUNTERS: EncounterSeed[] = [
-  {
-    id: "moor_wolves",
-    name: "Moor Wolves",
-    unitType: "cavalry",
-    atk: 14, def: 4, hp: 90, tier: 1,
-    travelMs: 300_000, // ~5m each way
-    loot: [{ item: "wolf_pelt", qty: 2, chance: 0.8 }],
-    rewardGold: 40,
-  },
-  {
-    id: "bandit_camp",
-    name: "Bandit Camp",
-    unitType: "archer",
-    atk: 18, def: 6, hp: 140, tier: 2,
-    travelMs: 600_000, // ~10m each way
-    loot: [{ item: "iron_ore", qty: 3, chance: 0.6 }],
-    rewardGold: 80,
-  },
-  {
-    id: "stone_sentinels",
-    name: "Stone Sentinels",
-    unitType: "infantry",
-    atk: 22, def: 12, hp: 220, tier: 3,
-    travelMs: 900_000, // ~15m each way
-    loot: [{ item: "rune_shard", qty: 1, chance: 0.4 }],
-    rewardGold: 150,
-  },
-];
-
-/** A research node seeded into research_catalog (§4 Architect, §5). */
-interface ResearchSeed {
-  id: string;
-  name: string;
-  costGold: number;
-  baseMs: number;
-  prereqs: string[];
-  grantsBlueprints: string[];
-}
-
-/**
- * The default research tree for iteration-1 dev. Costs are affordable and timers
- * short so a dev can watch the tick service complete them. `masonry` and
- * `trade_routes` are roots; `harbor_charter` chains off `trade_routes` and gates
- * onward travel (§2.3). Grants unlock the research-gated blueprints above.
- */
-const DEFAULT_RESEARCH: ResearchSeed[] = [
-  { id: "masonry", name: "Masonry", costGold: 40, baseMs: 300_000, prereqs: [], grantsBlueprints: ["granary"] },
-  { id: "trade_routes", name: "Trade Routes", costGold: 60, baseMs: 300_000, prereqs: [], grantsBlueprints: ["trade_post"] },
-  { id: "harbor_charter", name: "Harbor Charter", costGold: 100, baseMs: 600_000, prereqs: ["trade_routes"], grantsBlueprints: [] },
-];
 
 interface BootstrapOptions {
   token: string;
@@ -132,16 +34,10 @@ interface BootstrapOptions {
   shop: Shop;
   /** The builder NPC that "sells" build permits (the cost sink). */
   builderId?: string;
-  /** Buildable recipes to seed; defaults to DEFAULT_BLUEPRINTS. */
-  blueprints?: BlueprintSeed[];
   /** The Architect NPC that "sells" research permits (the cost sink). */
   architectId?: string;
-  /** Research nodes to seed; defaults to DEFAULT_RESEARCH. */
-  research?: ResearchSeed[];
   /** The Warden NPC that "sells" muster permits (the cost sink). */
   wardenId?: string;
-  /** Encounters to seed; defaults to DEFAULT_ENCOUNTERS. */
-  encounters?: EncounterSeed[];
   logger?: Logger;
 }
 
@@ -343,14 +239,14 @@ async function seedGuildSurfaces(client: Client, opts: BootstrapOptions, log: Lo
 }
 
 /**
- * Phase 2 — the world's catalogs: the merchant NPC and its stock, the buildable
- * and research catalogs, and the permit-sink NPCs whose "sales" model build,
- * research and muster costs as trades.
+ * Phase 2 — the world's economy rows: the merchant NPC and its stock, and the
+ * permit-sink NPCs whose "sales" model build, research and muster costs as
+ * trades. (The blueprint, research and encounter CATALOGS are content — see
+ * content/catalog/ — and are synced on boot by the bots that own them.)
  *
- * ON CONFLICT DO NOTHING throughout, so a re-run never restocks a shop or
- * overwrites hand-tuned catalog rows.
+ * ON CONFLICT DO NOTHING throughout, so a re-run never restocks a shop.
  *
- * The catalogs proper are guild-independent, but SHOP STOCK is not (§2.5): each
+ * SHOP STOCK is per continent (§2.5): each
  * continent's persona keeps its own purse under `npcAt`, stocked deep in its own
  * region's wares and thin in everyone else's. The permit sinks stay global —
  * they are cost sinks, not geography.
@@ -377,37 +273,6 @@ async function seedCatalogs(opts: BootstrapOptions, log: Logger): Promise<void> 
     }
   }
   log.info({ npc: opts.npcId, seeded, items: opts.shop.items.length }, "npc + per-continent stock seeded (existing rows untouched)");
-
-  // Seed the buildable catalog idempotently (§5.12, §10 Builder). Rerunnable:
-  // ON CONFLICT DO NOTHING leaves any hand-tuned rows alone.
-  const blueprints = opts.blueprints ?? DEFAULT_BLUEPRINTS;
-  let blueprintsSeeded = 0;
-  for (const blueprint of blueprints) {
-    const rows = await opts.sql`
-      INSERT INTO blueprint_catalog (id, name, cost_gold, base_ms)
-      VALUES (${blueprint.id}, ${blueprint.name}, ${blueprint.costGold}, ${blueprint.baseMs})
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    `;
-    blueprintsSeeded += rows.length;
-  }
-  log.info({ seeded: blueprintsSeeded, total: blueprints.length }, "blueprint catalog seeded (existing rows untouched)");
-
-  // Seed the research tree idempotently (§4 Architect, §5). Rerunnable:
-  // ON CONFLICT DO NOTHING leaves any hand-tuned rows alone.
-  const research = opts.research ?? DEFAULT_RESEARCH;
-  let researchSeeded = 0;
-  for (const node of research) {
-    const rows = await opts.sql`
-      INSERT INTO research_catalog (id, name, cost_gold, base_ms, prereqs, grants_blueprints)
-      VALUES (${node.id}, ${node.name}, ${node.costGold}, ${node.baseMs},
-              ${jsonParam(opts.sql, node.prereqs)}, ${jsonParam(opts.sql, node.grantsBlueprints)})
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    `;
-    researchSeeded += rows.length;
-  }
-  log.info({ seeded: researchSeeded, total: research.length }, "research catalog seeded (existing rows untouched)");
 
   // The builder NPC "sells" build permits (the cost sink for /build). Seed the
   // NPC row and a large permit stock so the atomic trade always has stock; the
@@ -440,22 +305,6 @@ async function seedCatalogs(opts: BootstrapOptions, log: Logger): Promise<void> 
     `;
     log.info({ architect: opts.architectId }, "architect npc + permit stock seeded");
   }
-
-  // Seed the bestiary idempotently (§2.6, §5.13). Rerunnable: ON CONFLICT DO
-  // NOTHING leaves any hand-tuned rows alone.
-  const encounters = opts.encounters ?? DEFAULT_ENCOUNTERS;
-  let encountersSeeded = 0;
-  for (const enc of encounters) {
-    const rows = await opts.sql`
-      INSERT INTO encounter_catalog (id, name, unit_type, atk, def, hp, tier, travel_ms, loot, reward_gold)
-      VALUES (${enc.id}, ${enc.name}, ${enc.unitType}, ${enc.atk}, ${enc.def}, ${enc.hp},
-              ${enc.tier}, ${enc.travelMs}, ${jsonParam(opts.sql, enc.loot)}, ${enc.rewardGold})
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    `;
-    encountersSeeded += rows.length;
-  }
-  log.info({ seeded: encountersSeeded, total: encounters.length }, "encounter catalog seeded (existing rows untouched)");
 
   // The Warden NPC "sells" muster permits (the cost sink for /muster),
   // mirroring the builder and architect permit-sinks so the atomic trade always
@@ -543,13 +392,13 @@ async function main(): Promise<void> {
       districts,
       npcId: manifest.id,
       shop,
-      // Iteration 1 seeds the Builder's cost-sink NPC + build permit stock and
-      // the buildable catalog here too, so a single world:init covers both
-      // reference bots (§10). The merchant token has Manage Channels, so it runs it.
+      // Iteration 1 seeds the Builder's cost-sink NPC + build permit stock here
+      // too, so a single world:init covers both reference bots (§10). The
+      // merchant token has Manage Channels, so it runs it.
       builderId: builderManifest.id,
-      // Same for the Architect's research permit-sink NPC + research catalog (§4).
+      // Same for the Architect's research permit-sink NPC (§4).
       architectId: architectManifest.id,
-      // …and the Warden's muster permit-sink NPC + the bestiary (§2.6, §5.13).
+      // …and the Warden's muster permit-sink NPC (§2.6, §5.13).
       wardenId: wardenManifest.id,
       logger: rootLogger,
     });

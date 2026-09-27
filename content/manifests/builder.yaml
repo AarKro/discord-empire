@@ -24,5 +24,7 @@ capabilities:
   # sink would fail every action it gates, realm-wide.
   - restock
 content:
+  # §1.3 content as data: synced into its catalog table on boot.
+  blueprints: catalog/blueprints.yaml
   workflows:
     - workflows/player_build.yaml

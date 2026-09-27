@@ -18,6 +18,9 @@ import {
   Districts,
   Instances,
   Riddles,
+  Blueprints,
+  ResearchTree,
+  Encounters,
 } from "../src/index.js";
 
 const CONTENT = join(dirname(fileURLToPath(import.meta.url)), "../../../content");
@@ -29,6 +32,31 @@ process.env.GUILD_CONTINENT_TWO ??= "guild_222222";
 process.env.GUILD_CONTINENT_THREE ??= "guild_333333";
 
 describe("shipped content validates against schemas", () => {
+  it("catalogs (§1.3 content as data)", () => {
+    const blueprints = loadContentFile(Blueprints, join(CONTENT, "catalog/blueprints.yaml"));
+    const research = loadContentFile(ResearchTree, join(CONTENT, "catalog/research.yaml"));
+    const encounters = loadContentFile(Encounters, join(CONTENT, "catalog/encounters.yaml"));
+    const blueprintIds = new Set(blueprints.blueprints.map((b) => b.id));
+    // The barracks gates /muster, so the combat loop depends on it existing.
+    expect(blueprintIds.has("barracks")).toBe(true);
+    // Every blueprint a research node grants must be a real recipe.
+    for (const node of research.research) {
+      for (const granted of node.grants_blueprints) expect(blueprintIds).toContain(granted);
+    }
+    // One quarry per unit type keeps the matchup triangle exercisable.
+    expect(new Set(encounters.encounters.map((e) => e.unit_type)).size).toBe(3);
+    // Each owning bot's manifest points at its catalog.
+    expect(loadContentFile(Manifest, join(CONTENT, "manifests/builder.yaml")).content?.blueprints).toBe("catalog/blueprints.yaml");
+    expect(loadContentFile(Manifest, join(CONTENT, "manifests/architect.yaml")).content?.research).toBe("catalog/research.yaml");
+    expect(loadContentFile(Manifest, join(CONTENT, "manifests/warden.yaml")).content?.encounters).toBe("catalog/encounters.yaml");
+  });
+
+  it("a research prereq must name a node in the tree", () => {
+    expect(() =>
+      ResearchTree.parse({ research: [{ id: "a", name: "A", cost_gold: 1, base_ms: 1, prereqs: ["missing"] }] }),
+    ).toThrow();
+  });
+
   it("manifests", () => {
     const merchant = loadContentFile(Manifest, join(CONTENT, "manifests/merchant.yaml"));
     const builder = loadContentFile(Manifest, join(CONTENT, "manifests/builder.yaml"));

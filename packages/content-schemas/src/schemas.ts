@@ -34,6 +34,12 @@ export const Manifest = z.object({
       continents: z.string().optional(),
       // Riddle book for the `riddle` capability (§5.4 / §11).
       riddles: z.string().optional(),
+      // Game catalogs (§1.3 content as data), synced into their DB tables on
+      // boot by the capability that owns them: `land` → blueprints, `research`
+      // → research, `combat` → encounters.
+      blueprints: z.string().optional(),
+      research: z.string().optional(),
+      encounters: z.string().optional(),
     })
     .optional(),
 });
@@ -245,6 +251,63 @@ export const Instances = z.object({
   dungeon_pool: z.array(z.string()).default([]),
 });
 export type Instances = z.infer<typeof Instances>;
+
+// --- Catalogs (§1.3 content as data) -----------------------------------------
+// The buildable recipes, the research tree and the bestiary. Each is synced into
+// its table (blueprint_catalog / research_catalog / encounter_catalog) on boot by
+// the owning capability, so the YAML is the source of truth and a tuning change
+// ships by editing a file — no world:init --force.
+const CatalogId = z.string().regex(/^[a-z][a-z0-9_]*$/, "expected a snake_case id");
+
+export const Blueprint = z.object({
+  id: CatalogId,
+  name: z.string().min(1),
+  cost_gold: z.number().int().nonnegative(),
+  base_ms: z.number().int().positive(),
+});
+export type Blueprint = z.infer<typeof Blueprint>;
+
+export const Blueprints = z.object({ blueprints: z.array(Blueprint).min(1) });
+export type Blueprints = z.infer<typeof Blueprints>;
+
+export const ResearchNode = z.object({
+  id: CatalogId,
+  name: z.string().min(1),
+  cost_gold: z.number().int().nonnegative(),
+  base_ms: z.number().int().positive(),
+  prereqs: z.array(CatalogId).default([]),
+  grants_blueprints: z.array(CatalogId).default([]),
+});
+export type ResearchNode = z.infer<typeof ResearchNode>;
+
+export const ResearchTree = z
+  .object({ research: z.array(ResearchNode).min(1) })
+  // A prereq naming no node would make its dependant unreachable forever.
+  .refine((tree) => tree.research.every((n) => n.prereqs.every((p) => tree.research.some((m) => m.id === p))), {
+    message: "every prereq must name a research node in this file",
+  });
+export type ResearchTree = z.infer<typeof ResearchTree>;
+
+const EncounterUnitType = z.enum(["infantry", "cavalry", "archer"]);
+
+export const Encounter = z.object({
+  id: CatalogId,
+  name: z.string().min(1),
+  unit_type: EncounterUnitType,
+  atk: z.number().int().positive(),
+  def: z.number().int().nonnegative(),
+  hp: z.number().int().positive(),
+  tier: z.number().int().positive(),
+  travel_ms: z.number().int().positive(),
+  loot: z
+    .array(z.object({ item: z.string().min(1), qty: z.number().int().positive(), chance: z.number().gt(0).max(1) }))
+    .default([]),
+  reward_gold: z.number().int().nonnegative().default(0),
+});
+export type Encounter = z.infer<typeof Encounter>;
+
+export const Encounters = z.object({ encounters: z.array(Encounter).min(1) });
+export type Encounters = z.infer<typeof Encounters>;
 
 // --- Event envelope (§6) ------------------------------------------------------
 export const EventEnvelope = z.object({

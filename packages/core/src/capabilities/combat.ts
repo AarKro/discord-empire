@@ -41,6 +41,8 @@ import { battleLogEmbed } from "../ui/kit.js";
 import { resolveBattle, rollLoot, type Force, type ForceTroop, type LootEntry } from "../combat/resolve.js";
 import { BASE_STATS, MUSTER_COST, championStats, isUnitType, type UnitType } from "../combat/types.js";
 import { ensurePlayer, jsonParam, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
+import type { Encounters } from "@empire/content-schemas";
+import { syncEncounters } from "../world/catalogs.js";
 
 /** Training time per troop before tier scaling (§2.5 idle pacing). */
 export const MUSTER_MS_PER_TROOP = 60_000;
@@ -132,7 +134,8 @@ function describeForce(force: Force): string[] {
   return lines;
 }
 
-export function combatCapability(): Capability {
+/** `bestiary` is the encounter YAML (§1.3); when given, it is synced on boot. */
+export function combatCapability(bestiary?: Encounters): Capability {
   /**
    * Deliver the resolution log to a private thread off the player's land
    * channel (§2.6 "delivered as a resolution log in a private thread").
@@ -161,6 +164,11 @@ export function combatCapability(): Capability {
 
   return {
     name: "combat",
+    async init(ctx: CapabilityContext): Promise<void> {
+      if (!bestiary) return;
+      await syncEncounters(ctx.sql, bestiary);
+      ctx.logger.info({ encounters: bestiary.encounters.length }, "encounter catalog synced from content");
+    },
     // Nothing imperative to consume — the warden_muster and warden_dispatch
     // workflows (§7) drive both chains; the runtime dispatches the verbs.
     consumes: [],

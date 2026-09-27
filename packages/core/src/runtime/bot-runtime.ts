@@ -15,7 +15,18 @@
  * in core because it wires core's own pieces (gateway, bus, capabilities).
  */
 import { isAbsolute, join } from "node:path";
-import { loadContentFile, Manifest, Shop, Schedule, Workflow, Continents, Riddles } from "@empire/content-schemas";
+import {
+  loadContentFile,
+  Manifest,
+  Shop,
+  Schedule,
+  Workflow,
+  Continents,
+  Riddles,
+  Blueprints,
+  ResearchTree,
+  Encounters,
+} from "@empire/content-schemas";
 import { openDb } from "@empire/db";
 import { rootLogger, type Logger } from "../logger.js";
 import { CapabilityRegistry, type Capability, type CapabilityContext } from "./capability.js";
@@ -54,7 +65,7 @@ export interface CapabilityConfigs {
 }
 
 /** The manifest `content` keys that name a single loadable file. */
-type ContentKey = "shop" | "schedule" | "continents" | "riddles";
+type ContentKey = "shop" | "schedule" | "continents" | "riddles" | "blueprints" | "research" | "encounters";
 
 /**
  * Loads + validates one content file. Typed off `loadContentFile` itself so the
@@ -114,8 +125,9 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
     return presenceVoiceCapability(stops.map((stop) => ({ guildId: stop.guild_id, channel: stop.channel })));
   },
   "ambient.chatter": (deps) => ambientChatterCapability(deps.configs["ambient.chatter"] ?? { reactions: {} }),
-  land: () => landCapability(),
-  research: () => researchCapability(),
+  // The catalogs are content (§1.3): each owning capability syncs its file on boot.
+  land: (deps) => landCapability(required(deps, Blueprints, "blueprints", "land")),
+  research: (deps) => researchCapability(required(deps, ResearchTree, "research", "research")),
   notify: () => notifyCapability(),
   commands: (deps) => commandsCapability(deps.configs.commands ?? []),
   render: () => renderCapability(),
@@ -124,7 +136,7 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
   gatekeeper: (deps) => gatekeeperCapability(required(deps, Continents, "continents", "gatekeeper")),
   market: () => marketCapability(),
   auction: () => auctionCapability(),
-  combat: () => combatCapability(),
+  combat: (deps) => combatCapability(required(deps, Encounters, "encounters", "combat")),
   caravan: (deps) =>
     caravanCapability(required(deps, Shop, "shop", "caravan"), required(deps, Continents, "continents", "caravan")),
   riddle: (deps) => riddleCapability(required(deps, Riddles, "riddles", "riddle")),

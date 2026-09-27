@@ -1,0 +1,10 @@
+# The Architect's research tree (§4, §5) — what /research offers. Synced into
+# research_catalog on the architect's boot.
+#
+# `prereqs` must all be done before a node is offered; `grants_blueprints` are
+# unlocked for /build when it completes. `harbor_charter` chains off
+# `trade_routes`.
+research:
+  - { id: masonry, name: "Masonry", cost_gold: 40, base_ms: 300000, grants_blueprints: [granary] }
+  - { id: trade_routes, name: "Trade Routes", cost_gold: 60, base_ms: 300000, grants_blueprints: [trade_post] }
+  - { id: harbor_charter, name: "Harbor Charter", cost_gold: 100, base_ms: 600000, prereqs: [trade_routes] }

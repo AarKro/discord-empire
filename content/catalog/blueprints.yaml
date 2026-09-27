@@ -1,0 +1,18 @@
+# The buildable recipes (§5.12, §10 Builder) — what /build offers. Synced into
+# blueprint_catalog on the builder's boot, so editing this file is the whole
+# change: no world:init --force.
+#
+# `cost_gold` is charged through `trade`; `base_ms` is the build time before
+# tier scaling (a higher tier builds slower — §2.5 hybrid idle pacing). A recipe
+# some research node grants (research.yaml `grants_blueprints`) stays hidden
+# until the player has that research; the rest always build.
+blueprints:
+  - { id: farm, name: "Wheat Farm", cost_gold: 50, base_ms: 300000 }          # ~5m
+  - { id: forge, name: "Blacksmith Forge", cost_gold: 100, base_ms: 600000 }  # ~10m
+  # The barracks gates /muster (§2.6 "troops … produced by buildings"). Cheap and
+  # ungated on purpose: it is the way into the whole combat loop, so a fresh
+  # 150-gold player can build it and still afford some troops.
+  - { id: barracks, name: "Barracks", cost_gold: 60, base_ms: 300000 }       # ~5m
+  # Research-gated (see research.yaml).
+  - { id: granary, name: "Granary", cost_gold: 80, base_ms: 300000 }         # ~5m, needs masonry
+  - { id: trade_post, name: "Trade Post", cost_gold: 120, base_ms: 600000 }  # ~10m, needs trade_routes
