@@ -1,17 +1,26 @@
 # Discord Empire — single-VPS Docker Compose (tech spec §Environments, §CI/CD).
-# Only services actually built for iteration 1 (framework spec §10): Postgres,
-# the two reference bots, and the tick service. The workflow engine is no longer a
-# standalone service — it runs embedded inside each bot (§7). The four remaining
-# bots are intentionally NOT scaffolded yet.
+# Postgres, a one-shot migrate step, the tick service and the eight bots. The
+# workflow engine is not a standalone service — it runs embedded inside each bot
+# (§7). Images are built on the host from this checkout (infra/deploy.sh runs
+# `compose build`), so there is no registry to pull app images from.
+#
+# Every long-running service restarts on its own: a process that hits an
+# unexpected error logs it and exits (core's installCrashHandlers), and the bus
+# replays whatever it missed on boot, so a restart is lossless.
+#
+# Postgres listens on loopback only — reachable for local dev and the host's
+# backup cron, never from the internet — and has no default password: set
+# POSTGRES_PASSWORD in .env.
 services:
   postgres:
+    restart: unless-stopped
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: empire
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-empire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: empire
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
@@ -28,33 +37,35 @@ services:
       context: ..
       dockerfile: infra/Dockerfile.migrate
     environment:
-      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/empire
     depends_on:
       postgres:
         condition: service_healthy
     restart: "no"
 
   tick-service:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: infra/Dockerfile.service
       args:
         APP: tick-service
     environment:
-      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/empire
       LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       migrate:
         condition: service_completed_successfully
 
   bot-merchant:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: infra/Dockerfile.service
       args:
         APP: bot-merchant
     environment:
-      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/empire
       CONTENT_DIR: /app/content
       MERCHANT_TOKEN: ${MERCHANT_TOKEN}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -65,13 +76,14 @@ services:
         condition: service_completed_successfully
 
   bot-builder:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: infra/Dockerfile.service
       args:
         APP: bot-builder
     environment:
-      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/empire
       CONTENT_DIR: /app/content
       BUILDER_TOKEN: ${BUILDER_TOKEN}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -82,13 +94,14 @@ services:
         condition: service_completed_successfully
 
   bot-architect:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: infra/Dockerfile.service
       args:
         APP: bot-architect
     environment:
-      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/empire
       CONTENT_DIR: /app/content
       ARCHITECT_TOKEN: ${ARCHITECT_TOKEN}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -99,13 +112,14 @@ services:
         condition: service_completed_successfully
 
   bot-secret-merchant:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: infra/Dockerfile.service
       args:
         APP: bot-secret-merchant
     environment:
-      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/empire
       CONTENT_DIR: /app/content
       SECRET_MERCHANT_TOKEN: ${SECRET_MERCHANT_TOKEN}
       # LLM-worded /approach (§5.4/§11) — optional; unset ⇒ authored fallback lines.
@@ -120,13 +134,14 @@ services:
         condition: service_completed_successfully
 
   bot-herald:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: infra/Dockerfile.service
       args:
         APP: bot-herald
     environment:
-      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/empire
       CONTENT_DIR: /app/content
       HERALD_TOKEN: ${HERALD_TOKEN}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -137,13 +152,14 @@ services:
         condition: service_completed_successfully
 
   bot-exchange:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: infra/Dockerfile.service
       args:
         APP: bot-exchange
     environment:
-      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/empire
       CONTENT_DIR: /app/content
       EXCHANGE_TOKEN: ${EXCHANGE_TOKEN}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -154,13 +170,14 @@ services:
         condition: service_completed_successfully
 
   bot-ops:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: infra/Dockerfile.service
       args:
         APP: bot-ops
     environment:
-      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/empire
       CONTENT_DIR: /app/content
       OPS_TOKEN: ${OPS_TOKEN}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -171,13 +188,14 @@ services:
         condition: service_completed_successfully
 
   bot-warden:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: infra/Dockerfile.service
       args:
         APP: bot-warden
     environment:
-      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:-empire}@postgres:5432/empire
+      DATABASE_URL: postgres://empire:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/empire
       CONTENT_DIR: /app/content
       WARDEN_TOKEN: ${WARDEN_TOKEN}
       LOG_LEVEL: ${LOG_LEVEL:-info}

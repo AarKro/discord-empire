@@ -15,7 +15,7 @@
     "test:integration": "TEST_DATABASE_URL=\"${TEST_DATABASE_URL:-postgres://empire:empire@localhost:5432/empire_test}\" vitest run integration",
     "build": "tsc -b",
     "start": "scripts/with-env.sh scripts/start.sh",
-    "stop": "scripts/compose.sh down",
+    "stop": "scripts/with-env.sh scripts/compose.sh down",
     "world:init": "pnpm build && scripts/with-env.sh pnpm --filter @empire/core world:init",
     "db:generate": "pnpm --filter @empire/db db:generate",
     "db:migrate": "pnpm --filter @empire/db db:migrate",

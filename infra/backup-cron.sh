@@ -8,6 +8,11 @@ BACKUP_DIR="${BACKUP_DIR:-/var/backups/empire}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
 mkdir -p "$BACKUP_DIR"
 
+# Compose requires POSTGRES_PASSWORD to interpolate the file even for `exec`, and
+# cron starts with an empty environment — load the repo-root .env.
+ENV_FILE="$(dirname "$0")/../.env"
+if [ -f "$ENV_FILE" ]; then set -a; . "$ENV_FILE"; set +a; fi
+
 STAMP="$(date +%Y%m%d_%H%M%S)"
 docker compose -f "$(dirname "$0")/docker-compose.yml" exec -T postgres \
   pg_dump -U empire -d empire | gzip > "$BACKUP_DIR/empire_$STAMP.sql.gz"

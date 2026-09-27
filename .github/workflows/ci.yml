@@ -36,7 +36,7 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-      - run: pnpm install --frozen-lockfile=false
+      - run: pnpm install --frozen-lockfile
       - name: Lint
         run: pnpm lint
       - name: Typecheck
@@ -65,6 +65,8 @@ jobs:
         run: docker build -f infra/Dockerfile.service --build-arg APP=bot-exchange -t empire/bot-exchange .
       - name: Build service image (bot-ops)
         run: docker build -f infra/Dockerfile.service --build-arg APP=bot-ops -t empire/bot-ops .
+      - name: Build service image (bot-warden)
+        run: docker build -f infra/Dockerfile.service --build-arg APP=bot-warden -t empire/bot-warden .
       - name: Build service image (tick-service)
         run: docker build -f infra/Dockerfile.service --build-arg APP=tick-service -t empire/tick-service .
       - name: Build migration image

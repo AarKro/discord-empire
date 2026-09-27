@@ -6,6 +6,6 @@ RUN corepack enable
 WORKDIR /app
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* tsconfig.base.json tsconfig.json ./
 COPY packages ./packages
-RUN pnpm install --frozen-lockfile=false --filter @empire/db...
+RUN pnpm install --frozen-lockfile --filter @empire/db...
 WORKDIR /app/packages/db
 CMD ["pnpm", "exec", "drizzle-kit", "migrate"]
