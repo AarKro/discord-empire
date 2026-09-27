@@ -12,6 +12,8 @@ export { restockShop, RESTOCK_REASON } from "./restock.js";
 export type { RestockSpec } from "./restock.js";
 export { collectProduction, PRODUCTION_REASON } from "./production.js";
 export type { CollectResult, ProducingBuilding, AccrueFn } from "./production.js";
+export { sellToWorld, BUYBACK_REASON } from "./buyback.js";
+export type { SellToWorldSpec, SellToWorldResult } from "./buyback.js";
 export { readBalance } from "./balances.js";
 export { revertLedger } from "./revert.js";
 export type { RevertLedgerRequest, RevertLedgerResult, RevertSummary } from "./revert.js";

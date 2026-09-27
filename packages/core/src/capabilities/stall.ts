@@ -12,10 +12,18 @@ import type { Capability, CapabilityContext } from "../runtime/capability.js";
 import { stallEmbed, buttonRow } from "../ui/kit.js";
 import { requiresPresence } from "./topology.js";
 import { npcAt, isOwnNpc } from "../world/npc-identity.js";
-import { regionOf, regionalItem } from "../world/goods.js";
+import { buybackPrice, regionOf, regionalItem } from "../world/goods.js";
+import { HIDDEN_ITEMS } from "../world/items.js";
 import { ensurePlayer, type Sql } from "@empire/db";
 
 export const ENTER_STALL_BUTTON = "stall:enter";
+
+/** Sell-menu buttons: `stall:sell:<item_id>:<qty|all>` (§2.5 buy-back). */
+export const SELL_BUTTON_PREFIX = "stall:sell:";
+
+/** Discord allows 5 rows of 5 buttons; two per good, two goods per row. */
+const SELL_GOODS_PER_ROW = 2;
+const MAX_SELL_GOODS = 10;
 
 /**
  * Live stock for an NPC's shop ON ONE CONTINENT, from the ledger-derived
@@ -70,6 +78,47 @@ export function stallCapability(shop: Shop, continents: Continents): Capability 
           payload: { embed: embed.toJSON(), components: [row.toJSON()] },
         });
       },
+      /**
+       * The sell half of the stall conversation (§2.5 buy-back): list what the
+       * player holds that this merchant buys, priced for THIS continent, with a
+       * Sell 1 / Sell all button per good. Rendered into the player's open
+       * dialogue thread by `render`; the clicks come back through init's
+       * component handler as sell.request, which `trade` prices and settles.
+       */
+      "stall.sell_menu": async (_args, evt, ctx: CapabilityContext) => {
+        const player = evt?.actor?.id;
+        const guildId = evt?.guildId;
+        if (!player || !guildId) return;
+        const bought = shop.buys.map((b) => b.item_id).filter((id) => !HIDDEN_ITEMS.includes(id));
+        const held = await ctx.sql<{ item_id: string; qty: number }[]>`
+          SELECT item_id, qty FROM inventories
+          WHERE owner_kind = 'player' AND owner_id = ${player} AND qty > 0 AND item_id = ANY(${bought})
+          ORDER BY item_id ASC
+        `;
+        const region = regionOf(continents, guildId);
+        const goods = held.slice(0, MAX_SELL_GOODS).flatMap((row) => {
+          const good = shop.buys.find((b) => b.item_id === row.item_id);
+          if (!good) return [];
+          const unit = buybackPrice(good, region);
+          return [
+            { id: `${SELL_BUTTON_PREFIX}${good.item_id}:1`, label: `Sell 1 ${good.name} (${unit}g)` },
+            { id: `${SELL_BUTTON_PREFIX}${good.item_id}:all`, label: `Sell all ${row.qty} (${unit * row.qty}g)` },
+          ];
+        });
+        const rows: { id: string; label: string }[][] = [];
+        for (let i = 0; i < goods.length; i += SELL_GOODS_PER_ROW * 2) rows.push(goods.slice(i, i + SELL_GOODS_PER_ROW * 2));
+        await ctx.bus.publish({
+          type: "sell.menu",
+          guildId,
+          actor: { kind: "player", id: player },
+          subject: { kind: "npc", id: ctx.bot },
+          payload: {
+            text: goods.length > 0 ? "Here's what I'll give you:" : "You've nothing I'm buying, I'm afraid.",
+            rows,
+          },
+          correlationId: evt?.correlationId ?? null,
+        });
+      },
       "stall.close": async (_args, evt, ctx: CapabilityContext) => {
         await ctx.bus.publish({
           type: "stall.closed",
@@ -81,6 +130,27 @@ export function stallCapability(shop: Shop, continents: Continents): Capability 
     },
     /** Route Enter-the-stall clicks into the bus; the dialogue workflow triggers on it. */
     init(ctx: CapabilityContext): void {
+      // Sell-menu clicks (§2.5). Presence is re-checked on every click — the
+      // menu can outlive the player's stay, and selling is acting (§1.6).
+      ctx.gateway.onComponent(async (interaction) => {
+        if (!interaction.customId.startsWith(SELL_BUTTON_PREFIX)) return;
+        const guildId = interaction.guildId;
+        if (!guildId) return;
+        const [item, qty] = interaction.customId.slice(SELL_BUTTON_PREFIX.length).split(":");
+        if (!item || !qty) return;
+        const presence = await requiresPresence(ctx.sql, interaction.userId, `bazaar_${guildId}`);
+        if (!presence.present) {
+          await interaction.reply(`*${presence.reason ?? "you can't reach this stall from where you stand"}.*`);
+          return;
+        }
+        await ctx.bus.publish({
+          type: "sell.request",
+          guildId,
+          actor: { kind: "player", id: interaction.userId },
+          subject: { kind: "npc", id: ctx.bot },
+          payload: { item, qty: qty === "all" ? "all" : Number(qty) },
+        });
+      });
       ctx.gateway.onComponent(async (interaction) => {
         if (interaction.customId !== ENTER_STALL_BUTTON) return;
         const guildId = interaction.guildId;

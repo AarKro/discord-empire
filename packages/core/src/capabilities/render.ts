@@ -113,7 +113,7 @@ export function renderCapability(): Capability {
 
   return {
     name: "render",
-    consumes: ["stall.rendered", "stall.closed", "dialogue.", "trade.completed", "trade.failed"],
+    consumes: ["stall.rendered", "stall.closed", "dialogue.", "trade.completed", "trade.failed", "sell.menu", "sale."],
     actions: {},
 
     async handle(evt: BusEvent, ctx: CapabilityContext): Promise<void> {
@@ -183,6 +183,43 @@ export function renderCapability(): Capability {
               `*The coin changes hands.* You bought **${payload.qty ?? 1}× ${payload.item ?? "?"}** ` +
               `for **${payload.price ?? 0} ${currency}** — ${balance} left in your purse.`,
           });
+          return;
+        }
+
+        // §2.5 buy-back: the stall's sell menu and its receipts, in the same
+        // private thread as the conversation that opened them.
+        case "sell.menu": {
+          if (!evt.actor) return;
+          const threadId = await loadThreadId(ctx.sql, ctx.bot, evt.actor.id);
+          if (!threadId) return;
+          const payload = evt.payload as { text?: string; rows?: DialogueOption[][] };
+          await ctx.gateway.sendToChannel(threadId, {
+            content: payload.text || "…",
+            components: (payload.rows ?? []).map((row) => buttonRow(row).toJSON() as never),
+          });
+          return;
+        }
+
+        case "sale.completed": {
+          if (!evt.actor) return;
+          const threadId = await loadThreadId(ctx.sql, ctx.bot, evt.actor.id);
+          if (!threadId) return;
+          const payload = evt.payload as { name?: string; qty?: number; gold?: number };
+          const balance = await readBalance(ctx.sql, "player", evt.actor.id, "gold");
+          await ctx.gateway.sendToChannel(threadId, {
+            content:
+              `*The coin changes hands.* You sold **${payload.qty ?? 0}× ${payload.name ?? "?"}** ` +
+              `for **${payload.gold ?? 0} gold** — ${balance} in your purse now.`,
+          });
+          return;
+        }
+
+        case "sale.failed": {
+          if (!evt.actor) return;
+          const threadId = await loadThreadId(ctx.sql, ctx.bot, evt.actor.id);
+          if (!threadId) return;
+          const payload = evt.payload as { message?: string };
+          await ctx.gateway.sendToChannel(threadId, { content: `*${payload.message ?? "The deal falls through."}*` });
           return;
         }
 

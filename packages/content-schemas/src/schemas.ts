@@ -76,11 +76,28 @@ export const ShopItem = z.object({
   });
 export type ShopItem = z.infer<typeof ShopItem>;
 
-export const Shop = z.object({
-  id: z.string().min(1),
-  currency: z.string().default("gold"),
-  items: z.array(ShopItem).min(1),
+// A good the merchant BUYS from players (§2.5 buy-back). `base_price` is the
+// ware's value on its home continent; the merchant pays a spread below the
+// REGIONAL price (see core's world/goods.ts), so a good hauled somewhere it
+// isn't local fetches more. Untagged goods are worth the same everywhere.
+export const ShopBuy = z.object({
+  item_id: z.string().min(1),
+  name: z.string().min(1),
+  base_price: z.number().int().positive(),
+  origin: z.string().min(1).optional(),
 });
+export type ShopBuy = z.infer<typeof ShopBuy>;
+
+export const Shop = z
+  .object({
+    id: z.string().min(1),
+    currency: z.string().default("gold"),
+    items: z.array(ShopItem).min(1),
+    buys: z.array(ShopBuy).default([]),
+  })
+  .refine((shop) => new Set(shop.buys.map((b) => b.item_id)).size === shop.buys.length, {
+    message: "each good may appear in `buys` only once",
+  });
 export type Shop = z.infer<typeof Shop>;
 
 // --- Riddles (§5.4 / §11 LLM-worded dialogue) ---------------------------------

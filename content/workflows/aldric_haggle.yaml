@@ -14,6 +14,8 @@ states:
     prompt: "Welcome, traveller. Care to see the Arcane Forge blueprint?"
     options:
       - { id: browse, label: "Show me", goto: offer }
+      # §2.5 buy-back: the stall's sell menu (priced per continent, Sell 1 / all).
+      - { id: sell, label: "I've goods to sell", goto: selling }
       # Hands off to the merchant_quest workflow (a separate private thread).
       - { id: work, label: "Any work for me?", goto: farewell, emit: [{ type: quest.start }] }
       - { id: leave, label: "Not today", goto: farewell }
@@ -37,6 +39,13 @@ states:
           - type: trade.request
             payload: { item: blueprint_arcane_forge, qty: 1, price: 90 }
       - { id: walk, label: "Too steep", goto: farewell }
+  # The state's action posts the priced menu first; this prompt follows it.
+  selling:
+    prompt: "Sell as much as you like — I'll be right here."
+    actions:
+      - { stall.sell_menu: {} }
+    options:
+      - { id: done, label: "That's all", goto: farewell }
   sold:
     prompt: "A pleasure. May it serve you well."
     final: true

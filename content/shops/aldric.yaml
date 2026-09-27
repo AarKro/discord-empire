@@ -49,3 +49,23 @@ items:
     stock: 1
     floor_price: 90
     reputation_discount: 0.15
+#
+# What the merchant BUYS (§2.5 buy-back) — the way produce, loot and quest
+# tokens turn into gold. The merchant pays half the ware's REGIONAL price,
+# so a good tagged with another continent's `origin` fetches 1.5× its base here:
+# hauling iron ore out of the Highlands, or salt fish out of the harbour, pays.
+# Bought goods are consumed, not restocked onto the shelf.
+buys:
+  # Produce (content/catalog/blueprints.yaml `produces`).
+  - { item_id: grain, name: "Sack of Grain", base_price: 8 }
+  - { item_id: iron_tools, name: "Iron Tools", base_price: 40 }
+  # Loot (content/catalog/encounters.yaml).
+  - { item_id: wolf_pelt, name: "Wolf Pelt", base_price: 12 }
+  - { item_id: rune_shard, name: "Rune Shard", base_price: 80 }
+  # Regional goods — worth more away from home.
+  - { item_id: iron_ore, name: "Iron Ore", base_price: 25, origin: highlands }
+  - { item_id: salt_fish, name: "Barrel of Salt Fish", base_price: 18, origin: harbor }
+  - { item_id: heartwood, name: "Heartwood Timber", base_price: 30, origin: wildwood }
+  # Quest rewards (merchant_quest.yaml) — keepsakes with a buyer.
+  - { item_id: trade_charter, name: "Old Trade Charter", base_price: 80 }
+  - { item_id: guard_token, name: "Guard's Token", base_price: 80 }

@@ -22,7 +22,7 @@
  * charge path all read the same function, so a price can't be right in one and
  * wrong in another.
  */
-import type { Continents, ShopItem } from "@empire/content-schemas";
+import type { Continents, ShopBuy, ShopItem } from "@empire/content-schemas";
 
 /** What a foreign curio costs, as a multiple of its home price. */
 export const IMPORT_PRICE_MULTIPLIER = 3;
@@ -86,6 +86,22 @@ export function regionalItem(item: ShopItem, region: string | null): RegionalIte
     stock: IMPORT_STOCK,
     imported: true,
   };
+}
+
+/**
+ * The share of a good's REGIONAL price a merchant pays to buy it (§2.5
+ * buy-back). Below 1 so buying from a merchant and selling straight back always
+ * loses; the regional price carries the import premium, so a good sold where it
+ * isn't local fetches IMPORT_PRICE_MULTIPLIER × this — which is what makes
+ * hauling goods abroad (by caravan or on foot) worth the trip.
+ */
+export const BUYBACK_RATE = 0.5;
+
+/** Gold a merchant in `region` pays for ONE unit of `good` (never 0 for a priced good). */
+export function buybackPrice(good: ShopBuy, region: string | null): number {
+  // Priced exactly as a shelf ware would be, so the two can never disagree.
+  const { price } = regionalItem({ ...good, stock: 0 }, region);
+  return Math.max(1, Math.floor(price * BUYBACK_RATE));
 }
 
 export interface RestockInput {

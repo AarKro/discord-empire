@@ -21,13 +21,14 @@
  * combat loot roll being the first (§5.13). Both land on the same grantReward
  * writer, which is what keeps "only trade writes the ledger" literally true.
  */
-import { executeTrade, grantReward, type Party } from "@empire/db";
+import { executeTrade, grantReward, sellToWorld, type Party } from "@empire/db";
 import type { Continents, Shop, ShopItem } from "@empire/content-schemas";
 import type { Capability, CapabilityContext } from "../runtime/capability.js";
 import type { BusEvent } from "../events/bus.js";
 import { notForMe } from "../events/helpers.js";
 import { npcAt } from "../world/npc-identity.js";
-import { regionOf, regionalItem } from "../world/goods.js";
+import { buybackPrice, regionOf, regionalItem } from "../world/goods.js";
+import { payloadString } from "../events/helpers.js";
 import { ulid } from "ulid";
 
 export interface QuoteInput {
@@ -124,6 +125,66 @@ async function giveReward(
   });
 }
 
+/**
+ * A player selling goods to this merchant (§2.5 buy-back), from the stall's
+ * sell menu. Priced HERE — at this continent's regional price times the spread —
+ * never from the event, so a forged or stale payload can't name its own price.
+ * `qty: "all"` sells whatever the player holds at the moment of the click.
+ */
+async function sellGoods(evt: BusEvent, ctx: CapabilityContext, shop: Shop, continents: Continents): Promise<void> {
+  const player = evt.actor?.id;
+  const itemId = payloadString(evt, "item");
+  if (!player || !itemId) {
+    ctx.logger.warn({ evt: evt.eventId }, "malformed sell.request ignored");
+    return;
+  }
+  const fail = async (message: string): Promise<void> => {
+    await ctx.bus.publish({
+      type: "sale.failed",
+      guildId: evt.guildId,
+      actor: { kind: "player", id: player },
+      subject: { kind: "npc", id: ctx.bot },
+      payload: { item: itemId, message },
+      correlationId: evt.correlationId,
+    });
+  };
+  const good = shop.buys.find((b) => b.item_id === itemId);
+  if (!good) {
+    await fail("I've no use for that, friend.");
+    return;
+  }
+  let qty: number;
+  const rawQty = (evt.payload as { qty?: unknown } | undefined)?.qty;
+  if (rawQty === "all") {
+    const [held] = await ctx.sql<{ qty: number }[]>`
+      SELECT qty FROM inventories WHERE owner_kind = 'player' AND owner_id = ${player} AND item_id = ${itemId}
+    `;
+    qty = held?.qty ?? 0;
+  } else {
+    qty = Number(rawQty);
+  }
+  if (!Number.isInteger(qty) || qty <= 0) {
+    await fail("You've none of that left to sell.");
+    return;
+  }
+  const unit = buybackPrice(good, regionOf(continents, evt.guildId));
+  const gold = unit * qty;
+  const result = await sellToWorld(ctx.sql, { player, itemId, qty, gold });
+  if (!result.ok) {
+    await fail("You've not got that many to sell.");
+    return;
+  }
+  ctx.logger.info({ player, item: itemId, qty, gold }, "goods sold to merchant");
+  await ctx.bus.publish({
+    type: "sale.completed",
+    guildId: evt.guildId,
+    actor: { kind: "player", id: player },
+    subject: { kind: "npc", id: ctx.bot },
+    payload: { item: itemId, name: good.name, qty, gold },
+    correlationId: evt.correlationId,
+  });
+}
+
 /** A shop item restated at one continent's prices, for `effectiveFloor` (§2.5). */
 function regionallyPriced(item: ShopItem, region: string | null): ShopItem {
   const regional = regionalItem(item, region);
@@ -140,8 +201,9 @@ export function tradeCapability(shop?: Shop, continents?: Continents): Capabilit
   return {
     name: "trade",
     // trade.request is the dialogue-emitted purchase intent (§5.4 → §5.5);
-    // grant.requested is a runtime-computed reward (§5.13 loot).
-    consumes: ["trade.request", "grant.requested"],
+    // grant.requested is a runtime-computed reward (§5.13 loot); sell.request
+    // is a player selling goods back from the stall's sell menu (§2.5).
+    consumes: ["trade.request", "grant.requested", "sell.request"],
     actions: {
       /**
        * `trade.execute` — the verb workflows and commands call. Never mutates
@@ -179,6 +241,13 @@ export function tradeCapability(shop?: Shop, continents?: Continents): Capabilit
           return;
         }
         await giveReward(ctx, player, evt.payload as RewardSpec, evt);
+        return;
+      }
+      if (evt.type === "sell.request") {
+        if (notForMe(evt, ctx.bot)) return;
+        // Only a shop-backed merchant buys; a cost-sink bot has nothing to price with.
+        if (!shop || !continents) return;
+        await sellGoods(evt, ctx, shop, continents);
         return;
       }
       if (evt.type !== "trade.request") return;
