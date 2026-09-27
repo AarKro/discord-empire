@@ -102,8 +102,10 @@ async function seedDistricts(
     ON CONFLICT (guild_id) DO UPDATE SET citizen_role_id = EXCLUDED.citizen_role_id, observer_role_id = EXCLUDED.observer_role_id
   `;
   // Bots are guild members too, so any deny-@everyone ViewChannel below would also
-  // blind them — allow every managed (bot/integration) role to keep them posting.
-  const botRoleIds = roles.filter((r) => r.managed).map((r) => r.id);
+  // blind them — allow every bot's integration role to keep them posting. Keyed
+  // on `tags.botId` rather than `managed`, which also matches the Server Booster
+  // role and would let boosting reveal undiscovered districts.
+  const botRoleIds = roles.filter((r) => Boolean(r.tags?.botId)).map((r) => r.id);
 
   for (const def of defs) {
     const dbId = `${def.id}_${guildId}`;

@@ -30,6 +30,7 @@ import type { Logger } from "../logger.js";
 import { rootLogger } from "../logger.js";
 import { CallQueue } from "./call-queue.js";
 import { InteractionRouter } from "./interactions.js";
+import { plotOverwrites } from "./plot-privacy.js";
 import type {
   AutocompleteHandler,
   CommandHandler,
@@ -295,18 +296,75 @@ export class Gateway {
       }
       const user = await this.client.users.fetch(userId).catch(() => null);
       const label = user?.displayName ?? user?.username ?? "settler";
+      // §2.4: private from the first instant — the overwrites ride on the create
+      // call itself rather than being applied afterwards.
+      const botRoleIds = await this.botRoleIds(guild);
+      const privacy = (kind: "text" | "voice") => plotOverwrites({ everyoneRoleId: guild.roles.everyone.id, ownerId: userId, botRoleIds, kind });
       // Track the text channel so we can roll it back if the voice create fails —
       // otherwise a half-provisioned plot leaks an orphan the caller can't see.
       let text: Awaited<ReturnType<typeof guild.channels.create>> | null = null;
       try {
-        text = await guild.channels.create({ name: `${label}'s Estate`, type: ChannelType.GuildText, parent: parentId });
-        const voice = await guild.channels.create({ name: `${label}'s Estate`, type: ChannelType.GuildVoice, parent: parentId });
+        text = await guild.channels.create({
+          name: `${label}'s Estate`,
+          type: ChannelType.GuildText,
+          parent: parentId,
+          permissionOverwrites: privacy("text"),
+        });
+        const voice = await guild.channels.create({
+          name: `${label}'s Estate`,
+          type: ChannelType.GuildVoice,
+          parent: parentId,
+          permissionOverwrites: privacy("voice"),
+        });
         return { textId: text.id, voiceId: voice.id };
       } catch (err) {
         this.log.warn({ err, guildId, userId }, "failed to create plot channels (need Manage Channels)");
         if (text) await text.delete().catch(() => {}); // roll back the orphaned text channel
         return null;
       }
+    });
+  }
+
+  /**
+   * Every bot's integration role in the guild — how bots see private places.
+   * Filtered on `tags.botId`, NOT on `managed`: Discord also marks the Server
+   * Booster role as managed, and boosting must not buy a view into other
+   * players' estates.
+   */
+  private async botRoleIds(guild: Guild): Promise<string[]> {
+    const roles = await guild.roles.fetch().catch(() => null);
+    return roles ? [...roles.filter((r) => Boolean(r.tags?.botId)).keys()] : [];
+  }
+
+  /**
+   * Re-apply a plot's privacy (§2.4) to its existing channels — the boot-time
+   * heal for plots created before lands were private, or hand-edited since.
+   * `set` replaces the whole overwrite list, so re-running converges. An owner
+   * who has left the guild can't hold a member overwrite; the plot is still
+   * hidden from everyone else. Best-effort: returns false (and logs) on a missing
+   * guild/channel or a permission failure (needs Manage Channels + Manage Roles).
+   */
+  applyPlotPrivacy(guildId: string, ownerId: string, textId: string | null, voiceId: string | null): Promise<boolean> {
+    return this.queue.enqueue(async () => {
+      const guild = await this.fetchGuild(guildId);
+      if (!guild) return false;
+      const member = await guild.members.fetch(ownerId).catch(() => null);
+      const botRoleIds = await this.botRoleIds(guild);
+      let ok = true;
+      for (const [channelId, kind] of [[textId, "text"], [voiceId, "voice"]] as const) {
+        if (!channelId) continue;
+        const channel = await guild.channels.fetch(channelId).catch(() => null);
+        if (!channel || !("permissionOverwrites" in channel)) {
+          ok = false;
+          continue;
+        }
+        const overwrites = plotOverwrites({ everyoneRoleId: guild.roles.everyone.id, ownerId: member ? ownerId : null, botRoleIds, kind });
+        await channel.permissionOverwrites.set(overwrites).catch((err: unknown) => {
+          ok = false;
+          this.log.warn({ err, guildId, channelId }, "failed to apply plot privacy (need Manage Channels + Manage Roles)");
+        });
+      }
+      return ok;
     });
   }
 

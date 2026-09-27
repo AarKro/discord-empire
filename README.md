@@ -102,8 +102,18 @@ Prerequisites: Node 20 LTS, pnpm 9 (`corepack enable`), Docker.
 Bot invite permissions (per dev guild): View Channels, Send Messages, Create
 Private Threads, Send Messages in Threads, Manage Messages (pin the stall
 embed), Manage Threads (archive on dialogue end), Change Nickname, Connect —
-plus Manage Channels for the merchant bot so `world:init` can create the
-bazaar channels.
+plus Manage Channels + Manage Roles for the merchant bot so `world:init` can
+create the bazaar channels and gate the districts, and for the builder bot,
+which creates every player's estate channels.
+
+**Lands are private (§2.4).** Each estate's text and voice channels hide from
+`@everyone` and are visible only to their owner (who may watch, but not join,
+the voice channel) and to the bots, which reach every estate through their
+integration roles (never the Server Booster role, which Discord also marks
+managed) — so any bot that posts into land (battle logs,
+research notices, the caravan stall) works without a list of bot ids. The
+builder applies this when it creates a plot and re-applies it to every plot on
+boot, which is how plots created before this rule were healed.
 
 Guild IDs live only in `.env` (`GUILD_CONTINENT_ONE/TWO`); content YAML
 references them as `${GUILD_CONTINENT_ONE}`-style placeholders that the

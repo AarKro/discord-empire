@@ -174,14 +174,41 @@ export async function collectProductionFor(sql: Sql, playerId: string): Promise<
   return `You gather ${lines}. Sell them at a merchant's stall — ${next}.`;
 }
 
+/**
+ * Lands are private (§2.4): new plots are created with the overwrites already on
+ * them, and this boot pass heals every existing plot on this bot's continents —
+ * plots made before lands were private, or hand-edited since. Idempotent (the
+ * gateway SETS the whole overwrite list), serialised through the gateway's call
+ * queue, and best-effort: a plot Discord refuses is logged and left for the next
+ * boot rather than blocking this one.
+ */
+async function reconcilePlotPrivacy(ctx: CapabilityContext): Promise<void> {
+  const guildIds = [...ctx.personas.guildIds];
+  if (guildIds.length === 0) return;
+  const plots = await ctx.sql<{ owner_id: string; guild_id: string; text_channel_id: string | null; voice_channel_id: string | null }[]>`
+    SELECT owner_id, guild_id, text_channel_id, voice_channel_id FROM land_plots
+    WHERE pruned = false AND guild_id = ANY(${guildIds})
+      AND (text_channel_id IS NOT NULL OR voice_channel_id IS NOT NULL)
+  `;
+  let applied = 0;
+  for (const plot of plots) {
+    if (await ctx.gateway.applyPlotPrivacy(plot.guild_id, plot.owner_id, plot.text_channel_id, plot.voice_channel_id)) applied += 1;
+  }
+  ctx.logger.info({ plots: plots.length, applied }, "plot privacy reconciled");
+}
+
 /** `catalog` is the blueprint YAML (§1.3); when given, it is synced on boot. */
 export function landCapability(catalog?: Blueprints): Capability {
   return {
     name: "land",
     async init(ctx: CapabilityContext): Promise<void> {
-      if (!catalog) return;
-      await syncBlueprints(ctx.sql, catalog);
-      ctx.logger.info({ blueprints: catalog.blueprints.length }, "blueprint catalog synced from content");
+      if (catalog) {
+        await syncBlueprints(ctx.sql, catalog);
+        ctx.logger.info({ blueprints: catalog.blueprints.length }, "blueprint catalog synced from content");
+      }
+      // In the background: it is one throttled Discord round-trip per plot, and
+      // the bot must not sit deaf to the bus while a big realm heals.
+      void reconcilePlotPrivacy(ctx).catch((err: unknown) => ctx.logger.warn({ err }, "plot privacy reconcile failed"));
     },
     // Nothing imperative to consume — the player_build workflow (§7) drives the
     // flow by composing the verbs below; the runtime dispatches them.
