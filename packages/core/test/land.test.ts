@@ -273,6 +273,8 @@ describe("build.complete — completion → notify (§5.9, exactly-once)", () =>
     await verb(landCapability(), "build.complete", {}, evt({ type: "build.completed", payload: { queue_id: "q1" } }), makeCtx(world));
     const n = world.published.find((e) => e.type === "notify.requested");
     expect(n).toBeDefined();
+    // …and records the milestone progression counts (§2.5 tiers).
+    expect(world.published.find((e) => e.type === "build.finished")?.payload).toMatchObject({ blueprint: "farm" });
     expect(String(n?.payload?.message)).toContain("farm");
   });
 

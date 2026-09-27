@@ -10,7 +10,12 @@
  * supplies the manifest and the slash-command defs, whose autocomplete/resolve
  * bodies are live SQL and so are inherently code, not YAML.
  */
-import { runBot, rootLogger, HIDDEN_ITEMS, BUILD_PERMIT_ITEM, collectProductionFor, type CommandDef } from "@empire/core";
+import { join } from "node:path";
+import { runBot, rootLogger, HIDDEN_ITEMS, BUILD_PERMIT_ITEM, collectProductionFor, progressReport, type CommandDef } from "@empire/core";
+import { loadContentFile, Tiers } from "@empire/content-schemas";
+
+/** Tier milestones (§2.5), for /progress. The same file `progression` promotes by. */
+const tiers = loadContentFile(Tiers, join(process.env.CONTENT_DIR ?? "content", "tiers.yaml"));
 
 // §5.10, §10 Builder. /build is a round-trip (guards → trade → queue → ephemeral
 // reply); /collect, /balance and /inventory answer directly from the DB.
@@ -46,6 +51,13 @@ const commands: CommandDef[] = [
     description: "Gather what your buildings have produced",
     route: "",
     resolve: async (ctx, { userId }) => collectProductionFor(ctx.sql, userId),
+  },
+  {
+    // §2.5: your tier and what the next one asks.
+    name: "progress",
+    description: "Your tier, and what it takes to rise",
+    route: "",
+    resolve: async (ctx, { userId }) => progressReport(ctx.sql, userId, tiers),
   },
   {
     name: "balance",

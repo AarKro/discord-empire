@@ -21,6 +21,7 @@ import {
   Blueprints,
   ResearchTree,
   Encounters,
+  Tiers,
 } from "../src/index.js";
 
 const CONTENT = join(dirname(fileURLToPath(import.meta.url)), "../../../content");
@@ -49,6 +50,26 @@ describe("shipped content validates against schemas", () => {
     expect(loadContentFile(Manifest, join(CONTENT, "manifests/builder.yaml")).content?.blueprints).toBe("catalog/blueprints.yaml");
     expect(loadContentFile(Manifest, join(CONTENT, "manifests/architect.yaml")).content?.research).toBe("catalog/research.yaml");
     expect(loadContentFile(Manifest, join(CONTENT, "manifests/warden.yaml")).content?.encounters).toBe("catalog/encounters.yaml");
+  });
+
+  it("tiers are reachable by every player (§2.5)", () => {
+    const tiers = loadContentFile(Tiers, join(CONTENT, "tiers.yaml"));
+    const blueprints = loadContentFile(Blueprints, join(CONTENT, "catalog/blueprints.yaml"));
+    const research = loadContentFile(ResearchTree, join(CONTENT, "catalog/research.yaml"));
+    // Every recipe a player can hold, at its `max` — a tier asking for more
+    // buildings than exist could never be reached.
+    const buildable = blueprints.blueprints.reduce((sum, b) => sum + b.max, 0);
+    const top = tiers.tiers[tiers.tiers.length - 1]!;
+    expect(top.buildings).toBeLessThanOrEqual(buildable);
+    expect(top.research).toBeLessThanOrEqual(research.research.length);
+    expect(loadContentFile(Manifest, join(CONTENT, "manifests/builder.yaml")).content?.tiers).toBe("tiers.yaml");
+  });
+
+  it("a tier ladder must run in order and never ask for less", () => {
+    expect(() => Tiers.parse({ tiers: [{ tier: 3, name: "x" }] })).toThrow();
+    expect(() =>
+      Tiers.parse({ tiers: [{ tier: 2, name: "a", buildings: 3 }, { tier: 3, name: "b", buildings: 1 }] }),
+    ).toThrow();
   });
 
   it("a research prereq must name a node in the tree", () => {

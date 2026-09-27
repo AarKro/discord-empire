@@ -210,6 +210,14 @@ export function researchCapability(tree?: ResearchTree): Capability {
           { player, node: nodeId, granted: node?.grants_blueprints ?? [] },
           "research completed",
         );
+        // A milestone for `progression` (§2.5 tiers), which counts finished research.
+        await ctx.bus.publish({
+          type: "research.finished",
+          guildId: evt?.guildId ?? null,
+          actor: { kind: "player", id: player },
+          subject: { kind: "npc", id: ctx.bot },
+          payload: { node: nodeId },
+        });
         await ctx.bus.publish({
           type: "notify.requested",
           guildId: evt?.guildId ?? null,

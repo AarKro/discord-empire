@@ -293,6 +293,14 @@ export function landCapability(catalog?: Blueprints): Capability {
         `;
         if (!row) return;
         ctx.logger.info({ queueId, blueprint: row.blueprint_id }, "build completed");
+        // A milestone for `progression` (§2.5 tiers), which counts finished buildings.
+        await ctx.bus.publish({
+          type: "build.finished",
+          guildId: evt?.guildId ?? null,
+          actor: { kind: "player", id: row.owner_id },
+          subject: { kind: "npc", id: ctx.bot },
+          payload: { queue_id: queueId, blueprint: row.blueprint_id },
+        });
         await ctx.bus.publish({
           type: "notify.requested",
           guildId: evt?.guildId ?? null,

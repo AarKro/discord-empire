@@ -26,6 +26,7 @@ import {
   Blueprints,
   ResearchTree,
   Encounters,
+  Tiers,
 } from "@empire/content-schemas";
 import { openDb } from "@empire/db";
 import { rootLogger, type Logger } from "../logger.js";
@@ -55,6 +56,7 @@ import { caravanCapability } from "../capabilities/caravan.js";
 import { restockCapability, type RestockConfig } from "../capabilities/restock.js";
 import { riddleCapability } from "../capabilities/riddle.js";
 import { worldMirrorCapability } from "../capabilities/world-mirror.js";
+import { progressionCapability } from "../capabilities/progression.js";
 import { WorkflowRuntime } from "../workflow/runtime.js";
 
 /** Code-provided capability config that can't live in YAML, keyed by capability name. */
@@ -65,7 +67,7 @@ export interface CapabilityConfigs {
 }
 
 /** The manifest `content` keys that name a single loadable file. */
-type ContentKey = "shop" | "schedule" | "continents" | "riddles" | "blueprints" | "research" | "encounters";
+type ContentKey = "shop" | "schedule" | "continents" | "riddles" | "blueprints" | "research" | "encounters" | "tiers";
 
 /**
  * Loads + validates one content file. Typed off `loadContentFile` itself so the
@@ -141,6 +143,7 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
     caravanCapability(required(deps, Shop, "shop", "caravan"), required(deps, Continents, "continents", "caravan")),
   riddle: (deps) => riddleCapability(required(deps, Riddles, "riddles", "riddle")),
   "world.mirror": () => worldMirrorCapability(),
+  progression: (deps) => progressionCapability(required(deps, Tiers, "tiers", "progression")),
 };
 
 /**

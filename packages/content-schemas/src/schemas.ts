@@ -40,6 +40,8 @@ export const Manifest = z.object({
       blueprints: z.string().optional(),
       research: z.string().optional(),
       encounters: z.string().optional(),
+      // Tier milestones (§2.5 progression) for the `progression` capability.
+      tiers: z.string().optional(),
     })
     .optional(),
 });
@@ -332,6 +334,39 @@ export type Encounter = z.infer<typeof Encounter>;
 
 export const Encounters = z.object({ encounters: z.array(Encounter).min(1) });
 export type Encounters = z.infer<typeof Encounters>;
+
+// --- Tiers (§2.5 progression) -------------------------------------------------
+// What it takes to reach each tier above 1. A player's tier drives the idle
+// pacing (higher tiers build slower), the champion's level and so its stats.
+// Requirements are cumulative counts: finished buildings, finished research and
+// battles won.
+export const TierRule = z.object({
+  tier: z.number().int().min(2),
+  name: z.string().min(1),
+  buildings: z.number().int().nonnegative().default(0),
+  research: z.number().int().nonnegative().default(0),
+  victories: z.number().int().nonnegative().default(0),
+});
+export type TierRule = z.infer<typeof TierRule>;
+
+export const Tiers = z
+  .object({ tiers: z.array(TierRule).min(1) })
+  // Tiers are climbed in order, so the file must list 2, 3, 4… with no gaps and
+  // requirements that never go DOWN — otherwise a tier could be skipped or
+  // reached before the one below it.
+  .refine((t) => t.tiers.every((rule, i) => rule.tier === i + 2), { message: "tiers must run 2, 3, 4… in order" })
+  .refine(
+    (t) =>
+      t.tiers.every(
+        (rule, i) =>
+          i === 0 ||
+          (rule.buildings >= t.tiers[i - 1]!.buildings &&
+            rule.research >= t.tiers[i - 1]!.research &&
+            rule.victories >= t.tiers[i - 1]!.victories),
+      ),
+    { message: "a tier's requirements must be at least the tier below's" },
+  );
+export type Tiers = z.infer<typeof Tiers>;
 
 // --- Event envelope (§6) ------------------------------------------------------
 export const EventEnvelope = z.object({

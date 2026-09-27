@@ -20,11 +20,15 @@ capabilities:
   - land
   - notify
   - commands
+  # §2.5 tiers rise on milestones. Mounted on ONE bot (the bus is broadcast);
+  # the builder has notify and the land channels to announce in.
+  - progression
   # §5.12: keeps this bot's permit token from ever running dry. An empty
   # sink would fail every action it gates, realm-wide.
   - restock
 content:
   # §1.3 content as data: synced into its catalog table on boot.
   blueprints: catalog/blueprints.yaml
+  tiers: tiers.yaml
   workflows:
     - workflows/player_build.yaml

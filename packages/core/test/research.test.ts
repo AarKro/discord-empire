@@ -183,6 +183,8 @@ describe("research.complete — completion → grant + notify (exactly-once)", (
     expect(world.blueprintGrants).toBe(1); // trade_post granted
     const n = world.published.find((e) => e.type === "notify.requested");
     expect(String(n?.payload?.message)).toContain("Trade Routes");
+    // …and records the milestone progression counts (§2.5 tiers).
+    expect(world.published.find((e) => e.type === "research.finished")?.payload).toMatchObject({ node: "trade_routes" });
   });
 
   it("no-ops (no grant, no notify) when the completion already happened", async () => {
@@ -190,6 +192,7 @@ describe("research.complete — completion → grant + notify (exactly-once)", (
     await verb(researchCapability(), "research.complete", {}, evt({ type: "research.completed", payload: { node: "trade_routes" } }), makeCtx(world));
     expect(world.blueprintGrants).toBe(0);
     expect(world.published.find((e) => e.type === "notify.requested")).toBeUndefined();
+    expect(world.published.find((e) => e.type === "research.finished")).toBeUndefined();
   });
 });
 

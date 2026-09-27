@@ -1,0 +1,17 @@
+# Tier milestones (§2.5 progression). Everyone starts at Tier 1; a player rises
+# as soon as they meet a tier's requirements, announced to them and the realm.
+#
+# Tier is what the rest of the game scales off: build, research and muster
+# times grow with it (§2.5 hybrid idle pacing: fast early, slower later), and
+# the champion's level — so its attack, defence and health — IS the tier.
+#
+# Requirements are cumulative counts of finished buildings, finished research
+# and battles won. Each tier must ask at least as much as the one below it, and
+# no more than the catalogs let EVERY player reach — a content test enforces
+# it: buildings ≤ the sum of every recipe's `max` (not counting a findable,
+# one-of-a-kind recipe), research ≤ the number of research nodes.
+tiers:
+  - { tier: 2, name: "Settler", buildings: 2, research: 1, victories: 1 }
+  - { tier: 3, name: "Landholder", buildings: 4, research: 2, victories: 5 }
+  - { tier: 4, name: "Magnate", buildings: 6, research: 3, victories: 12 }
+  - { tier: 5, name: "Lord of the Realm", buildings: 7, research: 3, victories: 25 }
