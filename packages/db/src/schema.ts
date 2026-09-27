@@ -174,6 +174,10 @@ export const buildQueue = pgTable(
     correlationId: text("correlation_id"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completesAt: timestamp("completes_at", { withTimezone: true }),
+    // Production clock (§2.4 idle loop): a completed producing building has
+    // accrued goods since this instant. Stamped at completion, advanced by
+    // /collect by the whole units it banks (the fractional remainder is kept).
+    lastCollectedAt: timestamp("last_collected_at", { withTimezone: true }),
   },
   (t) => ({ ownerIdx: index("build_queue_owner_idx").on(t.ownerId) }),
 );
@@ -211,6 +215,14 @@ export const blueprintCatalog = pgTable("blueprint_catalog", {
   name: text("name").notNull(), // display name, e.g. "Wheat Farm"
   costGold: bigint("cost_gold", { mode: "number" }).notNull().default(0),
   baseMs: bigint("base_ms", { mode: "number" }).notNull().default(300000),
+  // What a completed building accrues while you're away: { item, per_hour, cap }
+  // (§2.4). NULL = produces nothing (a gate like the barracks or trade post).
+  produces: jsonb("produces"),
+  // How many of this recipe one player may hold (queued + building + completed).
+  maxCount: integer("max_count").notNull().default(1),
+  // A findable recipe (§2.5 "rare findable blueprints"): holding this item
+  // unlocks the build. NULL = not item-gated.
+  unlockItem: text("unlock_item"),
 });
 
 // The research tree (§5, §4 Architect): the nodes /research offers. Cost is

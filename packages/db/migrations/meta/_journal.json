@@ -15,6 +15,13 @@
       "when": 1785276998342,
       "tag": "0001_heavy_wendell_rand",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790546014156,
+      "tag": "0002_production",
+      "breakpoints": true
     }
   ]
 }

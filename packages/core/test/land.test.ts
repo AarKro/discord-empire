@@ -11,7 +11,9 @@ import type { BusEvent } from "../src/events/bus.js";
 import type { CapabilityContext } from "../src/runtime/capability.js";
 
 interface World {
-  blueprint: { id: string; name: string; cost_gold: number; base_ms: number } | null;
+  blueprint: { id: string; name: string; cost_gold: number; base_ms: number; max_count?: number } | null;
+  /** How many of the requested recipe the player already holds (the max guard's count). */
+  held?: number;
   hasPlot: boolean;
   playerExists: boolean;
   plotInserts: number;
@@ -55,6 +57,7 @@ function makeCtx(world: World): CapabilityContext {
     }
     if (q.includes("SELECT tier FROM players")) return Promise.resolve([{ tier: 1 }]);
     if (q.includes("build_queue")) {
+      if (q.includes("AS held")) return Promise.resolve([{ held: world.held ?? 0 }]);
       if (q.includes("SELECT id, plot_id, blueprint_id")) return Promise.resolve(world.pending ? [world.pending] : []);
       if (q.includes("SET status = 'completed'"))
         return Promise.resolve(world.completeRow === undefined ? [{ owner_id: "u1", blueprint_id: "farm" }] : world.completeRow ? [world.completeRow] : []);
@@ -172,6 +175,23 @@ describe("build.request — guards → stake → charge (§10 Builder)", () => {
   it("allows a gated blueprint once the player owns it (research unlocked)", async () => {
     const world = base({ gated: true, owned: true });
     await verb(landCapability(), "build.request", {}, evt({ type: "build.requested", payload: { blueprint: "trade_post" } }), makeCtx(world));
+    expect(world.published.find((e) => e.type === "trade.request")).toBeDefined();
+  });
+
+  it("refuses a recipe the player already holds as many of as it allows, before staking or charging", async () => {
+    const world = base({ blueprint: { id: "farm", name: "Wheat Farm", cost_gold: 50, base_ms: 1, max_count: 3 }, held: 3 });
+    await expect(
+      verb(landCapability(), "build.request", {}, evt({ type: "build.requested", payload: { blueprint: "farm" } }), makeCtx(world)),
+    ).rejects.toThrow("blueprint at max");
+    const rej = world.published.find((e) => e.type === "build.rejected");
+    expect(String(rej?.payload?.message)).toContain("3 of those");
+    expect(world.published.find((e) => e.type === "trade.request")).toBeUndefined();
+    expect(world.plotInserts).toBe(0);
+  });
+
+  it("still builds while under the recipe's max", async () => {
+    const world = base({ blueprint: { id: "farm", name: "Wheat Farm", cost_gold: 50, base_ms: 1, max_count: 3 }, held: 2 });
+    await verb(landCapability(), "build.request", {}, evt({ type: "build.requested", payload: { blueprint: "farm" } }), makeCtx(world));
     expect(world.published.find((e) => e.type === "trade.request")).toBeDefined();
   });
 

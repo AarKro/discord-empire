@@ -2,7 +2,7 @@
  * Builder — reference bot #2 (framework spec §4 roster, §10 validation path).
  *
  * Capabilities (see manifests/builder.yaml): trade, topology, land, notify,
- * commands. `/build` with blueprint autocomplete → cost & position guards →
+ * commands. `/collect` banks what finished buildings produced. `/build` with blueprint autocomplete → cost & position guards →
  * ledger deduction (via `trade`) → per-player build-queue instance with a
  * tier-scaled timer; the tick service fires build.completed → notify per player.
  *
@@ -10,10 +10,10 @@
  * supplies the manifest and the slash-command defs, whose autocomplete/resolve
  * bodies are live SQL and so are inherently code, not YAML.
  */
-import { runBot, rootLogger, HIDDEN_ITEMS, BUILD_PERMIT_ITEM, type CommandDef } from "@empire/core";
+import { runBot, rootLogger, HIDDEN_ITEMS, BUILD_PERMIT_ITEM, collectProductionFor, type CommandDef } from "@empire/core";
 
 // §5.10, §10 Builder. /build is a round-trip (guards → trade → queue → ephemeral
-// reply); /balance and /inventory answer directly from the DB.
+// reply); /collect, /balance and /inventory answer directly from the DB.
 const commands: CommandDef[] = [
   {
     name: "build",
@@ -39,6 +39,13 @@ const commands: CommandDef[] = [
         .slice(0, 25)
         .map((r) => ({ name: `${r.name} (${r.cost_gold}g)`, value: r.id }));
     },
+  },
+  {
+    // §2.4 the idle loop: bank what your buildings have produced.
+    name: "collect",
+    description: "Gather what your buildings have produced",
+    route: "",
+    resolve: async (ctx, { userId }) => collectProductionFor(ctx.sql, userId),
   },
   {
     name: "balance",

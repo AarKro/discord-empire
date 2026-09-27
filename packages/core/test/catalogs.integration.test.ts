@@ -26,7 +26,7 @@ suite("catalog sync (§1.3)", () => {
 
   it("inserts new rows and overwrites retuned ones, deleting nothing", async () => {
     await h.sql`INSERT INTO blueprint_catalog (id, name, cost_gold, base_ms) VALUES ('farm', 'Old Farm', 999, 1), ('ruin', 'Ruin', 1, 1)`;
-    await syncBlueprints(h.sql, { blueprints: [{ id: "farm", name: "Wheat Farm", cost_gold: 50, base_ms: 300000 }] });
+    await syncBlueprints(h.sql, { blueprints: [{ id: "farm", name: "Wheat Farm", cost_gold: 50, base_ms: 300000, max: 3 }] });
     const rows = await h.sql<{ id: string; name: string; cost_gold: number }[]>`
       SELECT id, name, cost_gold FROM blueprint_catalog ORDER BY id
     `;

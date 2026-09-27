@@ -32,7 +32,8 @@ import { payloadString } from "../events/helpers.js";
 import { playerTier, tierScaledMs } from "../world/players.js";
 import { publishReply } from "../events/reply.js";
 import { BUILD_PERMIT_ITEM } from "../world/items.js";
-import { ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
+import { collectProduction, ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
+import { accrued, msToNextUnit } from "../world/production.js";
 import type { Blueprints } from "@empire/content-schemas";
 import { syncBlueprints } from "../world/catalogs.js";
 
@@ -44,11 +45,12 @@ interface BlueprintRow {
   name: string;
   cost_gold: number;
   base_ms: number;
+  max_count: number;
 }
 
 async function loadBlueprint(sql: Sql, id: string): Promise<BlueprintRow | null> {
   const [row] = await sql<BlueprintRow[]>`
-    SELECT id, name, cost_gold, base_ms FROM blueprint_catalog WHERE id = ${id}
+    SELECT id, name, cost_gold, base_ms, max_count FROM blueprint_catalog WHERE id = ${id}
   `;
   return row ?? null;
 }
@@ -128,6 +130,30 @@ async function ensurePlot(ctx: CapabilityContext, playerId: string, guildId: str
   return id;
 }
 
+/** "iron_tools" → "iron tools": item ids read as prose in player-facing lines. */
+function itemLabel(itemId: string): string {
+  return itemId.replace(/_/g, " ");
+}
+
+/**
+ * /collect (§2.4): bank everything the player's buildings have accrued, as one
+ * ledgered write, and say what came in — or, when the stores are bare, how long
+ * until the next unit. Answered directly from the DB like /balance: there is no
+ * cost to charge, so no trade round-trip.
+ */
+export async function collectProductionFor(sql: Sql, playerId: string): Promise<string> {
+  const { now, gathered, buildings } = await collectProduction(sql, playerId, accrued);
+  if (buildings.length === 0) return "Nothing on your land produces yet — a farm or a forge would.";
+  const got = Object.entries(gathered);
+  const soonest = buildings
+    .map((b) => ({ item: b.produces.item, ms: msToNextUnit(b.produces, b.since, now) }))
+    .sort((x, y) => x.ms - y.ms)[0]!;
+  const next = `next ${itemLabel(soonest.item)} in ~${Math.max(1, Math.ceil(soonest.ms / 60_000))}m`;
+  if (got.length === 0) return `Your stores are bare — ${next}.`;
+  const lines = got.map(([item, qty]) => `**${qty}× ${itemLabel(item)}**`).join(", ");
+  return `You gather ${lines}. Sell them at a merchant's stall — ${next}.`;
+}
+
 /** `catalog` is the blueprint YAML (§1.3); when given, it is synced on boot. */
 export function landCapability(catalog?: Blueprints): Capability {
   return {
@@ -173,6 +199,20 @@ export function landCapability(catalog?: Blueprints): Capability {
         if (!(await isBuildable(ctx.sql, player, blueprint.id))) {
           await publishReply(ctx, "build.rejected", { guildId, correlationId }, player, "You haven't the blueprints for that yet — see the Architect.");
           throw new Error("blueprint locked");
+        }
+
+        // Guard: the recipe's `max` (§2.4). Counts everything the player has in
+        // hand for it — queued, building or standing — so a burst of /builds
+        // can't slip past the limit while the first is still being charged.
+        // Checked before staking a plot, like the unlock guard, so it costs nothing.
+        const [heldRow] = await ctx.sql<{ held: number }[]>`
+          SELECT count(*)::int AS held FROM build_queue
+          WHERE owner_id = ${player} AND blueprint_id = ${blueprint.id} AND status IN ('queued', 'building', 'completed')
+        `;
+        if ((heldRow?.held ?? 0) >= blueprint.max_count) {
+          const which = blueprint.max_count === 1 ? `a ${blueprint.name}` : `${blueprint.max_count} of those`;
+          await publishReply(ctx, "build.rejected", { guildId, correlationId }, player, `Your land holds no more — you've already got ${which}.`);
+          throw new Error("blueprint at max");
         }
 
         // First build stakes a starter plot and provisions its channels.
@@ -247,7 +287,8 @@ export function landCapability(catalog?: Blueprints): Capability {
         const queueId = payloadString(evt, "queue_id");
         if (!queueId) return;
         const [row] = await ctx.sql<{ owner_id: string; blueprint_id: string }[]>`
-          UPDATE build_queue SET status = 'completed' WHERE id = ${queueId} AND status = 'building'
+          UPDATE build_queue SET status = 'completed', last_collected_at = now()
+          WHERE id = ${queueId} AND status = 'building'
           RETURNING owner_id, blueprint_id
         `;
         if (!row) return;

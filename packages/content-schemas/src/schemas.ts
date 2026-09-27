@@ -264,6 +264,13 @@ export const Blueprint = z.object({
   name: z.string().min(1),
   cost_gold: z.number().int().nonnegative(),
   base_ms: z.number().int().positive(),
+  // What the finished building accrues while you're away (§2.4), banked by
+  // /collect. Omit for a building that is a gate rather than a producer.
+  produces: z
+    .object({ item: z.string().min(1), per_hour: z.number().positive(), cap: z.number().int().positive() })
+    .optional(),
+  // How many of this recipe one player may hold at once.
+  max: z.number().int().positive().default(1),
 });
 export type Blueprint = z.infer<typeof Blueprint>;
 

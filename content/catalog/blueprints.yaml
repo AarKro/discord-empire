@@ -6,13 +6,32 @@
 # tier scaling (a higher tier builds slower — §2.5 hybrid idle pacing). A recipe
 # some research node grants (research.yaml `grants_blueprints`) stays hidden
 # until the player has that research; the rest always build.
+#
+# `produces` is the idle loop (§2.4): a finished building accrues `per_hour`
+# units of `item` into a store holding at most `cap`, and /collect banks the
+# store. The cap is the check-in rhythm — a full store stops filling. Goods turn
+# into gold at a merchant (who pays more for a good that isn't local). `max` is
+# how many of the recipe one player may hold (default 1).
 blueprints:
-  - { id: farm, name: "Wheat Farm", cost_gold: 50, base_ms: 300000 }          # ~5m
-  - { id: forge, name: "Blacksmith Forge", cost_gold: 100, base_ms: 600000 }  # ~10m
+  - id: farm
+    name: "Wheat Farm"
+    cost_gold: 50
+    base_ms: 300000 # ~5m
+    produces: { item: grain, per_hour: 4, cap: 16 }
+    max: 3
+  - id: forge
+    name: "Blacksmith Forge"
+    cost_gold: 100
+    base_ms: 600000 # ~10m
+    produces: { item: iron_tools, per_hour: 1, cap: 6 }
   # The barracks gates /muster (§2.6 "troops … produced by buildings"). Cheap and
   # ungated on purpose: it is the way into the whole combat loop, so a fresh
   # 150-gold player can build it and still afford some troops.
   - { id: barracks, name: "Barracks", cost_gold: 60, base_ms: 300000 }       # ~5m
   # Research-gated (see research.yaml).
-  - { id: granary, name: "Granary", cost_gold: 80, base_ms: 300000 }         # ~5m, needs masonry
+  - id: granary # needs masonry
+    name: "Granary"
+    cost_gold: 80
+    base_ms: 300000 # ~5m
+    produces: { item: grain, per_hour: 8, cap: 48 }
   - { id: trade_post, name: "Trade Post", cost_gold: 120, base_ms: 600000 }  # ~10m, needs trade_routes

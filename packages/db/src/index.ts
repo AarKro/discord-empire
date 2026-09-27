@@ -10,6 +10,8 @@ export { ensurePlayer, DEFAULT_STARTING_GOLD, grantReward } from "./grant.js";
 export type { EnsurePlayerResult, GrantSpec } from "./grant.js";
 export { restockShop, RESTOCK_REASON } from "./restock.js";
 export type { RestockSpec } from "./restock.js";
+export { collectProduction, PRODUCTION_REASON } from "./production.js";
+export type { CollectResult, ProducingBuilding, AccrueFn } from "./production.js";
 export { readBalance } from "./balances.js";
 export { revertLedger } from "./revert.js";
 export type { RevertLedgerRequest, RevertLedgerResult, RevertSummary } from "./revert.js";
