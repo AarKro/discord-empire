@@ -48,7 +48,7 @@ export function openDb(url: string, opts: { max?: number } = {}): DbHandle {
  * plain string and let the server infer jsonb from the column/function type.
  * The `sql` argument is kept so call sites stay connection-scoped.
  */
-export function jsonParam(_sql: Sql, value: unknown): string {
+export function jsonParam(_sql: Sql | TxSql, value: unknown): string {
   return JSON.stringify(value);
 }
 

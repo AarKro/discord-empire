@@ -377,7 +377,7 @@ export const dispatches = pgTable(
     mission: jsonb("mission").notNull().default({}), // { kind: "battle", encounter_id }
     force: jsonb("force").notNull().default({}), // { champion, troops: [{ unit_id, unit_type, qty, atk, def, hp }] }
     originGuildId: text("origin_guild_id"),
-    status: text("status").notNull().default("travelling"), // travelling | resolving | returning | done
+    status: text("status").notNull().default("travelling"), // travelling | returning | done (| stationed for caravans)
     arrivesAt: timestamp("arrives_at", { withTimezone: true }),
     returnsAt: timestamp("returns_at", { withTimezone: true }),
     correlationId: text("correlation_id"),

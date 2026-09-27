@@ -44,6 +44,33 @@ suite("event bus resilience (§3)", () => {
     await h.sql`TRUNCATE events, bus_cursors RESTART IDENTITY CASCADE`;
   });
 
+  it("delivers a transactional publish only if its transaction commits (§3 transactional emit)", async () => {
+    // combat.resolve relies on this: grants emitted inside the resolve
+    // transaction must vanish with it when any later statement fails.
+    const bus = new EventBus(h.sql, "resilience-tx", rootLogger);
+    const seen: string[] = [];
+    await bus.subscribe((evt) => {
+      seen.push(evt.type);
+    });
+
+    await expect(
+      h.sql.begin(async (tx) => {
+        await bus.publish({ type: "rolled_back" }, tx);
+        throw new Error("abort");
+      }),
+    ).rejects.toThrow("abort");
+    await h.sql.begin(async (tx) => {
+      await bus.publish({ type: "committed" }, tx);
+    });
+
+    await eventually(() => seen.includes("committed"));
+    expect(seen).toEqual(["committed"]);
+    const rows = await h.sql<{ type: string }[]>`SELECT type FROM events ORDER BY id`;
+    expect(rows.map((r) => r.type)).toEqual(["committed"]);
+
+    await bus.close();
+  });
+
   it("keeps delivering after a handler throws, and advances the cursor past it", async () => {
     const bus = new EventBus(h.sql, "resilience-live", rootLogger);
     const seen: string[] = [];

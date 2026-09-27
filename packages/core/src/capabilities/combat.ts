@@ -387,16 +387,22 @@ export function combatCapability(): Capability {
       /**
        * Tick's dispatch.arrived(dispatch_id): run the fight and deliver the log.
        *
-       * The travelling→resolving flip is a conditional UPDATE ... RETURNING, so
-       * a redelivered tick finds no row and no-ops. That guard is doing real
-       * work here: without it a re-fire would re-roll the battle and re-grant
-       * the loot.
+       * EVERYTHING THAT MATTERS COMMITS TOGETHER. The fight is rolled first,
+       * which is pure, and then one transaction claims the dispatch
+       * (travelling→returning), records the battle and emits the grants and
+       * combat.resolved through the bus's transactional publish. There is no
+       * intermediate state to strand: a crash before the commit leaves the row
+       * `travelling` for the tick to re-fire (a fresh roll, nothing granted yet),
+       * and a crash after it only loses the Discord post, which is best-effort
+       * anyway because the battles row is the record. (An earlier version
+       * parked the row in a `resolving` state across all of that, and a crash
+       * there tied the champion up forever, since nothing sweeps `resolving`.)
        *
-       * The same UPDATE also pins `mission->>'kind' = 'battle'`. The tick sweeps
-       * every travelling dispatch regardless of mission, so once a second kind
-       * exists (§11 caravans) an unguarded claim would seize one in flight and
-       * try to fight with it. The kind check keeps this verb's reach to its own
-       * missions — dispatch rows are a shared primitive, not combat's alone.
+       * The claim is a conditional UPDATE, so a redelivered tick (or two bots
+       * racing) finds no row, rolls back and grants nothing. It also pins
+       * `mission->>'kind' = 'battle'`: the tick sweeps every travelling dispatch
+       * regardless of mission, and a §11 caravan in flight must not be marched
+       * into a fight. Dispatch rows are a shared primitive, not combat's alone.
        */
       "combat.resolve": async (_args, evt, ctx: CapabilityContext) => {
         const dispatchId = payloadString(evt, "dispatch_id");
@@ -404,9 +410,8 @@ export function combatCapability(): Capability {
         const [row] = await ctx.sql<
           { owner_id: string; mission: { encounter_id?: string }; force: Force; origin_guild_id: string | null }[]
         >`
-          UPDATE dispatches SET status = 'resolving'
+          SELECT owner_id, mission, force, origin_guild_id FROM dispatches
           WHERE id = ${dispatchId} AND status = 'travelling' AND mission->>'kind' = 'battle'
-          RETURNING owner_id, mission, force, origin_guild_id
         `;
         if (!row) return;
 
@@ -417,7 +422,10 @@ export function combatCapability(): Capability {
           // The catalog row vanished under a dispatch in flight. Send the force
           // home rather than stranding it — the units matter more than the fight.
           ctx.logger.error({ dispatchId, mission: row.mission }, "dispatch arrived at an unknown encounter; recalling");
-          await ctx.sql`UPDATE dispatches SET status = 'returning', returns_at = now() WHERE id = ${dispatchId}`;
+          await ctx.sql`
+            UPDATE dispatches SET status = 'returning', returns_at = now()
+            WHERE id = ${dispatchId} AND status = 'travelling' AND mission->>'kind' = 'battle'
+          `;
           return;
         }
 
@@ -437,7 +445,59 @@ export function combatCapability(): Capability {
         // §2.6: losing costs only the loot chance — so the roll happens on a win.
         const loot = result.outcome === "victory" ? rollLoot(encounter.loot ?? [], seed) : [];
         const gold = result.outcome === "victory" ? Number(encounter.reward_gold) : 0;
+        const battleId = `btl_${ulid()}`;
+        // The return leg reuses the outbound time.
+        const returnsAt = new Date(Date.now() + Number(encounter.travel_ms));
 
+        const committed = await ctx.sql.begin(async (tx) => {
+          const [claimed] = await tx<{ id: string }[]>`
+            UPDATE dispatches SET status = 'returning', returns_at = ${returnsAt.toISOString()}
+            WHERE id = ${dispatchId} AND status = 'travelling' AND mission->>'kind' = 'battle'
+            RETURNING id
+          `;
+          if (!claimed) return false;
+
+          await tx`
+            INSERT INTO battles (id, dispatch_id, owner_id, encounter_id, seed, outcome, rounds, loot, thread_id)
+            VALUES (${battleId}, ${dispatchId}, ${player}, ${encounter.id}, ${seed}, ${result.outcome},
+                    ${jsonParam(tx, result.rounds)}, ${jsonParam(tx, loot)}, NULL)
+          `;
+
+          // Spoils go through `trade` (invariant #2): this capability computes the
+          // reward but never writes the ledger. One request per component, so each
+          // lands as its own auditable ledger row. Emitted inside the transaction,
+          // so a rolled-back fight can never have paid out.
+          for (const spec of [...(gold > 0 ? [{ gold }] : []), ...loot.map((l) => ({ item: l.item, qty: l.qty }))]) {
+            await ctx.bus.publish(
+              {
+                type: "grant.requested",
+                guildId,
+                actor: { kind: "player", id: player },
+                subject: { kind: "npc", id: ctx.bot },
+                payload: spec,
+                correlationId: evt?.correlationId ?? null,
+              },
+              tx,
+            );
+          }
+          await ctx.bus.publish(
+            {
+              type: "combat.resolved",
+              guildId,
+              actor: { kind: "player", id: player },
+              subject: { kind: "npc", id: ctx.bot },
+              payload: { dispatch_id: dispatchId, encounter: encounter.id, outcome: result.outcome, seed },
+              correlationId: evt?.correlationId ?? null,
+            },
+            tx,
+          );
+          return true;
+        });
+        if (!committed) return;
+        ctx.logger.info({ dispatchId, outcome: result.outcome, rounds: result.rounds.length, seed }, "battle resolved");
+
+        // Presentation, after the fact and best-effort (§2.6 "delivered as a
+        // resolution log in a private thread").
         const embed = battleLogEmbed({
           encounter: encounter.name,
           outcome: result.outcome,
@@ -447,42 +507,7 @@ export function combatCapability(): Capability {
           seed,
         });
         const threadId = await deliverLog(ctx, player, encounter.name, embed);
-
-        await ctx.sql`
-          INSERT INTO battles (id, dispatch_id, owner_id, encounter_id, seed, outcome, rounds, loot, thread_id)
-          VALUES (${`btl_${ulid()}`}, ${dispatchId}, ${player}, ${encounter.id}, ${seed}, ${result.outcome},
-                  ${jsonParam(ctx.sql, result.rounds)}, ${jsonParam(ctx.sql, loot)}, ${threadId})
-        `;
-
-        // Spoils go through `trade` (invariant #2): this capability computes the
-        // reward but never writes the ledger. One request per component, so each
-        // lands as its own auditable ledger row.
-        for (const spec of [...(gold > 0 ? [{ gold }] : []), ...loot.map((l) => ({ item: l.item, qty: l.qty }))]) {
-          await ctx.bus.publish({
-            type: "grant.requested",
-            guildId,
-            actor: { kind: "player", id: player },
-            subject: { kind: "npc", id: ctx.bot },
-            payload: spec,
-            correlationId: evt?.correlationId ?? null,
-          });
-        }
-
-        // Start the journey home. The return leg reuses the outbound time.
-        const returnsAt = new Date(Date.now() + Number(encounter.travel_ms));
-        await ctx.sql`
-          UPDATE dispatches SET status = 'returning', returns_at = ${returnsAt.toISOString()}
-          WHERE id = ${dispatchId}
-        `;
-        ctx.logger.info({ dispatchId, outcome: result.outcome, rounds: result.rounds.length, seed }, "battle resolved");
-        await ctx.bus.publish({
-          type: "combat.resolved",
-          guildId,
-          actor: { kind: "player", id: player },
-          subject: { kind: "npc", id: ctx.bot },
-          payload: { dispatch_id: dispatchId, encounter: encounter.id, outcome: result.outcome, seed },
-          correlationId: evt?.correlationId ?? null,
-        });
+        if (threadId) await ctx.sql`UPDATE battles SET thread_id = ${threadId} WHERE id = ${battleId}`;
       },
 
       /**

@@ -17,7 +17,7 @@
  * an existing transaction (transactional emit — an announced trade is a
  * committed trade) can do so; the ledger's trade helper emits directly in SQL.
  */
-import type { Sql } from "@empire/db";
+import type { Sql, TxSql } from "@empire/db";
 import { jsonParam } from "@empire/db";
 import { ulid } from "ulid";
 import type { Logger } from "../logger.js";
@@ -108,8 +108,9 @@ export class EventBus {
    * If `tx` is supplied the write happens inside that transaction (transactional
    * emit); otherwise it uses the bus connection.
    */
-  async publish(input: PublishInput, tx?: Sql): Promise<BusEvent> {
-    const runner = tx ?? this.sql;
+  async publish(input: PublishInput, tx?: Sql | TxSql): Promise<BusEvent> {
+    // Only ever tag-called here, which both handles support identically.
+    const runner = (tx ?? this.sql) as Sql;
     const eventId = input.eventId ?? `evt_${ulid()}`;
     const rows = await runner<Row[]>`
       INSERT INTO events (event_id, type, guild_id, actor_kind, actor_id, subject_kind, subject_id, payload, correlation_id)

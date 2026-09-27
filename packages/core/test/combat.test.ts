@@ -36,8 +36,12 @@ interface World {
   pending?: { id: string; qty: number; unit_type: string } | null;
   /** Row the guarded muster completion UPDATE returns (null = already done). */
   musterCompleteRow?: Record<string, unknown> | null;
-  /** Row the guarded travelling→resolving UPDATE returns (null = redelivered). */
+  /** The travelling battle dispatch combat.resolve reads (null = already resolved). */
   resolveRow?: Record<string, unknown> | null;
+  /** When set, the resolve transaction's claim finds no row — another pass won. */
+  claimLost?: boolean;
+  /** When set, the battles INSERT throws inside the resolve transaction. */
+  failBattleInsert?: boolean;
   /** Row the guarded returning→done UPDATE returns (null = redelivered). */
   returnRow?: Record<string, unknown> | null;
   published: Published[];
@@ -82,10 +86,10 @@ function makeCtx(world: World): CapabilityContext {
             : [],
       );
     if (q.includes("kind = 'troop'") && q.includes("status = 'idle'")) return Promise.resolve(world.troops);
-    if (q.includes("UPDATE dispatches SET status = 'resolving'")) {
-      // Stand in for Postgres applying the WHERE clause: the claim only lands if
-      // the statement's own mission-kind predicate matches the row's kind. That
-      // makes the guard testable instead of merely asserting on query text.
+    if (q.includes("FROM dispatches") && q.includes("status = 'travelling'")) {
+      // Stand in for Postgres applying the WHERE clause: the read only finds the
+      // row if the statement's own mission-kind predicate matches the row's kind.
+      // That makes the guard testable instead of merely asserting on query text.
       const missionKind = (world.resolveRow?.mission as { kind?: string } | undefined)?.kind ?? "battle";
       if (q.includes("mission->>'kind' = 'battle'") && missionKind !== "battle") return Promise.resolve([]);
       return Promise.resolve(world.resolveRow ? [world.resolveRow] : []);
@@ -96,21 +100,35 @@ function makeCtx(world: World): CapabilityContext {
     if (q.includes("FROM land_plots")) return Promise.resolve([{ text_channel_id: world.landChannel }]);
     return Promise.resolve([]);
   };
+  // Events published with a transaction are held until it commits, and dropped
+  // if it throws — the transactional-emit contract the real bus gives.
+  let pendingTx: Published[] | null = null;
   (sql as unknown as { begin: unknown }).begin = async (fn: (tx: unknown) => Promise<unknown>) => {
     const tx = (strings: TemplateStringsArray): Promise<unknown[]> => {
       const q = strings.join("?");
+      world.queries.push(q);
       if (q.includes("INSERT INTO players")) return Promise.resolve(world.playerExists ? [] : [{ discord_user_id: "u1" }]);
+      if (q.includes("UPDATE dispatches SET status = 'returning'") && q.includes("RETURNING id"))
+        return Promise.resolve(world.claimLost ? [] : [{ id: "dsp_1" }]);
+      if (q.includes("INSERT INTO battles") && world.failBattleInsert) return Promise.reject(new Error("insert failed"));
       return Promise.resolve([]);
     };
-    return fn(tx);
+    pendingTx = [];
+    try {
+      const out = await fn(tx);
+      world.published.push(...pendingTx);
+      return out;
+    } finally {
+      pendingTx = null;
+    }
   };
   const log = { info: () => {}, warn: () => {}, error: () => {}, child: () => log };
   return {
     bot: "warden",
     sql: sql as unknown as CapabilityContext["sql"],
     bus: {
-      publish: async (input: Published) => {
-        world.published.push(input);
+      publish: async (input: Published, tx?: unknown) => {
+        (tx && pendingTx ? pendingTx : world.published).push(input);
         return input as never;
       },
     } as unknown as CapabilityContext["bus"],
@@ -370,7 +388,7 @@ describe("combat.resolve", () => {
   });
 
   it("cannot be re-run by a redelivered tick", async () => {
-    // The guarded travelling→resolving UPDATE returns no row the second time.
+    // Once resolved the row is no longer travelling, so the read finds nothing.
     const world = baseWorld({ encounter: WOLVES, resolveRow: null });
     const ctx = makeCtx(world);
     await verb("combat.resolve", {}, evt({ type: "dispatch.arrived", payload: { dispatch_id: "dsp_1" } }), ctx);
@@ -378,6 +396,40 @@ describe("combat.resolve", () => {
     expect(world.published).toEqual([]);
     expect(world.posted).toEqual([]);
     expect(world.queries.some((q) => q.includes("INSERT INTO battles"))).toBe(false);
+  });
+
+  it("grants nothing when another pass claims the dispatch first", async () => {
+    // Two deliveries read the row as travelling; only one claim can land.
+    const world = baseWorld({ encounter: WOLVES, resolveRow: arrived(), claimLost: true });
+    const ctx = makeCtx(world);
+    await verb("combat.resolve", {}, evt({ type: "dispatch.arrived", payload: { dispatch_id: "dsp_1" } }), ctx);
+
+    expect(world.published).toEqual([]);
+    expect(world.posted).toEqual([]);
+    expect(world.queries.some((q) => q.includes("INSERT INTO battles"))).toBe(false);
+  });
+
+  it("pays out nothing when the transaction fails part-way (no stranded state)", async () => {
+    // The claim and the battle row commit together with the grants. If the
+    // insert throws, all of it rolls back: no grant escapes, no log is posted,
+    // and the dispatch is still travelling for the tick to re-fire.
+    const world = baseWorld({ encounter: WOLVES, resolveRow: arrived(), failBattleInsert: true });
+    const ctx = makeCtx(world);
+    await expect(
+      verb("combat.resolve", {}, evt({ type: "dispatch.arrived", payload: { dispatch_id: "dsp_1" } }), ctx),
+    ).rejects.toThrow("insert failed");
+
+    expect(world.published).toEqual([]);
+    expect(world.posted).toEqual([]);
+  });
+
+  it("never parks a dispatch in an intermediate state", async () => {
+    const world = baseWorld({ encounter: WOLVES, resolveRow: arrived() });
+    const ctx = makeCtx(world);
+    await verb("combat.resolve", {}, evt({ type: "dispatch.arrived", payload: { dispatch_id: "dsp_1" } }), ctx);
+    expect(world.queries.some((q) => q.includes("'resolving'"))).toBe(false);
+    // The thread id is back-filled once the log has been delivered.
+    expect(world.queries.some((q) => q.includes("UPDATE battles SET thread_id"))).toBe(true);
   });
 
   it("falls back to the land channel when a thread can't be opened", async () => {
