@@ -96,7 +96,7 @@ export const players = pgTable("players", {
   positionGuildId: text("position_guild_id"),
   positionDistrictId: text("position_district_id"),
   tier: integer("tier").notNull().default(1),
-  // { channel: "land" | "dm", dm: boolean } — see notify capability (§5.9).
+  // { target: "land" | "dm", dm: boolean } — see notify capability (§5.9).
   notificationPrefs: jsonb("notification_prefs").notNull().default({ target: "land", dm: false }),
   flags: jsonb("flags").notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

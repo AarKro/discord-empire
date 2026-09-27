@@ -61,7 +61,6 @@ export class Gateway {
         GatewayIntentBits.GuildMembers, // gatekeeper: guildMemberAdd (PRIVILEGED — enable in the dev portal)
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildVoiceStates,
-        GatewayIntentBits.GuildMessageTyping, // presence.watch: typingStart
         GatewayIntentBits.MessageContent,
       ],
     });
