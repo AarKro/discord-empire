@@ -16,6 +16,7 @@ import { MUSTER_PERMIT_ITEM } from "../src/world/items.js";
 import { MUSTER_COST } from "../src/combat/types.js";
 import type { BusEvent } from "../src/events/bus.js";
 import type { CapabilityContext } from "../src/runtime/capability.js";
+import type { GearCatalog } from "@empire/content-schemas";
 
 interface Published {
   type: string;
@@ -51,6 +52,10 @@ interface World {
   posted: { target: string; hasEmbed: boolean }[];
   threadCreated: boolean;
   landChannel: string | null;
+  /** Gear item ids the player still holds (§2.6 — only held gear fights). */
+  heldGear?: string[];
+  /** The force snapshot written onto the dispatch row. */
+  sentForce?: { champion?: { atk: number; def: number; hp: number; gear?: string[] } };
 }
 
 function baseWorld(over: Partial<World> = {}): World {
@@ -70,9 +75,17 @@ function baseWorld(over: Partial<World> = {}): World {
 }
 
 function makeCtx(world: World): CapabilityContext {
-  const sql = (strings: TemplateStringsArray): Promise<unknown[]> => {
+  const sql = (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> => {
     const q = strings.join("?");
     world.queries.push(q);
+    if (q.includes("qty > 0 AND item_id = ANY(")) {
+      const wanted = values[1] as string[];
+      return Promise.resolve((world.heldGear ?? []).filter((id) => wanted.includes(id)).map((item_id) => ({ item_id })));
+    }
+    if (q.includes("INSERT INTO dispatches")) {
+      world.sentForce = JSON.parse(String(values[3]));
+      return Promise.resolve([]);
+    }
     if (q.includes("FROM encounter_catalog")) return Promise.resolve(world.encounter ? [world.encounter] : []);
     if (q.includes("FROM build_queue")) return Promise.resolve(world.barracks ? [{ one: 1 }] : []);
     if (q.includes("INSERT INTO units") && q.includes("champion")) return Promise.resolve([world.champion]);
@@ -162,7 +175,13 @@ function evt(over: Partial<BusEvent> & { type: string }): BusEvent {
   };
 }
 
-const cap = combatCapability();
+const GEAR: GearCatalog = {
+  gear: [
+    { item_id: "iron_sword", name: "Iron Sword", slot: "weapon", atk: 6, def: 0, hp: 0, recipe: { gold: 20, goods: { iron_tools: 2 }, requires: "forge" } },
+    { item_id: "iron_mail", name: "Iron Mail", slot: "armor", atk: 0, def: 8, hp: 30, recipe: { gold: 40, goods: { iron_tools: 3 }, requires: "forge" } },
+  ],
+};
+const cap = combatCapability(undefined, GEAR);
 function verb(name: string, args: Record<string, unknown>, e: BusEvent, ctx: CapabilityContext) {
   return cap.actions[name]!(args, e, ctx);
 }
@@ -256,6 +275,39 @@ describe("muster.enqueue / complete", () => {
     const ctx = makeCtx(world);
     await verb("muster.complete", {}, evt({ type: "muster.completed", payload: { unit_id: "unit_1" } }), ctx);
     expect(world.published).toEqual([]);
+  });
+});
+
+describe("dispatch.request with gear (§2.6)", () => {
+  it("fights with the gear the champion wears and still holds", async () => {
+    const world = baseWorld({
+      encounter: WOLVES,
+      champion: { ...baseWorld().champion, equipment: { weapon: "iron_sword", armor: "iron_mail" } },
+      heldGear: ["iron_sword", "iron_mail"],
+    });
+    await verb("dispatch.request", {}, evt({ type: "dispatch.requested", payload: { encounter: "moor_wolves" } }), makeCtx(world));
+    // Tier-1 base 12/8/60 + sword (+6 atk) + mail (+8 def, +30 hp).
+    expect(world.sentForce!.champion).toMatchObject({ atk: 18, def: 16, hp: 90, gear: ["Iron Sword", "Iron Mail"] });
+  });
+
+  it("drops gear sold since equipping, says so, and fights without it", async () => {
+    const world = baseWorld({
+      encounter: WOLVES,
+      champion: { ...baseWorld().champion, equipment: { weapon: "iron_sword", armor: "iron_mail" } },
+      heldGear: ["iron_mail"],
+    });
+    await verb("dispatch.request", {}, evt({ type: "dispatch.requested", payload: { encounter: "moor_wolves" } }), makeCtx(world));
+    expect(world.sentForce!.champion).toMatchObject({ atk: 12, def: 16, hp: 90, gear: ["Iron Mail"] });
+    expect(String(world.published.find((p) => p.type === "dispatch.sent")!.payload!.message)).toContain("goes without the Iron Sword");
+    // The loadout is corrected, so /army stops promising the sword.
+    expect(world.queries.some((q) => q.includes("UPDATE units SET equipment ="))).toBe(true);
+  });
+
+  it("an unequipped champion fights on its tier stats alone", async () => {
+    const world = baseWorld({ encounter: WOLVES });
+    await verb("dispatch.request", {}, evt({ type: "dispatch.requested", payload: { encounter: "moor_wolves" } }), makeCtx(world));
+    expect(world.sentForce!.champion).toMatchObject({ atk: 12, def: 8, hp: 60 });
+    expect(world.sentForce!.champion!.gear).toBeUndefined();
   });
 });
 

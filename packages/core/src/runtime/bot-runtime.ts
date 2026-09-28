@@ -142,7 +142,10 @@ const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
   gatekeeper: (deps) => gatekeeperCapability(required(deps, Continents, "continents", "gatekeeper")),
   market: () => marketCapability(),
   auction: () => auctionCapability(),
-  combat: (deps) => combatCapability(required(deps, Encounters, "encounters", "combat")),
+  combat: (deps) => {
+    const gearRel = deps.manifest.content?.gear;
+    return combatCapability(required(deps, Encounters, "encounters", "combat"), gearRel ? deps.load(GearCatalog, gearRel) : undefined);
+  },
   caravan: (deps) =>
     caravanCapability(required(deps, Shop, "shop", "caravan"), required(deps, Continents, "continents", "caravan")),
   riddle: (deps) => riddleCapability(required(deps, Riddles, "riddles", "riddle")),

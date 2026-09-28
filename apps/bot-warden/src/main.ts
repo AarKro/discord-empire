@@ -12,7 +12,18 @@
  * bodies are live SQL and so are inherently code, not YAML.
  */
 import { join } from "node:path";
-import { runBot, rootLogger, UNIT_TYPES, MUSTER_COST, MAX_MUSTER, MUSTER_PERMIT_ITEM, type CommandDef } from "@empire/core";
+import {
+  runBot,
+  rootLogger,
+  UNIT_TYPES,
+  MUSTER_COST,
+  MAX_MUSTER,
+  MUSTER_PERMIT_ITEM,
+  equipGear,
+  unequipSlot,
+  championSummary,
+  type CommandDef,
+} from "@empire/core";
 import { loadContentFile, GearCatalog, type Gear } from "@empire/content-schemas";
 
 /** Champion gear (§2.6) — the same file the warden's `trade` crafts from. */
@@ -50,8 +61,10 @@ const commands: CommandDef[] = [
     description: "Send your force against a foe",
     route: "dispatch.requested",
     options: [{ name: "encounter", description: "What to march on", autocomplete: true, required: true }],
-    autocomplete: async (ctx, typed) => {
+    autocomplete: async (ctx, typed, userId) => {
       const like = `%${typed.toLowerCase()}%`;
+      const [player] = await ctx.sql<{ tier: number }[]>`SELECT tier FROM players WHERE discord_user_id = ${userId}`;
+      const tier = player?.tier ?? 1;
       const rows = await ctx.sql<{ id: string; name: string; tier: number; unit_type: string }[]>`
         SELECT id, name, tier, unit_type FROM encounter_catalog
         WHERE lower(name) LIKE ${like} OR lower(id) LIKE ${like}
@@ -61,7 +74,12 @@ const commands: CommandDef[] = [
       // The type is surfaced in the choice label on purpose: §2.6 puts the skill
       // in composition, which a player can only exercise if they can see what
       // they're marching against before they commit.
-      return rows.map((r) => ({ name: `${r.name} — tier ${r.tier}, ${r.unit_type}`, value: r.id }));
+      // Above your tier is allowed — losing costs only the loot chance (§2.6) —
+      // but flagged, so a gamble is a choice rather than a surprise.
+      return rows.map((r) => ({
+        name: `${r.name} — tier ${r.tier}, ${r.unit_type}${r.tier > tier ? " ⚠ beyond you" : ""}`,
+        value: r.id,
+      }));
     },
   },
   {
@@ -105,6 +123,36 @@ const commands: CommandDef[] = [
     },
   },
   {
+    // §2.6: wear a piece of gear you hold. A choice, not custody — the gear
+    // stays in your packs, and only what you still hold goes into a fight.
+    name: "equip",
+    description: "Put a piece of gear on your champion",
+    route: "",
+    options: [{ name: "gear", description: "What to wear", autocomplete: true, required: true }],
+    autocomplete: async (ctx, typed, userId) => {
+      const ids = gearCatalog.gear.map((g) => g.item_id);
+      const held = await ctx.sql<{ item_id: string }[]>`
+        SELECT item_id FROM inventories
+        WHERE owner_kind = 'player' AND owner_id = ${userId} AND qty > 0 AND item_id = ANY(${ids})
+      `;
+      const needle = typed.toLowerCase();
+      return held
+        .map((r) => gearCatalog.gear.find((g) => g.item_id === r.item_id)!)
+        .filter((g) => g.name.toLowerCase().includes(needle))
+        .map((g) => ({ name: `${g.name} (${g.slot}) +${g.atk} atk +${g.def} def +${g.hp} hp`, value: g.item_id }));
+    },
+    resolve: async (ctx, { userId, options }) => equipGear(ctx.sql, userId, gearCatalog, String(options.gear ?? "")),
+  },
+  {
+    name: "unequip",
+    description: "Take a piece of gear off your champion",
+    route: "",
+    options: [{ name: "slot", description: "weapon, armor or trinket", autocomplete: true, required: true }],
+    autocomplete: (_ctx, typed) =>
+      Promise.resolve(["weapon", "armor", "trinket"].filter((s) => s.includes(typed.toLowerCase())).map((s) => ({ name: s, value: s }))),
+    resolve: async (ctx, { userId, options }) => unequipSlot(ctx.sql, userId, String(options.slot ?? "")),
+  },
+  {
     name: "army",
     description: "Your standing force and anything afield",
     route: "",
@@ -116,11 +164,18 @@ const commands: CommandDef[] = [
       `;
       if (units.length === 0) return "You command no one yet. Build a barracks, then `/muster`.";
 
-      const lines = units.map((u) => {
+      // The champion's line carries its level, geared stats and loadout (§2.6).
+      const champion = await championSummary(ctx.sql, userId, gearCatalog);
+      const lines = units.filter((u) => u.kind !== "champion" || !champion).map((u) => {
         const what = u.kind === "champion" ? "Champion" : `${u.qty}× ${u.unit_type}`;
         const where = u.status === "dispatched" ? " _(afield)_" : u.status === "training" ? " _(drilling)_" : "";
         return `• ${what}${where}`;
       });
+
+      if (champion) {
+        const afieldChampion = units.some((u) => u.kind === "champion" && u.status === "dispatched");
+        lines.unshift(champion + (afieldChampion ? " _(afield)_" : ""));
+      }
 
       const afield = await ctx.sql<{ encounter: string; status: string }[]>`
         SELECT mission->>'encounter_id' AS encounter, status FROM dispatches

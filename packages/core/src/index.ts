@@ -113,6 +113,9 @@ export {
   MUSTER_MS_PER_TROOP,
   MAX_MUSTER,
   BARRACKS_BLUEPRINT,
+  equipGear,
+  unequipSlot,
+  championSummary,
 } from "./capabilities/combat.js";
 export { caravanCapability, CARAVAN_MISSION, CARAVAN_TRAVEL_MS } from "./capabilities/caravan.js";
 

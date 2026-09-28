@@ -41,6 +41,9 @@ export interface ForceChampion extends StatBlock {
   unitId?: string;
   unitType: UnitType;
   level: number;
+  /** Names of the gear worn into this fight (§2.6) — its stats are already in
+   *  atk/def/hp; kept so the log and any replay say what was carried. */
+  gear?: string[];
 }
 
 export interface Force {

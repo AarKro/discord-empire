@@ -369,6 +369,10 @@ export const units = pgTable(
     // The originating workflow instance's correlation, so concurrent musters
     // settle onto the right row (mirrors build_queue / research).
     correlationId: text("correlation_id"),
+    // The champion's loadout (§2.6): { weapon?, armor?, trinket? } → gear item id.
+    // A CHOICE, not custody — the gear stays in the player's inventory, and only
+    // pieces still held count when a force is dispatched. Always {} for troops.
+    equipment: jsonb("equipment").notNull().default({}),
   },
   (t) => ({
     // Every muster guard and force assembly reads a player's roster by status.

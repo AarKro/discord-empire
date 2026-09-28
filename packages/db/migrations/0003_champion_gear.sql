@@ -1,0 +1,1 @@
+ALTER TABLE "units" ADD COLUMN "equipment" jsonb DEFAULT '{}'::jsonb NOT NULL;

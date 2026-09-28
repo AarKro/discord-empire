@@ -86,3 +86,16 @@ export function championStats(level: number): StatBlock {
     hp: 60 + 20 * (level - 1),
   };
 }
+
+/** The bonus a piece of gear adds — its slice of the gear catalog (§2.6). */
+export type GearBonus = StatBlock;
+
+/**
+ * The champion's fighting block with gear on (§2.6: power flows from
+ * "equipment and blueprints (champion gear)"). Flat, additive bonuses on top of
+ * the tier-derived base — simple enough that a player can do the sum in their
+ * head when choosing what to wear.
+ */
+export function championWithGear(base: StatBlock, gear: readonly GearBonus[]): StatBlock {
+  return gear.reduce((acc, g) => ({ atk: acc.atk + g.atk, def: acc.def + g.def, hp: acc.hp + g.hp }), { ...base });
+}

@@ -39,9 +39,12 @@ import { returnDispatch } from "../world/dispatch.js";
 import { MUSTER_PERMIT_ITEM } from "../world/items.js";
 import { battleLogEmbed } from "../ui/kit.js";
 import { resolveBattle, rollLoot, type Force, type ForceTroop, type LootEntry } from "../combat/resolve.js";
-import { BASE_STATS, MUSTER_COST, championStats, isUnitType, type UnitType } from "../combat/types.js";
+import { BASE_STATS, MUSTER_COST, championStats, championWithGear, isUnitType, type UnitType } from "../combat/types.js";
 import { ensurePlayer, jsonParam, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
-import type { Encounters } from "@empire/content-schemas";
+import type { Encounters, Gear, GearCatalog, GearSlot } from "@empire/content-schemas";
+
+/** The champion's three gear slots (§2.6). */
+const GEAR_SLOTS: readonly GearSlot[] = ["weapon", "armor", "trinket"];
 import { syncEncounters } from "../world/catalogs.js";
 
 /** Training time per troop before tier scaling (§2.5 idle pacing). */
@@ -100,6 +103,8 @@ interface UnitRow {
   def: number;
   hp: number;
   status: string;
+  /** Champion loadout: slot → gear item id (§2.6). Always {} for troops. */
+  equipment?: Partial<Record<GearSlot, string>>;
 }
 
 /**
@@ -109,17 +114,102 @@ interface UnitRow {
  * from progression, and deriving it means there is no second place for a
  * champion's strength to drift out of sync with the player's.
  */
-async function ensureChampion(ctx: CapabilityContext, playerId: string, guildId: string | null): Promise<UnitRow> {
-  const tier = await playerTier(ctx.sql, playerId);
+async function ensureChampion(sql: Sql, playerId: string, guildId: string | null): Promise<UnitRow> {
+  const tier = await playerTier(sql, playerId);
   const stats = championStats(tier);
-  const [row] = await ctx.sql<UnitRow[]>`
+  const [row] = await sql<UnitRow[]>`
     INSERT INTO units (id, owner_id, kind, unit_type, qty, atk, def, hp, status, position_guild_id)
     VALUES (${`champion_${playerId}`}, ${playerId}, 'champion', ${CHAMPION_TYPE}, 1,
             ${stats.atk}, ${stats.def}, ${stats.hp}, 'idle', ${guildId})
     ON CONFLICT (id) DO UPDATE SET atk = ${stats.atk}, def = ${stats.def}, hp = ${stats.hp}
-    RETURNING id, kind, unit_type, qty, atk, def, hp, status
+    RETURNING id, kind, unit_type, qty, atk, def, hp, status, equipment
   `;
   return row!;
+}
+
+/**
+ * Split a champion's loadout into the pieces that will fight and the ones that
+ * won't (§2.6). Equipping is a choice, not custody — the gear stays in the
+ * player's packs, where they may since have sold or traded it — so only pieces
+ * still HELD count, and anything unknown to the catalog (a retired recipe) is
+ * set aside rather than trusted.
+ */
+async function wornGear(
+  sql: Sql,
+  playerId: string,
+  equipment: UnitRow["equipment"],
+  catalog: GearCatalog | undefined,
+): Promise<{ worn: Gear[]; missing: string[] }> {
+  const ids = Object.values(equipment ?? {}).filter((id): id is string => Boolean(id));
+  if (ids.length === 0) return { worn: [], missing: [] };
+  const held = new Set(
+    (
+      await sql<{ item_id: string }[]>`
+        SELECT item_id FROM inventories
+        WHERE owner_kind = 'player' AND owner_id = ${playerId} AND qty > 0 AND item_id = ANY(${ids})
+      `
+    ).map((r) => r.item_id),
+  );
+  const worn: Gear[] = [];
+  const missing: string[] = [];
+  for (const id of ids) {
+    const gear = catalog?.gear.find((g) => g.item_id === id);
+    if (gear && held.has(id)) worn.push(gear);
+    else missing.push(gear?.name ?? id);
+  }
+  return { worn, missing };
+}
+
+/**
+ * /equip (§2.6): put a piece of gear you hold on your champion, in its slot —
+ * replacing whatever was there. Records a choice only; nothing moves in the
+ * ledger, so it answers directly rather than round-tripping through `trade`.
+ */
+export async function equipGear(sql: Sql, playerId: string, catalog: GearCatalog, itemId: string): Promise<string> {
+  const gear = catalog.gear.find((g) => g.item_id === itemId);
+  if (!gear) return "That's not something a champion can wear.";
+  const [held] = await sql<{ qty: number }[]>`
+    SELECT qty FROM inventories WHERE owner_kind = 'player' AND owner_id = ${playerId} AND item_id = ${itemId} AND qty > 0
+  `;
+  if (!held) return `You don't hold the ${gear.name} — \`/craft\` one at your forge.`;
+  const champion = await ensureChampion(sql, playerId, null);
+  const previous = champion.equipment?.[gear.slot];
+  await sql`
+    UPDATE units SET equipment = equipment || ${jsonParam(sql, { [gear.slot]: gear.item_id })}::jsonb
+    WHERE id = ${champion.id}
+  `;
+  const swapped = previous && previous !== gear.item_id ? ` (in place of the ${catalog.gear.find((g) => g.item_id === previous)?.name ?? previous})` : "";
+  return `Your champion takes up the **${gear.name}**${swapped}.`;
+}
+
+/** /unequip (§2.6): empty one slot. */
+export async function unequipSlot(sql: Sql, playerId: string, slot: string): Promise<string> {
+  if (!(GEAR_SLOTS as readonly string[]).includes(slot)) return "Name a slot: weapon, armor or trinket.";
+  const [row] = await sql<{ id: string }[]>`
+    UPDATE units SET equipment = equipment - ${slot}
+    WHERE id = ${`champion_${playerId}`} AND equipment ? ${slot}
+    RETURNING id
+  `;
+  return row ? `Your champion sets aside their ${slot}.` : `Your champion has nothing in that slot.`;
+}
+
+/**
+ * The champion's line for /army: level, the stats they would fight with right
+ * now, and what they wear (flagging anything no longer held).
+ */
+export async function championSummary(sql: Sql, playerId: string, catalog: GearCatalog): Promise<string | null> {
+  const [row] = await sql<UnitRow[]>`
+    SELECT id, kind, unit_type, qty, atk, def, hp, status, equipment FROM units WHERE id = ${`champion_${playerId}`}
+  `;
+  if (!row) return null;
+  const tier = await playerTier(sql, playerId);
+  const { worn, missing } = await wornGear(sql, playerId, row.equipment, catalog);
+  const stats = championWithGear(championStats(tier), worn);
+  const gear = worn.map((g) => g.name).concat(missing.map((m) => `~~${m}~~ (no longer held)`));
+  return (
+    `**Champion** (lvl ${tier}) — ${stats.atk} atk · ${stats.def} def · ${stats.hp} hp` +
+    (gear.length > 0 ? `\n  wearing: ${gear.join(", ")}` : "\n  wearing nothing — `/craft` some gear")
+  );
 }
 
 /** A unit row as the resolver wants it. */
@@ -127,15 +217,21 @@ function toTroop(row: UnitRow): ForceTroop {
   return { unitId: row.id, unitType: row.unit_type, qty: row.qty, atk: row.atk, def: row.def, hp: row.hp };
 }
 
-/** "6× infantry" / "Champion (infantry)" lines for the resolution-log embed. */
+/** "6× infantry" / "Champion (infantry, lvl 2) with Iron Sword" lines for the resolution-log embed. */
 function describeForce(force: Force): string[] {
   const lines = force.troops.map((t) => `${t.qty}× ${t.unitType}`);
-  if (force.champion) lines.unshift(`Champion (${force.champion.unitType}, lvl ${force.champion.level})`);
+  if (force.champion) {
+    const gear = force.champion.gear?.length ? ` with ${force.champion.gear.join(", ")}` : "";
+    lines.unshift(`Champion (${force.champion.unitType}, lvl ${force.champion.level})${gear}`);
+  }
   return lines;
 }
 
-/** `bestiary` is the encounter YAML (§1.3); when given, it is synced on boot. */
-export function combatCapability(bestiary?: Encounters): Capability {
+/**
+ * `bestiary` is the encounter YAML (§1.3), synced on boot when given; `gear` is
+ * the champion gear catalog (§2.6), whose worn pieces add to the champion.
+ */
+export function combatCapability(bestiary?: Encounters, gear?: GearCatalog): Capability {
   /**
    * Deliver the resolution log to a private thread off the player's land
    * channel (§2.6 "delivered as a resolution log in a private thread").
@@ -335,7 +431,7 @@ export function combatCapability(bestiary?: Encounters): Capability {
 
         // The champion always rides along, so its status is a reliable proxy for
         // "this player already has a dispatch in flight".
-        const champion = await ensureChampion(ctx, player, homeGuildId);
+        const champion = await ensureChampion(ctx.sql, player, homeGuildId);
         if (champion.status === "dispatched") {
           await publishReply(ctx, "dispatch.rejected", { guildId, correlationId }, player, "Your champion is already afield. Await their return.");
           throw new Error("champion already dispatched");
@@ -348,15 +444,25 @@ export function combatCapability(bestiary?: Encounters): Capability {
         `;
 
         const tier = await playerTier(ctx.sql, player);
+        // §2.6 gear: the champion fights with what they wear AND still hold. A
+        // piece sold since equipping is dropped from the loadout for good (so
+        // /army stops promising it) and the player is told as the force leaves.
+        const { worn, missing } = await wornGear(ctx.sql, player, champion.equipment, gear);
+        if (missing.length > 0) {
+          const keep = Object.fromEntries(
+            Object.entries(champion.equipment ?? {}).filter(([, id]) => worn.some((g) => g.item_id === id)),
+          );
+          await ctx.sql`UPDATE units SET equipment = ${jsonParam(ctx.sql, keep)}::jsonb WHERE id = ${champion.id}`;
+        }
+        const geared = championWithGear({ atk: champion.atk, def: champion.def, hp: champion.hp }, worn);
         const force: Force = {
           troops: troops.map(toTroop),
           champion: {
             unitId: champion.id,
             unitType: champion.unit_type,
             level: tier,
-            atk: champion.atk,
-            def: champion.def,
-            hp: champion.hp,
+            ...geared,
+            ...(worn.length > 0 ? { gear: worn.map((g) => g.name) } : {}),
           },
         };
 
@@ -386,7 +492,9 @@ export function combatCapability(bestiary?: Encounters): Capability {
             dispatch_id: dispatchId,
             encounter: encounter.id,
             arrives_at: arrivesAt.toISOString(),
-            message: `Your force marches on **${encounter.name}** — they arrive in ~${mins}m.`,
+            message:
+              `Your force marches on **${encounter.name}** — they arrive in ~${mins}m.` +
+              (missing.length > 0 ? ` Your champion goes without the ${missing.join(" and ")} — you no longer hold it.` : ""),
           },
           correlationId,
         });
