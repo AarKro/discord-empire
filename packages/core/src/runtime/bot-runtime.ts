@@ -27,6 +27,7 @@ import {
   ResearchTree,
   Encounters,
   Tiers,
+  GearCatalog,
 } from "@empire/content-schemas";
 import { openDb } from "@empire/db";
 import { rootLogger, type Logger } from "../logger.js";
@@ -67,7 +68,7 @@ export interface CapabilityConfigs {
 }
 
 /** The manifest `content` keys that name a single loadable file. */
-type ContentKey = "shop" | "schedule" | "continents" | "riddles" | "blueprints" | "research" | "encounters" | "tiers";
+type ContentKey = "shop" | "schedule" | "continents" | "riddles" | "blueprints" | "research" | "encounters" | "tiers" | "gear";
 
 /**
  * Loads + validates one content file. Typed off `loadContentFile` itself so the
@@ -105,10 +106,13 @@ function required<S extends Parameters<typeof loadContentFile>[0]>(
 const FACTORIES: Record<string, (deps: FactoryDeps) => Capability> = {
   trade: (deps) => {
     // A shop's prices are regional (§2.5), so a shop-backed trade also needs the
-    // continent ring. Cost-sink bots (permits, loot grants) pass neither.
+    // continent ring. Cost-sink bots (permits, loot grants) pass neither. A bot
+    // with a gear catalog (the warden) also settles /craft (§2.6).
+    const gearRel = deps.manifest.content?.gear;
+    const gear = gearRel ? deps.load(GearCatalog, gearRel) : undefined;
     const shop = deps.manifest.content?.shop;
-    if (!shop) return tradeCapability();
-    return tradeCapability(deps.load(Shop, shop), required(deps, Continents, "continents", "trade"));
+    if (!shop) return tradeCapability(undefined, undefined, gear);
+    return tradeCapability(deps.load(Shop, shop), required(deps, Continents, "continents", "trade"), gear);
   },
   topology: () => topologyCapability(),
   stall: (deps) => stallCapability(required(deps, Shop, "shop", "stall"), required(deps, Continents, "continents", "stall")),

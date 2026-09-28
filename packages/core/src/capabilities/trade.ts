@@ -21,10 +21,10 @@
  * combat loot roll being the first (§5.13). Both land on the same grantReward
  * writer, which is what keeps "only trade writes the ledger" literally true.
  */
-import { collectProduction, executeTrade, grantReward, sellToWorld, type Party, type Sql } from "@empire/db";
+import { collectProduction, craftItem, executeTrade, grantReward, sellToWorld, type Party, type Sql } from "@empire/db";
 import { accrued, msToNextUnit } from "../world/production.js";
 import { replyToCommand } from "../events/reply.js";
-import type { Continents, Shop, ShopItem } from "@empire/content-schemas";
+import type { Continents, GearCatalog, Shop, ShopItem } from "@empire/content-schemas";
 import type { Capability, CapabilityContext } from "../runtime/capability.js";
 import type { BusEvent } from "../events/bus.js";
 import { notForMe } from "../events/helpers.js";
@@ -153,6 +153,42 @@ export async function collectProductionFor(sql: Sql, playerId: string): Promise<
 }
 
 /**
+ * /craft (§2.6 champion gear): turn goods and gold into one piece of gear at the
+ * player's own FINISHED forge. Priced from the gear catalog, never the command's
+ * options; settled atomically by craftItem (any shortfall changes nothing) and
+ * answered on the command's correlation.
+ */
+async function craftGear(evt: BusEvent, ctx: CapabilityContext, catalog: GearCatalog): Promise<void> {
+  const player = evt.actor?.id;
+  if (!player) return;
+  const say = (message: string) => replyToCommand(ctx, evt, player, message);
+  const gear = catalog.gear.find((g) => g.item_id === payloadString(evt, "gear"));
+  if (!gear) {
+    await say("I don't know how to make that.");
+    return;
+  }
+  const [forge] = await ctx.sql<{ one: number }[]>`
+    SELECT 1 AS one FROM build_queue
+    WHERE owner_id = ${player} AND blueprint_id = ${gear.recipe.requires} AND status = 'completed' LIMIT 1
+  `;
+  if (!forge) {
+    await say(`That's ${gear.recipe.requires.replace(/_/g, " ")} work — you'll need one standing on your land first.`);
+    return;
+  }
+  const result = await craftItem(ctx.sql, { player, inputs: gear.recipe.goods, gold: gear.recipe.gold, output: gear.item_id });
+  if (!result.ok) {
+    await say(
+      result.reason === "insufficient_funds"
+        ? `The smithing costs ${gear.recipe.gold} gold, and your purse is lighter than that.`
+        : `You're short of ${itemLabel(result.item)} — it takes ${gear.recipe.goods[result.item]}.`,
+    );
+    return;
+  }
+  ctx.logger.info({ player, gear: gear.item_id }, "gear crafted");
+  await say(`The forge rings. You've made **${gear.name}** — \`/equip\` it to take it into battle.`);
+}
+
+/**
  * A player selling goods to this merchant (§2.5 buy-back), from the stall's
  * sell menu. Priced HERE — at this continent's regional price times the spread —
  * never from the event, so a forged or stale payload can't name its own price.
@@ -224,14 +260,15 @@ function regionallyPriced(item: ShopItem, region: string | null): ShopItem {
  * at the premium. Bots that carry `trade` purely as a cost sink (the Builder's
  * permits, the Warden's loot grants) pass neither.
  */
-export function tradeCapability(shop?: Shop, continents?: Continents): Capability {
+export function tradeCapability(shop?: Shop, continents?: Continents, gear?: GearCatalog): Capability {
   return {
     name: "trade",
     // trade.request is the dialogue-emitted purchase intent (§5.4 → §5.5);
     // grant.requested is a runtime-computed reward (§5.13 loot); sell.request
     // is a player selling goods back from the stall's sell menu (§2.5).
     // collect.requested is /collect banking building production (§2.4).
-    consumes: ["trade.request", "grant.requested", "sell.request", "collect.requested"],
+    // craft.requested is /craft making champion gear (§2.6).
+    consumes: ["trade.request", "grant.requested", "sell.request", "collect.requested", "craft.requested"],
     actions: {
       /**
        * `trade.execute` — the verb workflows and commands call. Never mutates
@@ -269,6 +306,12 @@ export function tradeCapability(shop?: Shop, continents?: Continents): Capabilit
           return;
         }
         await giveReward(ctx, player, evt.payload as RewardSpec, evt);
+        return;
+      }
+      if (evt.type === "craft.requested") {
+        if (notForMe(evt, ctx.bot)) return;
+        if (!gear) return;
+        await craftGear(evt, ctx, gear);
         return;
       }
       if (evt.type === "collect.requested") {

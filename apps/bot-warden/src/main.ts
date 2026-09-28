@@ -11,10 +11,21 @@
  * supplies the manifest and the slash-command defs, whose autocomplete/resolve
  * bodies are live SQL and so are inherently code, not YAML.
  */
+import { join } from "node:path";
 import { runBot, rootLogger, UNIT_TYPES, MUSTER_COST, MAX_MUSTER, MUSTER_PERMIT_ITEM, type CommandDef } from "@empire/core";
+import { loadContentFile, GearCatalog, type Gear } from "@empire/content-schemas";
 
-// §5.10, §5.13. /muster and /dispatch are round-trips (guards → queue/send →
-// ephemeral reply); /army answers directly from the DB.
+/** Champion gear (§2.6) — the same file the warden's `trade` crafts from. */
+const gearCatalog = loadContentFile(GearCatalog, join(process.env.CONTENT_DIR ?? "content", "catalog/gear.yaml"));
+
+/** "2 iron tools + 20g" — a recipe's cost as the autocomplete shows it. */
+function recipeCost(gear: Gear): string {
+  const goods = Object.entries(gear.recipe.goods).map(([item, qty]) => `${qty} ${item.replace(/_/g, " ")}`);
+  return [...goods, ...(gear.recipe.gold > 0 ? [`${gear.recipe.gold}g`] : [])].join(" + ");
+}
+
+// §5.10, §5.13. /muster, /dispatch and /craft are round-trips (guards →
+// queue/send/craft → ephemeral reply); /army answers directly from the DB.
 const commands: CommandDef[] = [
   {
     name: "muster",
@@ -51,6 +62,46 @@ const commands: CommandDef[] = [
       // in composition, which a player can only exercise if they can see what
       // they're marching against before they commit.
       return rows.map((r) => ({ name: `${r.name} — tier ${r.tier}, ${r.unit_type}`, value: r.id }));
+    },
+  },
+  {
+    // §2.6: gear is made, at your own finished forge, from goods and gold.
+    name: "craft",
+    description: "Forge a piece of champion gear",
+    route: "craft.requested",
+    options: [{ name: "gear", description: "What to make", autocomplete: true, required: true }],
+    // Every recipe, with its cost and whether you can make it right now — the
+    // `trade` capability re-checks all of it atomically when you commit.
+    autocomplete: async (ctx, typed, userId) => {
+      const built = new Set(
+        (
+          await ctx.sql<{ blueprint_id: string }[]>`
+            SELECT DISTINCT blueprint_id FROM build_queue WHERE owner_id = ${userId} AND status = 'completed'
+          `
+        ).map((r) => r.blueprint_id),
+      );
+      const held = new Map(
+        (
+          await ctx.sql<{ item_id: string; qty: number }[]>`
+            SELECT item_id, qty FROM inventories WHERE owner_kind = 'player' AND owner_id = ${userId}
+          `
+        ).map((r) => [r.item_id, r.qty]),
+      );
+      const [bal] = await ctx.sql<{ amount: number }[]>`
+        SELECT amount FROM balances WHERE owner_kind = 'player' AND owner_id = ${userId} AND currency = 'gold'
+      `;
+      const needle = typed.toLowerCase();
+      return gearCatalog.gear
+        .filter((g) => g.name.toLowerCase().includes(needle) || g.item_id.includes(needle))
+        .slice(0, 25)
+        .map((g) => {
+          const ready =
+            built.has(g.recipe.requires) &&
+            (bal?.amount ?? 0) >= g.recipe.gold &&
+            Object.entries(g.recipe.goods).every(([item, qty]) => (held.get(item) ?? 0) >= qty);
+          const mark = !built.has(g.recipe.requires) ? ` · needs a ${g.recipe.requires.replace(/_/g, " ")}` : ready ? " · ✓" : "";
+          return { name: `${g.name} (${g.slot}) — ${recipeCost(g)}${mark}`.slice(0, 100), value: g.item_id };
+        });
     },
   },
   {

@@ -14,6 +14,8 @@ export { collectProduction, PRODUCTION_REASON } from "./production.js";
 export type { CollectResult, ProducingBuilding, AccrueFn } from "./production.js";
 export { sellToWorld, BUYBACK_REASON } from "./buyback.js";
 export type { SellToWorldSpec, SellToWorldResult } from "./buyback.js";
+export { craftItem, CRAFT_REASON } from "./craft.js";
+export type { CraftSpec, CraftResult } from "./craft.js";
 export { readBalance } from "./balances.js";
 export { revertLedger } from "./revert.js";
 export type { RevertLedgerRequest, RevertLedgerResult, RevertSummary } from "./revert.js";

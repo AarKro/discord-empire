@@ -1,0 +1,44 @@
+# Champion gear (§2.6: the champion "equips items"; power flows from "equipment
+# and blueprints"). Made with /craft at your own FINISHED forge from goods and
+# gold, then worn with /equip — one piece per slot (weapon, armor, trinket).
+#
+# Bonuses add flat to the champion's tier-derived block (Tier 1: 12 atk, 8 def,
+# 60 hp). Gear is the second use for production and loot: iron tools come
+# from a forge, wolf pelts and rune shards from fights, heartwood and iron ore
+# from the merchants, arcane ingots from the one-of-a-kind Arcane Forge.
+# A content test checks every good here can actually be obtained.
+gear:
+  - item_id: iron_sword
+    name: "Iron Sword"
+    slot: weapon
+    atk: 6
+    recipe: { gold: 20, goods: { iron_tools: 2 }, requires: forge }
+  - item_id: rune_blade
+    name: "Rune Blade"
+    slot: weapon
+    atk: 14
+    recipe: { gold: 80, goods: { rune_shard: 2, iron_tools: 2 }, requires: forge }
+  - item_id: leather_armor
+    name: "Wolfhide Armour"
+    slot: armor
+    def: 4
+    hp: 20
+    recipe: { gold: 15, goods: { wolf_pelt: 4 }, requires: forge }
+  - item_id: iron_mail
+    name: "Iron Mail"
+    slot: armor
+    def: 8
+    hp: 30
+    recipe: { gold: 40, goods: { iron_tools: 3, iron_ore: 4 }, requires: forge }
+  - item_id: heartwood_totem
+    name: "Heartwood Totem"
+    slot: trinket
+    hp: 25
+    recipe: { gold: 10, goods: { heartwood: 3 }, requires: forge }
+  - item_id: arcane_aegis
+    name: "Arcane Aegis"
+    slot: trinket
+    atk: 4
+    def: 6
+    hp: 40
+    recipe: { gold: 120, goods: { arcane_ingot: 2, rune_shard: 1 }, requires: arcane_forge }

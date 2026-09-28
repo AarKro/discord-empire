@@ -22,6 +22,7 @@ import {
   ResearchTree,
   Encounters,
   Tiers,
+  GearCatalog,
 } from "../src/index.js";
 
 const CONTENT = join(dirname(fileURLToPath(import.meta.url)), "../../../content");
@@ -73,6 +74,27 @@ describe("shipped content validates against schemas", () => {
     expect(top.buildings).toBeLessThanOrEqual(buildable);
     expect(top.research).toBeLessThanOrEqual(research.research.length);
     expect(loadContentFile(Manifest, join(CONTENT, "manifests/builder.yaml")).content?.tiers).toBe("tiers.yaml");
+  });
+
+  it("gear can actually be crafted (§2.6)", () => {
+    const gear = loadContentFile(GearCatalog, join(CONTENT, "catalog/gear.yaml"));
+    const blueprints = loadContentFile(Blueprints, join(CONTENT, "catalog/blueprints.yaml"));
+    const encounters = loadContentFile(Encounters, join(CONTENT, "catalog/encounters.yaml"));
+    const shop = loadContentFile(Shop, join(CONTENT, "shops/aldric.yaml"));
+    // Everything a player can come by: production, loot, and the shelf.
+    const obtainable = new Set([
+      ...blueprints.blueprints.flatMap((b) => (b.produces ? [b.produces.item] : [])),
+      ...encounters.encounters.flatMap((e) => e.loot.map((l) => l.item)),
+      ...shop.items.map((i) => i.item_id),
+    ]);
+    const blueprintIds = new Set(blueprints.blueprints.map((b) => b.id));
+    for (const g of gear.gear) {
+      expect(blueprintIds, `${g.item_id} requires a real blueprint`).toContain(g.recipe.requires);
+      for (const good of Object.keys(g.recipe.goods)) expect(obtainable, `${g.item_id} needs ${good}`).toContain(good);
+    }
+    // One of each slot exists, so a full loadout is possible.
+    expect(new Set(gear.gear.map((g) => g.slot))).toEqual(new Set(["weapon", "armor", "trinket"]));
+    expect(loadContentFile(Manifest, join(CONTENT, "manifests/warden.yaml")).content?.gear).toBe("catalog/gear.yaml");
   });
 
   it("a tier ladder must run in order and never ask for less", () => {

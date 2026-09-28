@@ -42,6 +42,8 @@ export const Manifest = z.object({
       encounters: z.string().optional(),
       // Tier milestones (§2.5 progression) for the `progression` capability.
       tiers: z.string().optional(),
+      // Champion gear (§2.6) — what /craft makes and /equip wears.
+      gear: z.string().optional(),
     })
     .optional(),
 });
@@ -337,6 +339,36 @@ export type Encounter = z.infer<typeof Encounter>;
 
 export const Encounters = z.object({ encounters: z.array(Encounter).min(1) });
 export type Encounters = z.infer<typeof Encounters>;
+
+// --- Gear (§2.6 champion equipment) ------------------------------------------
+// Crafted at your own forge from goods and gold, worn by the champion for flat
+// stat bonuses. One piece per slot.
+export const GearSlot = z.enum(["weapon", "armor", "trinket"]);
+export type GearSlot = z.infer<typeof GearSlot>;
+
+export const Gear = z.object({
+  item_id: CatalogId,
+  name: z.string().min(1),
+  slot: GearSlot,
+  atk: z.number().int().nonnegative().default(0),
+  def: z.number().int().nonnegative().default(0),
+  hp: z.number().int().nonnegative().default(0),
+  recipe: z.object({
+    gold: z.number().int().nonnegative().default(0),
+    // item → qty consumed. At least one good: gear is made of something.
+    goods: z.record(z.string().min(1), z.number().int().positive()).refine((g) => Object.keys(g).length > 0, {
+      message: "a recipe needs at least one good",
+    }),
+    // The blueprint the player must have FINISHED to craft this (their forge).
+    requires: CatalogId,
+  }),
+});
+export type Gear = z.infer<typeof Gear>;
+
+export const GearCatalog = z
+  .object({ gear: z.array(Gear).min(1) })
+  .refine((c) => new Set(c.gear.map((g) => g.item_id)).size === c.gear.length, { message: "gear ids must be unique" });
+export type GearCatalog = z.infer<typeof GearCatalog>;
 
 // --- Tiers (§2.5 progression) -------------------------------------------------
 // What it takes to reach each tier above 1. A player's tier drives the idle
