@@ -11,14 +11,15 @@
  * bodies are live SQL and so are inherently code, not YAML.
  */
 import { join } from "node:path";
-import { runBot, rootLogger, HIDDEN_ITEMS, BUILD_PERMIT_ITEM, collectProductionFor, progressReport, buildableBlueprints, type CommandDef } from "@empire/core";
+import { runBot, rootLogger, HIDDEN_ITEMS, BUILD_PERMIT_ITEM, progressReport, buildableBlueprints, type CommandDef } from "@empire/core";
 import { loadContentFile, Tiers } from "@empire/content-schemas";
 
 /** Tier milestones (§2.5), for /progress. The same file `progression` promotes by. */
 const tiers = loadContentFile(Tiers, join(process.env.CONTENT_DIR ?? "content", "tiers.yaml"));
 
 // §5.10, §10 Builder. /build is a round-trip (guards → trade → queue → ephemeral
-// reply); /collect, /balance and /inventory answer directly from the DB.
+// reply), as is /collect (trade banks it); /balance and /inventory answer
+// directly from the DB.
 const commands: CommandDef[] = [
   {
     name: "build",
@@ -37,11 +38,11 @@ const commands: CommandDef[] = [
     },
   },
   {
-    // §2.4 the idle loop: bank what your buildings have produced.
+    // §2.4 the idle loop: bank what your buildings have produced. A round-trip,
+    // because banking writes the ledger and only `trade` may do that.
     name: "collect",
     description: "Gather what your buildings have produced",
-    route: "",
-    resolve: async (ctx, { userId }) => collectProductionFor(ctx.sql, userId),
+    route: "collect.requested",
   },
   {
     // §2.5: your tier and what the next one asks.

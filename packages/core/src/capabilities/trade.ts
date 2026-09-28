@@ -21,7 +21,9 @@
  * combat loot roll being the first (§5.13). Both land on the same grantReward
  * writer, which is what keeps "only trade writes the ledger" literally true.
  */
-import { executeTrade, grantReward, sellToWorld, type Party } from "@empire/db";
+import { collectProduction, executeTrade, grantReward, sellToWorld, type Party, type Sql } from "@empire/db";
+import { accrued, msToNextUnit } from "../world/production.js";
+import { replyToCommand } from "../events/reply.js";
 import type { Continents, Shop, ShopItem } from "@empire/content-schemas";
 import type { Capability, CapabilityContext } from "../runtime/capability.js";
 import type { BusEvent } from "../events/bus.js";
@@ -125,6 +127,31 @@ async function giveReward(
   });
 }
 
+/** "iron_tools" → "iron tools": item ids read as prose in player-facing lines. */
+function itemLabel(itemId: string): string {
+  return itemId.replace(/_/g, " ");
+}
+
+/**
+ * /collect (§2.4): bank everything the player's buildings have accrued, as one
+ * ledgered write, and say what came in — or, when the stores are bare, how long
+ * until the next unit. Lives HERE, and is only ever called from this
+ * capability's `collect.requested` handler, because it writes the ledger — and
+ * only `trade` does that (invariant #2).
+ */
+export async function collectProductionFor(sql: Sql, playerId: string): Promise<string> {
+  const { now, gathered, buildings } = await collectProduction(sql, playerId, accrued);
+  if (buildings.length === 0) return "Nothing on your land produces yet — a farm or a forge would.";
+  const got = Object.entries(gathered);
+  const soonest = buildings
+    .map((b) => ({ item: b.produces.item, ms: msToNextUnit(b.produces, b.since, now) }))
+    .sort((x, y) => x.ms - y.ms)[0]!;
+  const next = `next ${itemLabel(soonest.item)} in ~${Math.max(1, Math.ceil(soonest.ms / 60_000))}m`;
+  if (got.length === 0) return `Your stores are bare — ${next}.`;
+  const lines = got.map(([item, qty]) => `**${qty}× ${itemLabel(item)}**`).join(", ");
+  return `You gather ${lines}. Sell them at a merchant's stall — ${next}.`;
+}
+
 /**
  * A player selling goods to this merchant (§2.5 buy-back), from the stall's
  * sell menu. Priced HERE — at this continent's regional price times the spread —
@@ -203,7 +230,8 @@ export function tradeCapability(shop?: Shop, continents?: Continents): Capabilit
     // trade.request is the dialogue-emitted purchase intent (§5.4 → §5.5);
     // grant.requested is a runtime-computed reward (§5.13 loot); sell.request
     // is a player selling goods back from the stall's sell menu (§2.5).
-    consumes: ["trade.request", "grant.requested", "sell.request"],
+    // collect.requested is /collect banking building production (§2.4).
+    consumes: ["trade.request", "grant.requested", "sell.request", "collect.requested"],
     actions: {
       /**
        * `trade.execute` — the verb workflows and commands call. Never mutates
@@ -241,6 +269,13 @@ export function tradeCapability(shop?: Shop, continents?: Continents): Capabilit
           return;
         }
         await giveReward(ctx, player, evt.payload as RewardSpec, evt);
+        return;
+      }
+      if (evt.type === "collect.requested") {
+        if (notForMe(evt, ctx.bot)) return;
+        const player = evt.actor?.id;
+        if (!player) return;
+        await replyToCommand(ctx, evt, player, await collectProductionFor(ctx.sql, player));
         return;
       }
       if (evt.type === "sell.request") {

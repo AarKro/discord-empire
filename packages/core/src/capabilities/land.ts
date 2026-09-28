@@ -32,8 +32,7 @@ import { payloadString } from "../events/helpers.js";
 import { playerTier, tierScaledMs } from "../world/players.js";
 import { publishReply } from "../events/reply.js";
 import { BUILD_PERMIT_ITEM } from "../world/items.js";
-import { collectProduction, ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
-import { accrued, msToNextUnit } from "../world/production.js";
+import { ensurePlayer, DEFAULT_STARTING_GOLD, type Sql } from "@empire/db";
 import type { Blueprints } from "@empire/content-schemas";
 import { syncBlueprints } from "../world/catalogs.js";
 
@@ -148,30 +147,6 @@ async function ensurePlot(ctx: CapabilityContext, playerId: string, guildId: str
     await provisionPlotChannels(ctx, id, playerId, guildId);
   }
   return id;
-}
-
-/** "iron_tools" → "iron tools": item ids read as prose in player-facing lines. */
-function itemLabel(itemId: string): string {
-  return itemId.replace(/_/g, " ");
-}
-
-/**
- * /collect (§2.4): bank everything the player's buildings have accrued, as one
- * ledgered write, and say what came in — or, when the stores are bare, how long
- * until the next unit. Answered directly from the DB like /balance: there is no
- * cost to charge, so no trade round-trip.
- */
-export async function collectProductionFor(sql: Sql, playerId: string): Promise<string> {
-  const { now, gathered, buildings } = await collectProduction(sql, playerId, accrued);
-  if (buildings.length === 0) return "Nothing on your land produces yet — a farm or a forge would.";
-  const got = Object.entries(gathered);
-  const soonest = buildings
-    .map((b) => ({ item: b.produces.item, ms: msToNextUnit(b.produces, b.since, now) }))
-    .sort((x, y) => x.ms - y.ms)[0]!;
-  const next = `next ${itemLabel(soonest.item)} in ~${Math.max(1, Math.ceil(soonest.ms / 60_000))}m`;
-  if (got.length === 0) return `Your stores are bare — ${next}.`;
-  const lines = got.map(([item, qty]) => `**${qty}× ${itemLabel(item)}**`).join(", ");
-  return `You gather ${lines}. Sell them at a merchant's stall — ${next}.`;
 }
 
 /**

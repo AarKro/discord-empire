@@ -94,7 +94,7 @@ export type { ChatterConfig } from "./capabilities/ambient-chatter.js";
 export { notifyCapability } from "./capabilities/notify.js";
 export { commandsCapability } from "./capabilities/commands.js";
 export type { CommandDef } from "./capabilities/commands.js";
-export { landCapability, scaledBuildMs, collectProductionFor, buildableBlueprints } from "./capabilities/land.js";
+export { landCapability, scaledBuildMs, buildableBlueprints } from "./capabilities/land.js";
 export { progressionCapability, progressReport, eligibleTier, nextTier } from "./capabilities/progression.js";
 export { accrued, msToNextUnit } from "./world/production.js";
 export type { Production, Accrual } from "./world/production.js";
